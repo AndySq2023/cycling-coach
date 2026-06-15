@@ -1,0 +1,10 @@
+{
+  "name": "strava-proxy",
+  "version": "1.0.0",
+  "description": "Local proxy bridging cycling-coach.html to the Strava API",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

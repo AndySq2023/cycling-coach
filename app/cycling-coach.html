@@ -1,0 +1,2332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cycling Coach</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0f0e;
+    --surface: #141714;
+    --surface2: #1c201b;
+    --border: #252925;
+    --accent: #b6f542;
+    --accent-dim: #8bbf2e;
+    --text: #e8ede6;
+    --text-muted: #6b7569;
+    --text-mid: #9da89b;
+    --coach-bubble: #1a2218;
+    --user-bubble: #b6f542;
+    --user-text: #0d0f0e;
+    --danger: #f5564a;
+    --warn: #f5a742;
+    --band-easy: #4a9eff;
+    --band-med: #f5a742;
+    --band-hard: #f5564a;
+  }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* TOP BAR */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  .avatar {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .header-info { flex: 1; }
+  .header-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  .header-status {
+    font-size: 11px;
+    color: var(--accent);
+    display: flex; align-items: center; gap: 5px;
+    margin-top: 2px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  .data-panel-toggle {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .data-panel-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* DATA PANEL */
+  .data-panel {
+    width: 280px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.25s ease;
+    flex-shrink: 0;
+  }
+  .data-panel.collapsed { width: 0; }
+
+  .data-panel-inner {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .data-section-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .metric-label { color: var(--text-mid); }
+  .metric-value { color: var(--text); font-weight: 500; }
+  .metric-value.good { color: var(--accent); }
+  .metric-value.warn { color: var(--warn); }
+  .metric-value.bad { color: var(--danger); }
+
+  .data-textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 10px;
+    resize: vertical;
+    min-height: 80px;
+    outline: none;
+    transition: border-color 0.15s;
+    line-height: 1.5;
+  }
+  .data-textarea:focus { border-color: var(--accent); }
+  .data-textarea::placeholder { color: var(--text-muted); }
+
+  .data-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .data-input:focus { border-color: var(--accent); }
+  .data-input::placeholder { color: var(--text-muted); }
+  .data-input + .data-input { margin-top: 6px; }
+
+  .load-btn {
+    width: 100%;
+    background: var(--accent);
+    color: var(--user-text);
+    border: none;
+    border-radius: 4px;
+    padding: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: opacity 0.15s;
+    margin-top: 6px;
+  }
+  .load-btn:hover { opacity: 0.85; }
+  .load-btn.secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+  }
+  .load-btn.secondary:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+  .load-btn.blue {
+    background: rgba(74,158,255,0.15);
+    border: 1px solid rgba(74,158,255,0.4);
+    color: var(--band-easy);
+  }
+  .load-btn.blue:hover { background: rgba(74,158,255,0.25); opacity: 1; }
+
+  /* TAB BAR */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .tab-btn {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid transparent;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text-mid); }
+  .tab-btn.active { background: var(--accent); color: var(--user-text); }
+
+  /* CHAT AREA */
+  .chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    scroll-behavior: smooth;
+  }
+
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* DATE DIVIDER */
+  .date-divider {
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 0;
+    position: relative;
+  }
+  .date-divider::before, .date-divider::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 30%;
+    height: 1px;
+    background: var(--border);
+  }
+  .date-divider::before { left: 0; }
+  .date-divider::after { right: 0; }
+
+  /* BUBBLES */
+  .bubble-row {
+    display: flex;
+    gap: 8px;
+    max-width: 85%;
+    animation: slideIn 0.2s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .bubble-row.coach { align-self: flex-start; }
+  .bubble-row.user { align-self: flex-end; flex-direction: row-reverse; }
+
+  .bubble-avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+    margin-top: auto;
+  }
+
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 100%;
+  }
+
+  .coach .bubble {
+    background: var(--coach-bubble);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+    color: var(--text);
+  }
+
+  .user .bubble {
+    background: var(--user-bubble);
+    color: var(--user-text);
+    border-bottom-right-radius: 4px;
+    font-weight: 500;
+  }
+
+  .bubble-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    padding: 0 4px;
+  }
+  .user .bubble-meta { text-align: right; }
+
+  /* METRIC TAGS in bubbles */
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin: 2px 2px 2px 0;
+  }
+  .tag.good { background: rgba(182,245,66,0.15); color: var(--accent); border: 1px solid rgba(182,245,66,0.3); }
+  .tag.warn { background: rgba(245,167,66,0.15); color: var(--warn); border: 1px solid rgba(245,167,66,0.3); }
+  .tag.bad { background: rgba(245,86,74,0.15); color: var(--danger); border: 1px solid rgba(245,86,74,0.3); }
+
+  /* TYPING INDICATOR */
+  .typing {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--coach-bubble);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    border-bottom-left-radius: 4px;
+    width: fit-content;
+  }
+  .typing span {
+    width: 6px; height: 6px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-5px); }
+  }
+
+  /* INPUT BAR */
+  .input-bar {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+
+  .input-wrap {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    display: flex;
+    align-items: flex-end;
+    padding: 10px 16px;
+    gap: 10px;
+    transition: border-color 0.15s;
+  }
+  .input-wrap:focus-within { border-color: var(--accent); }
+
+  #messageInput {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    resize: none;
+    max-height: 100px;
+    line-height: 1.5;
+  }
+  #messageInput::placeholder { color: var(--text-muted); }
+
+  .send-btn {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s;
+    color: var(--user-text);
+  }
+  .send-btn:hover { transform: scale(1.08); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* EMPTY STATE */
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 40px;
+    text-align: center;
+  }
+  .empty-icon { font-size: 48px; }
+  .empty-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .empty-sub { font-size: 12px; color: var(--text-muted); line-height: 1.6; max-width: 280px; }
+
+  .suggestion-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 4px;
+  }
+  .chip {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 7px 14px;
+    font-size: 12px;
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── SCHEDULE VIEW ─────────────────────────────────────── */
+  .schedule-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .schedule-view.hidden,
+  .bands-view.hidden { display: none; }
+  .messages.hidden { display: none; }
+
+  .schedule-view::-webkit-scrollbar { width: 4px; }
+  .schedule-view::-webkit-scrollbar-track { background: transparent; }
+  .schedule-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .schedule-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .schedule-header-left h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .schedule-header-left p {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .schedule-header-actions { display: flex; gap: 6px; }
+
+  .gen-btn {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 7px 14px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .gen-btn.primary { background: var(--accent); color: var(--user-text); }
+  .gen-btn.primary:hover { opacity: 0.85; }
+  .gen-btn.secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--text-mid); }
+  .gen-btn.secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .schedule-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 20px;
+    text-align: center;
+  }
+  .schedule-empty-icon { font-size: 40px; }
+  .schedule-empty p {
+    font-size: 12px;
+    color: var(--text-muted);
+    max-width: 260px;
+    line-height: 1.6;
+  }
+
+  .session-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 0.15s;
+    animation: slideIn 0.2s ease;
+  }
+  .session-card:hover { border-color: #333a32; }
+  .session-card.completed { opacity: 0.7; border-style: dashed; }
+  .session-card.rest-day { background: var(--bg); }
+  .session-card.today { border-color: var(--accent); }
+
+  .session-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .session-day-badge {
+    font-family: 'Syne', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .session-day-badge.today { color: var(--accent); }
+
+  .session-intensity-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  .session-intensity-dot.low { background: var(--accent); }
+  .session-intensity-dot.medium { background: var(--warn); }
+  .session-intensity-dot.high { background: var(--danger); }
+  .session-intensity-dot.rest { background: var(--text-muted); }
+
+  .session-type {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .session-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .session-meta-pill {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: var(--surface2);
+    color: var(--text-mid);
+    border: 1px solid var(--border);
+  }
+  .session-meta-pill.duration { color: var(--text); }
+
+  .session-desc {
+    font-size: 12px;
+    color: var(--text-mid);
+    line-height: 1.6;
+  }
+
+  .session-tips {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .session-tip {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+  }
+  .session-tip::before { content: '→'; color: var(--accent); flex-shrink: 0; }
+
+  .session-card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .session-action-btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .session-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .session-action-btn.primary {
+    background: var(--accent);
+    color: var(--user-text);
+    border-color: var(--accent);
+    font-weight: 500;
+  }
+  .session-action-btn.primary:hover { opacity: 0.85; }
+  .session-logged-badge {
+    font-size: 10px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .session-feedback-preview {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-mid);
+    line-height: 1.5;
+  }
+  .feedback-rpe {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* adaptation note */
+  .adaptation-note {
+    background: rgba(182,245,66,0.06);
+    border: 1px solid rgba(182,245,66,0.2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--accent-dim);
+    line-height: 1.5;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .adaptation-note-icon { color: var(--accent); flex-shrink: 0; }
+
+  /* ── RESISTANCE BANDS VIEW ─────────────────────────────── */
+  .bands-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .bands-view::-webkit-scrollbar { width: 4px; }
+  .bands-view::-webkit-scrollbar-track { background: transparent; }
+  .bands-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .bands-header h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .bands-header p { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  .bands-category-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .band-cat-btn {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .band-cat-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .band-cat-btn.active { background: var(--accent); color: var(--user-text); border-color: var(--accent); }
+
+  .bands-workout-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    animation: slideIn 0.25s ease;
+  }
+  .bands-workout-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .bands-workout-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .bands-workout-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .bands-duration-pill {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: var(--surface2);
+    color: var(--text-mid);
+    border: 1px solid var(--border);
+  }
+
+  .exercise-list { padding: 4px 0; }
+  .exercise-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .exercise-item:last-child { border-bottom: none; }
+  .exercise-item:hover { background: var(--surface2); }
+
+  .exercise-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    width: 20px;
+    flex-shrink: 0;
+  }
+  .exercise-info { flex: 1; }
+  .exercise-name {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .exercise-cue {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+  .exercise-sets {
+    font-size: 11px;
+    color: var(--text-mid);
+    text-align: right;
+    flex-shrink: 0;
+    line-height: 1.5;
+  }
+  .band-color-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    margin-top: 3px;
+    display: inline-block;
+  }
+  .band-color-badge.light { background: rgba(74,158,255,0.15); color: var(--band-easy); border: 1px solid rgba(74,158,255,0.3); }
+  .band-color-badge.medium { background: rgba(245,167,66,0.15); color: var(--warn); border: 1px solid rgba(245,167,66,0.3); }
+  .band-color-badge.heavy { background: rgba(245,86,74,0.15); color: var(--danger); border: 1px solid rgba(245,86,74,0.3); }
+
+  .bands-action-row {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .bands-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 20px;
+    text-align: center;
+  }
+  .bands-empty-icon { font-size: 40px; }
+  .bands-empty p { font-size: 12px; color: var(--text-muted); max-width: 240px; line-height: 1.6; }
+
+  /* ── FEEDBACK MODAL ────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.hidden { display: none; }
+
+  .feedback-modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    animation: slideIn 0.2s ease;
+  }
+  .modal-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .rpe-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .rpe-scale {
+    display: flex;
+    gap: 4px;
+  }
+  .rpe-btn {
+    flex: 1;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-mid);
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .rpe-btn:hover { border-color: var(--accent); }
+  .rpe-btn.selected { background: var(--accent); color: var(--user-text); border-color: var(--accent); }
+  .rpe-btn[data-rpe="8"].selected,
+  .rpe-btn[data-rpe="9"].selected,
+  .rpe-btn[data-rpe="10"].selected { background: var(--danger); border-color: var(--danger); }
+
+  .rpe-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    min-height: 16px;
+    transition: all 0.15s;
+  }
+
+  .feel-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .feel-chip {
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .feel-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .feel-chip.selected { background: rgba(182,245,66,0.15); border-color: rgba(182,245,66,0.4); color: var(--accent); }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .modal-actions .gen-btn { flex: 1; }
+
+  /* ── MISC ──────────────────────────────────────────────── */
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid rgba(182,245,66,0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 600px) {
+    .data-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="avatar">🚴</div>
+  <div class="header-info">
+    <div class="header-name">Cycling Coach</div>
+    <div class="header-status">
+      <span class="status-dot"></span>
+      reads your WHOOP + Strava
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="data-panel-toggle" onclick="togglePanel()">⚡ My Data</button>
+  </div>
+</header>
+
+<div class="main">
+  <!-- DATA PANEL -->
+  <div class="data-panel" id="dataPanel">
+    <div class="data-panel-inner">
+
+      <!-- WHOOP -->
+      <div>
+        <div class="data-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>WHOOP Recovery</span>
+          <span id="whoop-sync-status" style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;font-weight:400;letter-spacing:0;text-transform:none;"></span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Recovery Score</span>
+          <span class="metric-value" id="disp-recovery">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">HRV</span>
+          <span class="metric-value" id="disp-hrv">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">RHR</span>
+          <span class="metric-value" id="disp-rhr">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Sleep Efficiency</span>
+          <span class="metric-value" id="disp-sleep">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Sleep Duration</span>
+          <span class="metric-value" id="disp-sleepdur">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">SpO2</span>
+          <span class="metric-value" id="disp-spo2">—</span>
+        </div>
+        <button class="load-btn" id="whoopSyncBtn" onclick="syncWHOOP()">⚡ Sync from WHOOP</button>
+      </div>
+
+      <!-- STRAVA -->
+      <div>
+        <div class="data-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Strava — Last 7 Days</span>
+          <span id="strava-sync-status" style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;font-weight:400;letter-spacing:0;text-transform:none;"></span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Last ride</span>
+          <span class="metric-value" id="disp-lastride">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Rides</span>
+          <span class="metric-value" id="disp-rides">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Weekly km</span>
+          <span class="metric-value" id="disp-km">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Weekly elevation</span>
+          <span class="metric-value" id="disp-elev">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Moving time</span>
+          <span class="metric-value" id="disp-movingtime">—</span>
+        </div>
+        <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava()">⚡ Sync from Strava</button>
+      </div>
+
+      <!-- FTP -->
+      <div>
+        <div class="data-section-label">FTP &amp; Power Zones</div>
+        <div class="metric-row">
+          <span class="metric-label">FTP</span>
+          <span class="metric-value" id="disp-ftp">—</span>
+        </div>
+        <div id="ftpZoneRows"></div>
+        <input class="data-input" id="ftpInput" type="number" min="50" max="600" placeholder="Enter FTP (watts)" style="margin-top:8px">
+        <button class="load-btn" onclick="saveFTP()" style="margin-top:6px">Set FTP</button>
+      </div>
+
+      <!-- GOALS -->
+      <div>
+        <div class="data-section-label">Your Goal</div>
+        <textarea class="data-textarea" id="goalInput" rows="3"
+          placeholder="e.g. Gran Fondo in 8 weeks, targeting sub-4h. Currently training 8-10h/week."></textarea>
+        <button class="load-btn" onclick="saveGoal()">Save Goal</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CHAT AREA -->
+  <div class="chat-area">
+
+    <!-- TAB BAR -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
+      <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
+      <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
+      <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;" title="Clear chat history">✕ Clear</button>
+    </div>
+
+    <!-- CHAT MESSAGES -->
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🚴‍♂️</div>
+        <div class="empty-title">Your AI Cycling Coach</div>
+        <div class="empty-sub">Sync your data, then ask anything — or use the quick actions below to update your schedule.</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;">
+          <button class="gen-btn primary" onclick="syncAndReconcile()" id="syncReconcileBtn">⚡ Sync Strava &amp; Update Schedule</button>
+        </div>
+        <div class="suggestion-chips">
+          <div class="chip" onclick="sendChip(this)">I just rode — update my schedule</div>
+          <div class="chip" onclick="sendChip(this)">I took a rest day — what's next?</div>
+          <div class="chip" onclick="sendChip(this)">I skipped today's session</div>
+          <div class="chip" onclick="sendChip(this)">What workout today?</div>
+          <div class="chip" onclick="sendChip(this)">Am I overtraining?</div>
+          <div class="chip" onclick="sendChip(this)">How's my recovery trend?</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHEDULE VIEW -->
+    <div class="schedule-view hidden" id="scheduleView">
+      <div class="schedule-header">
+        <div class="schedule-header-left">
+          <h2>Training Schedule</h2>
+          <p id="scheduleMeta">Generate a plan based on your goal and current data.</p>
+        </div>
+        <div class="schedule-header-actions">
+          <button class="gen-btn secondary" id="adaptBtn" onclick="adaptPlan()" style="display:none">↺ Adapt Plan</button>
+          <button class="gen-btn primary" id="generateBtn" onclick="generateSchedule()">Generate Plan</button>
+        </div>
+      </div>
+      <div id="scheduleContent">
+        <div class="schedule-empty">
+          <div class="schedule-empty-icon">📅</div>
+          <p>Set your goal in the data panel, then generate a personalised training week.</p>
+          <button class="gen-btn primary" onclick="generateSchedule()">Generate My Plan</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BANDS VIEW -->
+    <div class="bands-view hidden" id="bandsView">
+      <div class="bands-header">
+        <h2>Resistance Band Training</h2>
+        <p>Complementary strength work — pick a focus area to generate a workout.</p>
+      </div>
+
+      <div class="bands-category-row">
+        <button class="band-cat-btn" id="catLegs" onclick="selectBandCategory('legs', this)">🦵 Legs &amp; Glutes</button>
+        <button class="band-cat-btn" id="catCore" onclick="selectBandCategory('core', this)">🎯 Core &amp; Hip</button>
+        <button class="band-cat-btn" id="catUpper" onclick="selectBandCategory('upper', this)">💪 Upper &amp; Mobility</button>
+      </div>
+
+      <div id="bandsContent">
+        <div class="bands-empty">
+          <div class="bands-empty-icon">💪</div>
+          <p>Select a focus area above to generate a resistance band workout tailored to your cycling goals.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- INPUT BAR (chat only) -->
+    <div class="input-bar" id="chatInputBar">
+      <div class="input-wrap">
+        <textarea id="messageInput" placeholder="Message your coach..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      </div>
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- FEEDBACK MODAL -->
+<div class="modal-overlay hidden" id="feedbackModal">
+  <div class="feedback-modal">
+    <div>
+      <div class="modal-title">Log Session</div>
+      <div class="modal-subtitle" id="feedbackSessionTitle">How did it go?</div>
+    </div>
+
+    <div>
+      <div class="rpe-label">Effort (RPE 1–10)</div>
+      <div class="rpe-scale" id="rpeScale"></div>
+      <div class="rpe-desc" id="rpeDesc">Select your perceived exertion</div>
+    </div>
+
+    <div>
+      <div class="rpe-label" style="margin-bottom:8px;">How did you feel?</div>
+      <div class="feel-row" id="feelRow">
+        <div class="feel-chip" onclick="toggleFeel(this)">Strong 💪</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Tired 😮‍💨</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Legs heavy</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Good form</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Struggled</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Felt great</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Shortened</div>
+        <div class="feel-chip" onclick="toggleFeel(this)">Extended</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="rpe-label" style="margin-bottom:6px;">Notes (optional)</div>
+      <textarea class="data-textarea" id="feedbackNotes" rows="2" placeholder="Anything else — weather, nutrition, sleep..."></textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="gen-btn secondary" onclick="closeFeedbackModal()">Cancel</button>
+      <button class="gen-btn primary" onclick="submitFeedback()">Save &amp; Adapt</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────
+let athleteData = { whoop: null, strava: null, goal: null };
+let conversationHistory = [];
+let panelOpen = true;
+let currentTab = 'chat';
+
+let trainingPlan = [];       // array of session objects
+let sessionFeedback = {};    // sessionId → { rpe, feel, notes }
+let adaptationNotes = {};    // sessionId → adaptation string
+
+let currentBandCategory = null;
+let currentBandWorkout = null;
+
+let feedbackTargetId = null; // which session we're logging
+
+// ── INIT ───────────────────────────────────────────────────
+(function init() {
+  buildRpeScale();
+  const saved = localStorage.getItem('cyclingCoachPlan');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      trainingPlan = parsed.plan || [];
+      sessionFeedback = parsed.feedback || {};
+      adaptationNotes = parsed.adaptations || {};
+      if (trainingPlan.length) {
+        document.getElementById('generateBtn').textContent = '↺ Regenerate';
+        document.getElementById('adaptBtn').style.display = '';
+      }
+    } catch(e) {}
+  }
+  const savedGoal = localStorage.getItem('cyclingCoachGoal');
+  if (savedGoal) {
+    document.getElementById('goalInput').value = savedGoal;
+    athleteData.goal = savedGoal;
+  }
+  const savedFTP = localStorage.getItem('cyclingCoachFTP');
+  if (savedFTP) {
+    athleteData.ftp = parseInt(savedFTP);
+    document.getElementById('ftpInput').value = savedFTP;
+    renderFTPZones(athleteData.ftp);
+  }
+
+  // Restore chat history
+  const savedChat = localStorage.getItem('cyclingCoachChat');
+  if (savedChat) {
+    try {
+      const { history, bubbles } = JSON.parse(savedChat);
+      conversationHistory = history || [];
+      if (bubbles?.length) {
+        document.getElementById('emptyState')?.remove();
+        // Restore a date divider for the last session
+        const lastDate = new Date(bubbles[0].ts).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+        const divider = document.createElement('div');
+        divider.className = 'date-divider';
+        divider.textContent = lastDate;
+        document.getElementById('messages').appendChild(divider);
+        // Replay each bubble
+        bubbles.forEach(b => restoreBubble(b.role, b.text, b.time));
+      }
+    } catch(e) {}
+  }
+})();
+
+function saveChat() {
+  // Keep last 60 exchanges (120 entries) to cap storage
+  const trimmed = conversationHistory.slice(-120);
+  const bubbleEls = [...document.querySelectorAll('.bubble-row')];
+  const bubbles = bubbleEls.slice(-60).map(row => ({
+    role: row.classList.contains('user') ? 'user' : 'coach',
+    text: row.querySelector('.bubble')?.innerText || '',
+    time: row.querySelector('.bubble-meta')?.textContent?.trim() || ''
+  }));
+  localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles }));
+}
+
+function confirmClearChat() {
+  if (conversationHistory.length === 0) return;
+  if (confirm('Clear all chat history? This cannot be undone.')) clearChatHistory();
+}
+
+function clearChatHistory() {
+  conversationHistory = [];
+  localStorage.removeItem('cyclingCoachChat');
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  // Re-insert empty state
+  msgs.innerHTML = `<div class="empty-state" id="emptyState">
+    <div class="empty-icon">🚴‍♂️</div>
+    <div class="empty-title">Your AI Cycling Coach</div>
+    <div class="empty-sub">Sync your data, then ask anything — or use the quick actions below to update your schedule.</div>
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;">
+      <button class="gen-btn primary" onclick="syncAndReconcile()" id="syncReconcileBtn">⚡ Sync Strava &amp; Update Schedule</button>
+    </div>
+    <div class="suggestion-chips">
+      <div class="chip" onclick="sendChip(this)">I just rode — update my schedule</div>
+      <div class="chip" onclick="sendChip(this)">I took a rest day — what's next?</div>
+      <div class="chip" onclick="sendChip(this)">I skipped today's session</div>
+      <div class="chip" onclick="sendChip(this)">What workout today?</div>
+      <div class="chip" onclick="sendChip(this)">Am I overtraining?</div>
+      <div class="chip" onclick="sendChip(this)">How's my recovery trend?</div>
+    </div>
+  </div>`;
+  showToast('Chat history cleared');
+}
+
+function restoreBubble(role, text, time) {
+  const messages = document.getElementById('messages');
+  const row = document.createElement('div');
+  row.className = `bubble-row ${role}`;
+  if (role === 'coach') {
+    row.innerHTML = `
+      <div class="bubble-avatar">🚴</div>
+      <div>
+        <div class="bubble">${formatMessage(text)}</div>
+        <div class="bubble-meta">${time}</div>
+      </div>`;
+  } else {
+    row.innerHTML = `
+      <div>
+        <div class="bubble">${escapeHtml(text)}</div>
+        <div class="bubble-meta">${time}</div>
+      </div>`;
+  }
+  messages.appendChild(row);
+  scrollToBottom();
+}
+
+// ── PANEL TOGGLE ───────────────────────────────────────────
+function togglePanel() {
+  panelOpen = !panelOpen;
+  document.getElementById('dataPanel').classList.toggle('collapsed', !panelOpen);
+}
+
+// ── TAB SWITCHING ──────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  ['chat','schedule','bands'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  });
+  document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
+  document.getElementById('scheduleView').classList.toggle('hidden', tab !== 'schedule');
+  document.getElementById('bandsView').classList.toggle('hidden', tab !== 'bands');
+  document.getElementById('chatInputBar').style.display = tab === 'chat' ? '' : 'none';
+
+  if (tab === 'schedule' && trainingPlan.length) renderSchedule();
+}
+
+function switchTabTo(tab) { switchTab(tab); }
+
+// ── WHOOP LIVE SYNC ────────────────────────────────────────
+async function syncWHOOP() {
+  const btn = document.getElementById('whoopSyncBtn');
+  const status = document.getElementById('whoop-sync-status');
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const res = await fetch('http://localhost:3001/api/whoop');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    athleteData.whoop = d;
+
+    const recEl = document.getElementById('disp-recovery');
+    recEl.textContent = d.recovery_score != null ? d.recovery_score + '%' : '—';
+    if (d.recovery_score != null) {
+      recEl.className = 'metric-value ' + (d.recovery_score >= 67 ? 'good' : d.recovery_score >= 34 ? 'warn' : 'bad');
+    }
+    document.getElementById('disp-hrv').textContent = d.hrv != null ? d.hrv + 'ms' : '—';
+    document.getElementById('disp-rhr').textContent = d.rhr != null ? d.rhr + 'bpm' : '—';
+    document.getElementById('disp-sleep').textContent = d.sleep_efficiency != null ? d.sleep_efficiency + '%' : '—';
+    document.getElementById('disp-sleepdur').textContent = d.sleep_duration_h != null ? d.sleep_duration_h + 'h' : '—';
+    document.getElementById('disp-spo2').textContent = d.spo2 != null ? d.spo2 + '%' : '—';
+
+    const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    status.textContent = `synced ${now}`;
+    status.style.color = 'var(--accent)';
+    showToast('WHOOP synced ✓');
+  } catch (err) {
+    status.textContent = 'sync failed';
+    status.style.color = 'var(--danger)';
+    showToast('⚠️ Could not reach WHOOP server. Is Claude Desktop running?', true);
+    console.error(err);
+  }
+
+  btn.textContent = '⚡ Sync from WHOOP';
+  btn.disabled = false;
+}
+
+async function syncStrava() {
+  const btn = document.getElementById('stravaSyncBtn');
+  const status = document.getElementById('strava-sync-status');
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const res = await fetch('http://localhost:3002/api/strava');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    athleteData.strava = d;
+
+    document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${d.last_ride.distance_km}km)` : '—';
+    document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
+    document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${d.total_km_7d} km` : '—';
+    document.getElementById('disp-elev').textContent = d.total_elevation_7d != null ? `${d.total_elevation_7d}m` : '—';
+    document.getElementById('disp-movingtime').textContent = d.total_moving_time_h_7d != null ? `${d.total_moving_time_h_7d}h` : '—';
+
+    const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    status.textContent = `synced ${now}`;
+    status.style.color = 'var(--accent)';
+    showToast('Strava synced ✓');
+  } catch (err) {
+    status.textContent = 'sync failed';
+    status.style.color = 'var(--danger)';
+    showToast('⚠️ Could not reach Strava proxy. Run: cd ~/strava-proxy && npm start', true);
+    console.error(err);
+  }
+
+  btn.textContent = '⚡ Sync from Strava';
+  btn.disabled = false;
+}
+
+function saveGoal() {
+  athleteData.goal = document.getElementById('goalInput').value.trim();
+  if (athleteData.goal) {
+    localStorage.setItem('cyclingCoachGoal', athleteData.goal);
+    showToast('Goal saved ✓');
+  }
+}
+
+// ── FTP & POWER ZONES ──────────────────────────────────────
+const POWER_ZONES = [
+  { name: 'Z1 Recovery',   min: 0,    max: 0.55 },
+  { name: 'Z2 Endurance',  min: 0.56, max: 0.75 },
+  { name: 'Z3 Tempo',      min: 0.76, max: 0.90 },
+  { name: 'Z4 Threshold',  min: 0.91, max: 1.05 },
+  { name: 'Z5 VO2 Max',    min: 1.06, max: 1.20 },
+  { name: 'Z6 Anaerobic',  min: 1.21, max: 1.50 },
+  { name: 'Z7 NM Power',   min: 1.51, max: null  },
+];
+
+function saveFTP() {
+  const val = parseInt(document.getElementById('ftpInput').value);
+  if (!val || val < 50 || val > 600) { showToast('Enter a valid FTP (50–600w)', true); return; }
+  athleteData.ftp = val;
+  localStorage.setItem('cyclingCoachFTP', val);
+  renderFTPZones(val);
+  showToast('FTP saved ✓');
+}
+
+function renderFTPZones(ftp) {
+  document.getElementById('disp-ftp').textContent = ftp + 'w';
+  const container = document.getElementById('ftpZoneRows');
+  container.innerHTML = POWER_ZONES.map(z => {
+    const lo = Math.round(z.min * ftp);
+    const hi = z.max ? Math.round(z.max * ftp) : null;
+    const range = hi ? `${lo}–${hi}w` : `>${lo}w`;
+    return `<div class="metric-row">
+      <span class="metric-label" style="font-size:11px">${z.name}</span>
+      <span class="metric-value" style="font-size:11px">${range}</span>
+    </div>`;
+  }).join('');
+}
+
+function buildZoneText(ftp) {
+  return POWER_ZONES.map(z => {
+    const lo = Math.round(z.min * ftp);
+    const hi = z.max ? Math.round(z.max * ftp) + 'w' : 'max';
+    return `${z.name}: ${lo}w–${hi}`;
+  }).join(', ');
+}
+
+// ── SYSTEM PROMPT ──────────────────────────────────────────
+function buildSystemPrompt() {
+  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), power-based training zones, and TSS/CTL/ATL methodology.
+
+Your job is to give the athlete personalized, actionable coaching advice based on their real WHOOP recovery data and Strava training history. Be specific — reference their actual numbers. Never give generic advice.
+
+Tone: Direct, confident, like a coach who knows their data. Conversational but not fluffy. If their recovery is low, say so clearly. If they're overreaching, flag it. Always explain the "why" briefly.
+
+Format: Short paragraphs. Use clear structure. Occasionally use metric callouts like [Recovery: 34% ⚠️] inline to highlight key numbers.`;
+
+  if (athleteData.whoop) {
+    const w = athleteData.whoop;
+    prompt += `\n\nATHLETE'S CURRENT WHOOP DATA (live, today):`;
+    if (w.recovery_score != null) prompt += `\nRecovery: ${w.recovery_score}%`;
+    if (w.hrv != null)            prompt += `\nHRV: ${w.hrv}ms`;
+    if (w.rhr != null)            prompt += `\nRHR: ${w.rhr}bpm`;
+    if (w.sleep_efficiency != null) prompt += `\nSleep efficiency: ${w.sleep_efficiency}%`;
+    if (w.sleep_duration_h != null) prompt += `\nSleep duration: ${w.sleep_duration_h}h`;
+    if (w.spo2 != null)           prompt += `\nSpO2: ${w.spo2}%`;
+    if (w.strain != null)         prompt += `\nStrain: ${w.strain}`;
+  }
+  if (athleteData.strava) {
+    const s = athleteData.strava;
+    prompt += `\n\nATHLETE'S STRAVA DATA (last 7 days, live):`;
+    prompt += `\nRides: ${s.rides_7d}`;
+    prompt += `\nTotal distance: ${s.total_km_7d} km`;
+    prompt += `\nTotal elevation: ${s.total_elevation_7d}m`;
+    prompt += `\nTotal moving time: ${s.total_moving_time_h_7d}h`;
+    if (s.last_ride) {
+      prompt += `\n\nMost recent ride: ${s.last_ride.name} on ${s.last_ride.date}`;
+      prompt += `\n  Distance: ${s.last_ride.distance_km}km, Moving time: ${s.last_ride.moving_time_min}min`;
+      prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${s.last_ride.avg_speed_kph} kph`;
+      if (s.last_ride.avg_watts) prompt += `\n  Avg power: ${s.last_ride.avg_watts}w`;
+      if (s.last_ride.suffer_score) prompt += `\n  Suffer score: ${s.last_ride.suffer_score}`;
+    }
+    if (s.all_rides?.length > 1) {
+      prompt += `\n\nAll rides this week:`;
+      s.all_rides.forEach((r) => {
+        prompt += `\n- ${r.date} | ${r.name} | ${r.distance_km}km | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
+        if (r.avg_watts) prompt += ` | ${r.avg_watts}w`;
+      });
+    }
+  }
+  if (athleteData.ftp) {
+    prompt += `\n\nATHLETE'S FTP & POWER ZONES (use these exact wattage targets in all session prescriptions):`;
+    prompt += `\nFTP: ${athleteData.ftp}w`;
+    prompt += `\n${buildZoneText(athleteData.ftp)}`;
+    prompt += `\nAlways reference zone targets with wattage e.g. "Zone 2 (${Math.round(0.56*athleteData.ftp)}–${Math.round(0.75*athleteData.ftp)}w)".`;
+  }
+  if (athleteData.goal) {
+    prompt += `\n\nATHLETE'S GOAL:\n${athleteData.goal}`;
+  }
+  if (!athleteData.whoop && !athleteData.strava) {
+    prompt += `\n\nNo data loaded yet. Ask the athlete to share their WHOOP recovery numbers and recent Strava rides so you can give personalized advice. You can still answer general cycling training questions.`;
+  }
+
+  prompt += `\n\nToday's date: ${new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}.`;
+
+  // ── Inject the active training schedule so chat stays in sync ──
+  if (trainingPlan.length) {
+    const today = new Date().toISOString().slice(0,10);
+    prompt += `\n\nACTIVE TRAINING SCHEDULE (this is the athlete's current plan — always reference this when discussing sessions, never contradict it):`;
+    trainingPlan.forEach(s => {
+      const isToday = s.date === today;
+      const done = sessionFeedback[s.id];
+      let line = `\n- ${s.day} ${s.date}${isToday ? ' [TODAY]' : ''}: ${s.type}`;
+      if (s.duration > 0) line += `, ${s.duration}min`;
+      if (s.targets) line += `, ${s.targets}`;
+      if (done) line += ` [COMPLETED — RPE ${done.rpe}/10, felt: ${done.feel.join(', ')}${done.notes ? `, "${done.notes}"` : ''}]`;
+      prompt += line;
+    });
+    prompt += `\n\nWhen the athlete asks to change, swap, or update any session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
+\`\`\`schedule_update
+{"id":"s3","type":"Rest Day","duration":0,"intensity":"rest","description":"Full rest — legs were heavy.","targets":"","tips":[]}
+\`\`\`
+Only include fields you are changing. The id must match one of the session ids listed above. You can update: type, duration, intensity (low/medium/high/rest), description, targets, tips. After making a change, briefly explain to the athlete what you changed and why.
+
+Also use schedule_update blocks proactively when:
+- The athlete says they just rode (mark that day as completed with ride details, adjust next session)
+- The athlete says they took a rest day (mark scheduled session as skipped, adjust load)
+- The athlete says they skipped a session or felt terrible
+- Strava data shows a ride on a day marked as rest, or no ride on a training day`;
+  }
+
+  return prompt;
+}
+
+// ── SCHEDULE GENERATION ────────────────────────────────────
+async function generateSchedule() {
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Generating…';
+
+  const today = new Date();
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const startDay = days[today.getDay()];
+
+  let context = `You are an expert cycling coach. Generate a 7-day training plan starting from today (${today.toLocaleDateString('en-GB', {weekday:'long',day:'numeric',month:'long'})}).`;
+
+  if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
+  if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
+  if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${athleteData.strava.total_km_7d}km, ${athleteData.strava.total_moving_time_h_7d}h`;
+  if (athleteData.ftp) context += `\n\nFTP: ${athleteData.ftp}w. Power zones: ${buildZoneText(athleteData.ftp)}. Include wattage targets in session targets field.`;
+
+  if (Object.keys(sessionFeedback).length > 0) {
+    context += `\n\nRecent session feedback (use to calibrate difficulty):`;
+    Object.entries(sessionFeedback).forEach(([id, fb]) => {
+      const s = trainingPlan.find(s => s.id === id);
+      if (s) context += `\n- ${s.type}: RPE ${fb.rpe}/10, Felt: ${fb.feel.join(', ')}. ${fb.notes}`;
+    });
+  }
+
+  context += `\n\nReturn ONLY a valid JSON array — no markdown, no prose, no code fences. Each element:
+{
+  "id": "s1",
+  "day": "Monday",
+  "date": "YYYY-MM-DD",
+  "type": "Zone 2 Endurance",
+  "duration": 90,
+  "intensity": "low",
+  "description": "One concise sentence describing the session.",
+  "targets": "e.g. HR 130-145bpm, Zone 2",
+  "tips": ["short tip", "short tip"],
+  "bands": false
+}
+intensity must be one of: low, medium, high, rest.
+For rest days use type "Rest Day", duration 0, intensity "rest".
+Include exactly 7 elements covering the next 7 days in order.`;
+
+  try {
+    const res = await fetch('http://localhost:3001/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: context,
+        messages: [{ role: 'user', content: 'Generate the 7-day training plan now.' }]
+      })
+    });
+
+    const data = await res.json();
+    let raw = data.content[0].text.trim();
+
+    // strip markdown code fences if present
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    const plan = JSON.parse(raw);
+    trainingPlan = plan;
+    sessionFeedback = {};
+    adaptationNotes = {};
+    savePlan();
+    renderSchedule();
+    document.getElementById('generateBtn').textContent = '↺ Regenerate';
+    document.getElementById('adaptBtn').style.display = '';
+    showToast('Training plan generated ✓');
+  } catch(err) {
+    console.error(err);
+    showToast('Could not generate plan. Check server connection.', true);
+  }
+
+  btn.disabled = false;
+  btn.textContent = trainingPlan.length ? '↺ Regenerate' : 'Generate Plan';
+}
+
+async function adaptPlan() {
+  if (!trainingPlan.length) return;
+  const btn = document.getElementById('adaptBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  const feedbackSummary = Object.entries(sessionFeedback).map(([id, fb]) => {
+    const s = trainingPlan.find(s => s.id === id);
+    return s ? `${s.type} (${s.day}): RPE ${fb.rpe}/10, felt ${fb.feel.join(', ')}. "${fb.notes}"` : null;
+  }).filter(Boolean).join('\n');
+
+  // Build WHOOP recovery directive
+  let recoveryDirective = '';
+  if (athleteData.whoop?.recovery_score != null) {
+    const r = athleteData.whoop.recovery_score;
+    if (r < 34) {
+      recoveryDirective = `\n\nCRITICAL — WHOOP recovery is ${r}% (red). All remaining high-intensity sessions MUST be softened: replace intervals with Zone 2 endurance or full rest, reduce duration by 20–30%, and add "Low recovery day" notes. Do not schedule any threshold, VO2 max, or anaerobic work until recovery improves.`;
+    } else if (r < 67) {
+      recoveryDirective = `\n\nCAUTION — WHOOP recovery is ${r}% (yellow). Reduce intensity on any upcoming high-intensity sessions: shorten interval sets by 15–20%, favour the lower end of wattage targets, and add an extra rest or Zone 2 day if possible.`;
+    } else {
+      recoveryDirective = `\n\nWHOOP recovery is ${r}% (green) — no recovery-based restrictions needed.`;
+    }
+  }
+
+  const msg = `Based on this feedback from completed sessions${athleteData.whoop ? ' and today\'s WHOOP recovery score' : ''}, adapt the remaining sessions in my 7-day plan.
+Keep completed sessions unchanged. Only modify upcoming sessions to better match the athlete's responses.${recoveryDirective}
+
+Feedback:\n${feedbackSummary || 'No feedback yet.'}
+
+Return the full 7-day plan as the same JSON array format, with "adaptation_note" fields added to changed sessions explaining what changed and why.`;
+
+  try {
+    const res = await fetch('http://localhost:3001/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: buildSystemPrompt(),
+        messages: [{ role: 'user', content: msg }]
+      })
+    });
+
+    const data = await res.json();
+    let raw = data.content[0].text.trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    const updated = JSON.parse(raw);
+    // preserve feedback state
+    updated.forEach(s => {
+      if (s.adaptation_note) adaptationNotes[s.id] = s.adaptation_note;
+    });
+    trainingPlan = updated;
+    savePlan();
+    renderSchedule();
+    showToast('Plan adapted to your feedback ✓');
+  } catch(err) {
+    console.error(err);
+    showToast('Could not adapt plan. Check server.', true);
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '↺ Adapt Plan';
+}
+
+function renderSchedule() {
+  const el = document.getElementById('scheduleContent');
+  const today = new Date().toISOString().slice(0,10);
+
+  let html = '';
+  trainingPlan.forEach(s => {
+    const isToday = s.date === today;
+    const isDone = !!sessionFeedback[s.id];
+    const isRest = s.intensity === 'rest';
+    const fb = sessionFeedback[s.id];
+    const adapt = adaptationNotes[s.id];
+
+    html += `<div class="session-card ${isDone ? 'completed' : ''} ${isRest ? 'rest-day' : ''} ${isToday ? 'today' : ''}">`;
+
+    html += `<div class="session-card-top">
+      <div>
+        <div class="session-day-badge ${isToday ? 'today' : ''}">${s.day}${isToday ? ' — TODAY' : ''} · ${formatSessionDate(s.date)}</div>
+        <div class="session-type">${s.type}</div>
+      </div>
+      <div class="session-intensity-dot ${s.intensity}"></div>
+    </div>`;
+
+    html += `<div class="session-meta">`;
+    if (s.duration > 0) html += `<div class="session-meta-pill duration">⏱ ${s.duration} min</div>`;
+    if (s.targets) html += `<div class="session-meta-pill">${s.targets}</div>`;
+    html += `</div>`;
+
+    if (s.description) html += `<div class="session-desc">${escapeHtml(s.description)}</div>`;
+
+    if (s.tips?.length) {
+      html += `<div class="session-tips">`;
+      s.tips.forEach(tip => { html += `<div class="session-tip">${escapeHtml(tip)}</div>`; });
+      html += `</div>`;
+    }
+
+    if (adapt) {
+      html += `<div class="adaptation-note"><span class="adaptation-note-icon">↺</span>${escapeHtml(adapt)}</div>`;
+    }
+
+    if (fb) {
+      html += `<div class="session-feedback-preview">
+        <span class="feedback-rpe">RPE ${fb.rpe}/10</span> · ${fb.feel.join(', ')}${fb.notes ? ` · "${escapeHtml(fb.notes)}"` : ''}
+      </div>`;
+    }
+
+    if (!isRest) {
+      html += `<div class="session-card-actions">`;
+      if (!isDone) {
+        html += `<button class="session-action-btn primary" onclick="openFeedbackModal('${s.id}')">✓ Log Session</button>`;
+      } else {
+        html += `<span class="session-logged-badge">✓ Logged</span>`;
+        html += `<button class="session-action-btn" onclick="openFeedbackModal('${s.id}')">Edit</button>`;
+      }
+      html += `<button class="session-action-btn" onclick="openEditModal('${s.id}')">✎ Edit</button>`;
+      html += `<button class="session-action-btn" onclick="chatAboutSession('${s.id}')">Ask coach</button>`;
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+  });
+
+  el.innerHTML = html;
+
+  const completed = trainingPlan.filter(s => sessionFeedback[s.id]).length;
+  document.getElementById('scheduleMeta').textContent =
+    `Week of ${formatSessionDate(trainingPlan[0]?.date)} — ${completed}/${trainingPlan.filter(s => s.intensity !== 'rest').length} sessions logged`;
+}
+
+function formatSessionDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function savePlan() {
+  localStorage.setItem('cyclingCoachPlan', JSON.stringify({
+    plan: trainingPlan,
+    feedback: sessionFeedback,
+    adaptations: adaptationNotes
+  }));
+}
+
+function chatAboutSession(sessionId) {
+  const s = trainingPlan.find(s => s.id === sessionId);
+  if (!s) return;
+  switchTab('chat');
+  document.getElementById('messageInput').value = `Tell me more about ${s.day}'s ${s.type} session — what should I focus on?`;
+  document.getElementById('messageInput').focus();
+}
+
+// ── FEEDBACK MODAL ─────────────────────────────────────────
+function buildRpeScale() {
+  const scale = document.getElementById('rpeScale');
+  const descs = ['','Very easy','Easy','Moderate','Somewhat hard','Hard','','Very hard','Very hard','Maximal','Maximal'];
+  for (let i = 1; i <= 10; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'rpe-btn';
+    btn.textContent = i;
+    btn.dataset.rpe = i;
+    btn.onclick = () => selectRpe(i);
+    scale.appendChild(btn);
+  }
+}
+
+function selectRpe(n) {
+  document.querySelectorAll('.rpe-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelector(`.rpe-btn[data-rpe="${n}"]`).classList.add('selected');
+  const descs = {1:'Very easy',2:'Easy',3:'Moderate',4:'Somewhat hard',5:'Hard',6:'Harder',7:'Very hard',8:'Very hard',9:'Near maximal',10:'Absolute max'};
+  document.getElementById('rpeDesc').textContent = descs[n] || '';
+}
+
+function toggleFeel(el) { el.classList.toggle('selected'); }
+
+function openFeedbackModal(sessionId) {
+  feedbackTargetId = sessionId;
+  const s = trainingPlan.find(s => s.id === sessionId);
+  document.getElementById('feedbackSessionTitle').textContent = s ? `${s.day} · ${s.type}` : '';
+
+  // reset
+  document.querySelectorAll('.rpe-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelectorAll('.feel-chip').forEach(c => c.classList.remove('selected'));
+  document.getElementById('feedbackNotes').value = '';
+  document.getElementById('rpeDesc').textContent = 'Select your perceived exertion';
+
+  // pre-fill existing feedback
+  const existing = sessionFeedback[sessionId];
+  if (existing) {
+    if (existing.rpe) selectRpe(existing.rpe);
+    if (existing.feel) existing.feel.forEach(f => {
+      document.querySelectorAll('.feel-chip').forEach(c => {
+        if (c.textContent.trim().startsWith(f.split(' ')[0])) c.classList.add('selected');
+      });
+    });
+    if (existing.notes) document.getElementById('feedbackNotes').value = existing.notes;
+  }
+
+  document.getElementById('feedbackModal').classList.remove('hidden');
+}
+
+function closeFeedbackModal() {
+  document.getElementById('feedbackModal').classList.add('hidden');
+  feedbackTargetId = null;
+}
+
+async function submitFeedback() {
+  const selectedRpe = document.querySelector('.rpe-btn.selected');
+  if (!selectedRpe) { showToast('Please select your RPE rating', true); return; }
+
+  const rpe = parseInt(selectedRpe.dataset.rpe);
+  const feel = [...document.querySelectorAll('.feel-chip.selected')].map(c => c.textContent.trim());
+  const notes = document.getElementById('feedbackNotes').value.trim();
+
+  sessionFeedback[feedbackTargetId] = { rpe, feel, notes, timestamp: Date.now() };
+  savePlan();
+
+  closeFeedbackModal();
+  renderSchedule();
+  showToast('Session logged ✓');
+
+  // auto-adapt after feedback
+  const loggedCount = Object.keys(sessionFeedback).length;
+  if (loggedCount >= 2 && loggedCount % 2 === 0) {
+    showToast('Adapting plan based on your feedback…');
+    setTimeout(adaptPlan, 800);
+  }
+}
+
+// ── RESISTANCE BANDS ───────────────────────────────────────
+const bandCategoryPrompts = {
+  legs: 'Legs & Glutes — cycling-specific resistance band workout focusing on glute activation, hip flexors, quad strength, and hamstring balance. These muscles are the powerhouse of cycling.',
+  core: 'Core & Hip Stability — resistance band workout for cycling core strength: anti-rotation, hip stabilisers, lower back endurance, and lateral hip strength to improve pedalling efficiency.',
+  upper: 'Upper Body & Mobility — resistance band workout for cyclists focusing on shoulder stability, back tension relief, hip flexor opening, and thoracic mobility.'
+};
+
+async function selectBandCategory(cat, btn) {
+  currentBandCategory = cat;
+  document.querySelectorAll('.band-cat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const content = document.getElementById('bandsContent');
+  content.innerHTML = `<div class="bands-empty"><div style="font-size:32px"><span class="spinner" style="width:32px;height:32px;border-width:3px"></span></div><p>Generating workout…</p></div>`;
+
+  const focusDesc = bandCategoryPrompts[cat];
+
+  const prompt = `You are an expert cycling strength coach. Generate a resistance band workout for: ${focusDesc}.
+
+Return ONLY valid JSON — no markdown, no prose. Format:
+{
+  "name": "Workout name",
+  "focus": "One sentence on why this matters for cyclists",
+  "duration": 30,
+  "exercises": [
+    {
+      "name": "Exercise name",
+      "sets": 3,
+      "reps": "12-15",
+      "band": "Light|Medium|Heavy",
+      "cue": "One coaching cue"
+    }
+  ]
+}
+Include 6-8 exercises. Band resistance: Light = easy activation, Medium = main work, Heavy = strength.`;
+
+  try {
+    const res = await fetch('http://localhost:3001/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: prompt,
+        messages: [{ role: 'user', content: 'Generate the resistance band workout now.' }]
+      })
+    });
+
+    const data = await res.json();
+    let raw = data.content[0].text.trim();
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    currentBandWorkout = JSON.parse(raw);
+    renderBandWorkout(currentBandWorkout);
+  } catch(err) {
+    console.error(err);
+    content.innerHTML = `<div class="bands-empty"><p style="color:var(--danger)">Could not generate workout. Check server connection.</p></div>`;
+  }
+}
+
+function renderBandWorkout(w) {
+  const content = document.getElementById('bandsContent');
+
+  const bandClass = { 'Light': 'light', 'Medium': 'medium', 'Heavy': 'heavy' };
+
+  let exHtml = w.exercises.map((ex, i) => `
+    <div class="exercise-item">
+      <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
+      <div class="exercise-info">
+        <div class="exercise-name">${escapeHtml(ex.name)}</div>
+        <div class="exercise-cue">${escapeHtml(ex.cue)}</div>
+      </div>
+      <div class="exercise-sets">
+        ${ex.sets}×${ex.reps}
+        <br>
+        <span class="band-color-badge ${bandClass[ex.band] || 'medium'}">${ex.band}</span>
+      </div>
+    </div>`).join('');
+
+  content.innerHTML = `
+    <div class="bands-workout-card">
+      <div class="bands-workout-header">
+        <div>
+          <div class="bands-workout-title">${escapeHtml(w.name)}</div>
+          <div class="bands-workout-meta">
+            <div class="bands-duration-pill">⏱ ${w.duration} min</div>
+            <div class="bands-duration-pill">${w.exercises.length} exercises</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);line-height:1.5;">
+        ${escapeHtml(w.focus)}
+      </div>
+      <div class="exercise-list">${exHtml}</div>
+      <div class="bands-action-row">
+        <button class="gen-btn secondary" onclick="selectBandCategory('${currentBandCategory}', document.getElementById('cat${capitalize(currentBandCategory)}'))">↺ Regenerate</button>
+        <button class="gen-btn primary" onclick="addBandsToSchedule()">+ Add to Schedule</button>
+      </div>
+    </div>`;
+}
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function addBandsToSchedule() {
+  if (!currentBandWorkout || !trainingPlan.length) {
+    showToast('Generate a training plan first, then add bands', true);
+    return;
+  }
+  // find the next rest day or a low-intensity day without bands
+  const today = new Date().toISOString().slice(0,10);
+  const target = trainingPlan.find(s =>
+    s.date >= today && !s.bands && (s.intensity === 'rest' || s.intensity === 'low')
+  );
+  if (target) {
+    target.bands = currentBandWorkout.name;
+    if (target.intensity === 'rest') {
+      target.type = `Rest + ${currentBandWorkout.name}`;
+      target.description = `Active recovery with resistance band work: ${currentBandWorkout.focus}`;
+    } else {
+      target.description = (target.description || '') + ` Follow with resistance bands: ${currentBandWorkout.name}.`;
+    }
+    savePlan();
+    showToast(`Added to ${target.day}'s session ✓`);
+    switchTab('schedule');
+    renderSchedule();
+  } else {
+    showToast('No suitable upcoming session found', true);
+  }
+}
+
+// ── MESSAGING ──────────────────────────────────────────────
+async function sendMessage(text) {
+  const input = document.getElementById('messageInput');
+  const msg = text || input.value.trim();
+  if (!msg) return;
+
+  document.getElementById('emptyState')?.remove();
+  appendBubble('user', msg);
+  if (!text) { input.value = ''; autoResize(input); }
+
+  conversationHistory.push({ role: 'user', content: msg });
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+
+  const typingEl = appendTyping();
+
+  try {
+    const response = await fetch('http://localhost:3001/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: buildSystemPrompt(),
+        messages: conversationHistory
+      })
+    });
+
+    const data = await response.json();
+    typingEl.remove();
+
+    if (data.error) {
+      appendBubble('coach', `Error: ${data.error}`);
+      conversationHistory.pop();
+    } else {
+      const reply = data.content[0].text;
+      const { clean, updates } = extractScheduleUpdates(reply);
+      appendBubble('coach', clean);
+      conversationHistory.push({ role: 'assistant', content: clean });
+      if (updates.length) {
+        applyScheduleUpdates(updates);
+      }
+      saveChat();
+    }
+  } catch (err) {
+    typingEl.remove();
+    appendBubble('coach', 'Connection error. Make sure Claude Desktop is running.');
+    conversationHistory.pop();
+  }
+
+  btn.disabled = false;
+  scrollToBottom();
+}
+
+function sendChip(el) {
+  sendMessage(el.textContent);
+}
+
+// ── SYNC STRAVA + RECONCILE SCHEDULE ─────────────────────
+async function syncAndReconcile() {
+  const btn = document.getElementById('syncReconcileBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Syncing…'; }
+
+  // 1. Pull fresh Strava data
+  try {
+    const res = await fetch('http://localhost:3002/api/strava');
+    if (res.ok) {
+      const d = await res.json();
+      if (!d.error) {
+        athleteData.strava = d;
+        // update panel displays silently
+        document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${d.last_ride.distance_km}km)` : '—';
+        document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
+        document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${d.total_km_7d} km` : '—';
+      }
+    }
+  } catch(e) { /* continue even if strava fails */ }
+
+  if (btn) { btn.disabled = false; btn.textContent = '⚡ Sync Strava & Update Schedule'; }
+
+  // 2. Build a reconciliation prompt
+  if (!trainingPlan.length) {
+    showToast('Generate a schedule first', true);
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0,10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
+
+  // Collect schedule sessions from the past 3 days
+  const recentScheduled = trainingPlan.filter(s => s.date >= yesterday && s.date <= today);
+  const scheduleContext = recentScheduled.map(s => {
+    const done = sessionFeedback[s.id];
+    return `- ${s.day} ${s.date}: "${s.type}" ${s.duration}min — ${done ? `LOGGED (RPE ${done.rpe})` : 'NOT yet logged in app'}`;
+  }).join('\n');
+
+  // Strava recent rides
+  let stravaContext = 'No Strava data loaded.';
+  if (athleteData.strava?.all_rides?.length) {
+    const recent = athleteData.strava.all_rides.filter(r => r.date >= yesterday);
+    if (recent.length) {
+      stravaContext = recent.map(r =>
+        `- ${r.date}: ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min, ${r.elevation_m}m elev${r.avg_watts ? `, ${r.avg_watts}w avg` : ''}`
+      ).join('\n');
+    } else {
+      stravaContext = 'No rides in the past 2 days on Strava.';
+    }
+  } else if (athleteData.strava?.last_ride) {
+    const r = athleteData.strava.last_ride;
+    stravaContext = `Last ride: ${r.date} — ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min`;
+  }
+
+  const reconcilePrompt = `Check my Strava rides against my schedule and update anything that doesn't match.
+
+SCHEDULED (last 2 days):
+${scheduleContext || 'No sessions in range.'}
+
+STRAVA ACTUAL RIDES:
+${stravaContext}
+
+Instructions:
+1. If Strava shows a ride on a day scheduled as "Rest Day" — update that session to match the actual ride.
+2. If a scheduled session was clearly completed (Strava ride on same day, similar duration) but not logged — note it.
+3. If a scheduled session was skipped (no Strava activity) — update it to show it was skipped and adjust the next session accordingly.
+4. Update tomorrow's session if needed given the actual load.
+
+Apply all changes using schedule_update blocks. Then give me a brief 2-3 sentence summary of what you found and changed.`;
+
+  // Remove empty state and send
+  document.getElementById('emptyState')?.remove();
+  await sendMessage(reconcilePrompt);
+}
+
+// ── SCHEDULE UPDATE FROM CHAT ──────────────────────────────
+function extractScheduleUpdates(text) {
+  const updates = [];
+  // Match ```schedule_update ... ``` blocks
+  const re = /```schedule_update\s*([\s\S]*?)```/gi;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    try {
+      updates.push(JSON.parse(match[1].trim()));
+    } catch(e) { console.warn('Bad schedule_update JSON:', e); }
+  }
+  // Strip the blocks from the displayed text
+  const clean = text.replace(/```schedule_update[\s\S]*?```/gi, '').trim();
+  return { clean, updates };
+}
+
+function applyScheduleUpdates(updates) {
+  let changed = false;
+  updates.forEach(patch => {
+    const idx = trainingPlan.findIndex(s => s.id === patch.id);
+    if (idx === -1) return;
+    Object.assign(trainingPlan[idx], patch);
+    changed = true;
+  });
+  if (changed) {
+    savePlan();
+    if (currentTab === 'schedule') renderSchedule();
+    showToast('Schedule updated by coach ✓');
+    // Flash the schedule tab button to draw attention
+    const schedTab = document.getElementById('tab-schedule');
+    schedTab.style.background = 'rgba(182,245,66,0.3)';
+    setTimeout(() => { schedTab.style.background = ''; }, 1500);
+  }
+}
+
+// ── PER-SESSION EDIT MODAL ────────────────────────────────
+let editTargetId = null;
+
+function openEditModal(sessionId) {
+  editTargetId = sessionId;
+  const s = trainingPlan.find(s => s.id === sessionId);
+  if (!s) return;
+
+  // Build or reuse modal
+  let modal = document.getElementById('editSessionModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'editSessionModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="feedback-modal" style="max-width:480px">
+        <div>
+          <div class="modal-title">Edit Session</div>
+          <div class="modal-subtitle" id="editModalDay"></div>
+        </div>
+        <div>
+          <div class="rpe-label" style="margin-bottom:6px">Session Type</div>
+          <input class="data-input" id="editType" type="text" placeholder="e.g. Zone 2 Endurance">
+        </div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div class="rpe-label" style="margin-bottom:6px">Duration (min)</div>
+            <input class="data-input" id="editDuration" type="number" min="0" max="480" placeholder="90">
+          </div>
+          <div style="flex:1">
+            <div class="rpe-label" style="margin-bottom:6px">Intensity</div>
+            <select class="data-input" id="editIntensity">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="rest">Rest</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="rpe-label" style="margin-bottom:6px">Targets</div>
+          <input class="data-input" id="editTargets" type="text" placeholder="e.g. HR 130-145bpm, Zone 2">
+        </div>
+        <div>
+          <div class="rpe-label" style="margin-bottom:6px">Description</div>
+          <textarea class="data-textarea" id="editDesc" rows="2"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="gen-btn secondary" onclick="closeEditModal()">Cancel</button>
+          <button class="gen-btn primary" onclick="saveEditModal()">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  document.getElementById('editModalDay').textContent = `${s.day} · ${s.date}`;
+  document.getElementById('editType').value = s.type || '';
+  document.getElementById('editDuration').value = s.duration || 0;
+  document.getElementById('editIntensity').value = s.intensity || 'low';
+  document.getElementById('editTargets').value = s.targets || '';
+  document.getElementById('editDesc').value = s.description || '';
+  modal.classList.remove('hidden');
+}
+
+function closeEditModal() {
+  document.getElementById('editSessionModal')?.classList.add('hidden');
+  editTargetId = null;
+}
+
+function saveEditModal() {
+  const idx = trainingPlan.findIndex(s => s.id === editTargetId);
+  if (idx === -1) return;
+  trainingPlan[idx].type        = document.getElementById('editType').value.trim();
+  trainingPlan[idx].duration    = parseInt(document.getElementById('editDuration').value) || 0;
+  trainingPlan[idx].intensity   = document.getElementById('editIntensity').value;
+  trainingPlan[idx].targets     = document.getElementById('editTargets').value.trim();
+  trainingPlan[idx].description = document.getElementById('editDesc').value.trim();
+  savePlan();
+  renderSchedule();
+  closeEditModal();
+  showToast('Session updated ✓');
+}
+
+function appendBubble(role, text) {
+  const messages = document.getElementById('messages');
+  const row = document.createElement('div');
+  row.className = `bubble-row ${role}`;
+
+  const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+  if (role === 'coach') {
+    row.innerHTML = `
+      <div class="bubble-avatar">🚴</div>
+      <div>
+        <div class="bubble">${formatMessage(text)}</div>
+        <div class="bubble-meta">${time}</div>
+      </div>`;
+  } else {
+    row.innerHTML = `
+      <div>
+        <div class="bubble">${escapeHtml(text)}</div>
+        <div class="bubble-meta">${time} ✓✓</div>
+      </div>`;
+  }
+
+  messages.appendChild(row);
+  scrollToBottom();
+  return row;
+}
+
+function appendTyping() {
+  const messages = document.getElementById('messages');
+  const row = document.createElement('div');
+  row.className = 'bubble-row coach';
+  row.innerHTML = `<div class="bubble-avatar">🚴</div><div class="typing"><span></span><span></span><span></span></div>`;
+  messages.appendChild(row);
+  scrollToBottom();
+  return row;
+}
+
+function formatMessage(text) {
+  let t = escapeHtml(text);
+  t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/\[(.*?⚠️.*?)\]/g, '<span class="tag warn">$1</span>');
+  t = t.replace(/\[(.*?🔴.*?)\]/g, '<span class="tag bad">$1</span>');
+  t = t.replace(/\[(.*?🟢.*?)\]/g, '<span class="tag good">$1</span>');
+  t = t.replace(/\[(.*?🟡.*?)\]/g, '<span class="tag warn">$1</span>');
+  t = t.replace(/\[([^\]]+)\]/g, '<span class="tag warn">$1</span>');
+  t = t.replace(/\n/g, '<br>');
+  return t;
+}
+
+function escapeHtml(t) {
+  if (!t) return '';
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function scrollToBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+// ── INPUT HELPERS ──────────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+
+// ── TOAST ──────────────────────────────────────────────────
+function showToast(msg, warn = false) {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    background:${warn ? '#f5a742' : '#b6f542'}; color:#0d0f0e;
+    padding:8px 16px; border-radius:20px; font-size:12px; font-weight:600;
+    font-family:'Syne',sans-serif; z-index:999; animation:slideIn 0.2s ease;
+    white-space:nowrap;
+  `;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+</script>
+</body>
+</html>
