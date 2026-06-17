@@ -53,3 +53,24 @@ crashes:
 - Logs: `proxy/proxy.log` and `proxy/proxy.error.log` (gitignored)
 
 Chat and WHOOP still require Claude Desktop to be running; Strava does not.
+
+## Implementation Status
+
+| Feature / Module | Status | Notes |
+|---|---|---|
+| Chat with coach | ✅ Complete | Full conversation history, persisted to localStorage (last 120 exchanges), restored on reload |
+| WHOOP sync | ✅ Complete | Fetches recovery, HRV, RHR, sleep efficiency, sleep duration, SpO2, strain — all injected into system prompt |
+| Strava sync | ✅ Complete | 7-day rolling window via REST proxy; surfaces distance, elevation, moving time, avg watts, suffer score per ride |
+| FTP entry & power zones | ✅ Complete | Z1–Z7 calculated from FTP, displayed in panel, injected into system prompt and schedule generation |
+| 7-day schedule generation | ✅ Complete | Claude generates JSON plan; stored in localStorage; rendered as session cards |
+| Session feedback (RPE) | ✅ Complete | RPE 1–10 + feel chips + notes; auto-triggers `adaptPlan()` every 2 logged sessions |
+| WHOOP-aware adaptation | ✅ Complete | Red (<34%): intervals replaced with Z2/rest; yellow (34–66%): sets trimmed 15–20%; green: no restriction |
+| Schedule updates from chat | ✅ Complete | Coach emits fenced `schedule_update` JSON blocks mid-conversation; app patches plan in place |
+| Per-session edit modal | ✅ Complete | Manual override of type, duration, intensity, targets, description |
+| Strava ↔ schedule reconciliation | ✅ Complete | "Sync & Update Schedule" compares recent Strava rides to plan and applies corrections via coach |
+| Resistance band workouts | ✅ Complete | Three focus areas (Legs, Core, Upper); Claude generates JSON workout; can be added to schedule |
+| Strava proxy (launchd) | ✅ Complete | Auto-starts on login, KeepAlive respawn, logs to `proxy/proxy.log` |
+| Mobile layout | 🚧 Partial | Data panel hidden below 600px (`@media`); chat and tabs usable but not optimised for small screens |
+| Strava lookback > 7 days | ❌ Missing | Proxy hardcodes `after = now - 7d`, single page (`per_page=50`); no pagination; 42-day window discussed but not implemented |
+| Multi-device persistence | ❌ Missing | All state in browser localStorage; plan and history don't follow the user across devices |
+| Tests | ❌ Missing | No test files exist |
