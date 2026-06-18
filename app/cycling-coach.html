@@ -1039,18 +1039,6 @@
         <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava()">⚡ Sync from Strava</button>
       </div>
 
-      <!-- FTP -->
-      <div>
-        <div class="data-section-label">FTP &amp; Power Zones</div>
-        <div class="metric-row">
-          <span class="metric-label">FTP</span>
-          <span class="metric-value" id="disp-ftp">—</span>
-        </div>
-        <div id="ftpZoneRows"></div>
-        <input class="data-input" id="ftpInput" type="number" min="50" max="600" placeholder="Enter FTP (watts)" style="margin-top:8px">
-        <button class="load-btn" onclick="saveFTP()" style="margin-top:6px">Set FTP</button>
-      </div>
-
       <!-- GOALS -->
       <div>
         <div class="data-section-label">Your Goal</div>
@@ -1227,12 +1215,6 @@ let feedbackTargetId = null; // which session we're logging
   if (savedGoal) {
     document.getElementById('goalInput').value = savedGoal;
     athleteData.goal = savedGoal;
-  }
-  const savedFTP = localStorage.getItem('cyclingCoachFTP');
-  if (savedFTP) {
-    athleteData.ftp = parseInt(savedFTP);
-    document.getElementById('ftpInput').value = savedFTP;
-    renderFTPZones(athleteData.ftp);
   }
 
   // Restore chat history
@@ -1428,51 +1410,10 @@ function saveGoal() {
   }
 }
 
-// ── FTP & POWER ZONES ──────────────────────────────────────
-const POWER_ZONES = [
-  { name: 'Z1 Recovery',   min: 0,    max: 0.55 },
-  { name: 'Z2 Endurance',  min: 0.56, max: 0.75 },
-  { name: 'Z3 Tempo',      min: 0.76, max: 0.90 },
-  { name: 'Z4 Threshold',  min: 0.91, max: 1.05 },
-  { name: 'Z5 VO2 Max',    min: 1.06, max: 1.20 },
-  { name: 'Z6 Anaerobic',  min: 1.21, max: 1.50 },
-  { name: 'Z7 NM Power',   min: 1.51, max: null  },
-];
-
-function saveFTP() {
-  const val = parseInt(document.getElementById('ftpInput').value);
-  if (!val || val < 50 || val > 600) { showToast('Enter a valid FTP (50–600w)', true); return; }
-  athleteData.ftp = val;
-  localStorage.setItem('cyclingCoachFTP', val);
-  renderFTPZones(val);
-  showToast('FTP saved ✓');
-}
-
-function renderFTPZones(ftp) {
-  document.getElementById('disp-ftp').textContent = ftp + 'w';
-  const container = document.getElementById('ftpZoneRows');
-  container.innerHTML = POWER_ZONES.map(z => {
-    const lo = Math.round(z.min * ftp);
-    const hi = z.max ? Math.round(z.max * ftp) : null;
-    const range = hi ? `${lo}–${hi}w` : `>${lo}w`;
-    return `<div class="metric-row">
-      <span class="metric-label" style="font-size:11px">${z.name}</span>
-      <span class="metric-value" style="font-size:11px">${range}</span>
-    </div>`;
-  }).join('');
-}
-
-function buildZoneText(ftp) {
-  return POWER_ZONES.map(z => {
-    const lo = Math.round(z.min * ftp);
-    const hi = z.max ? Math.round(z.max * ftp) + 'w' : 'max';
-    return `${z.name}: ${lo}w–${hi}`;
-  }).join(', ');
-}
 
 // ── SYSTEM PROMPT ──────────────────────────────────────────
 function buildSystemPrompt() {
-  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), power-based training zones, and TSS/CTL/ATL methodology.
+  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), heart rate and RPE-based training zones, and volume/load methodology.
 
 Your job is to give the athlete personalized, actionable coaching advice based on their real WHOOP recovery data and Strava training history. Be specific — reference their actual numbers. Never give generic advice.
 
@@ -1502,22 +1443,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       prompt += `\n\nMost recent ride: ${s.last_ride.name} on ${s.last_ride.date}`;
       prompt += `\n  Distance: ${s.last_ride.distance_km}km, Moving time: ${s.last_ride.moving_time_min}min`;
       prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${s.last_ride.avg_speed_kph} kph`;
-      if (s.last_ride.avg_watts) prompt += `\n  Avg power: ${s.last_ride.avg_watts}w`;
-      if (s.last_ride.suffer_score) prompt += `\n  Suffer score: ${s.last_ride.suffer_score}`;
     }
     if (s.all_rides?.length > 1) {
       prompt += `\n\nAll rides this week:`;
       s.all_rides.forEach((r) => {
         prompt += `\n- ${r.date} | ${r.name} | ${r.distance_km}km | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
-        if (r.avg_watts) prompt += ` | ${r.avg_watts}w`;
       });
     }
-  }
-  if (athleteData.ftp) {
-    prompt += `\n\nATHLETE'S FTP & POWER ZONES (use these exact wattage targets in all session prescriptions):`;
-    prompt += `\nFTP: ${athleteData.ftp}w`;
-    prompt += `\n${buildZoneText(athleteData.ftp)}`;
-    prompt += `\nAlways reference zone targets with wattage e.g. "Zone 2 (${Math.round(0.56*athleteData.ftp)}–${Math.round(0.75*athleteData.ftp)}w)".`;
   }
   if (athleteData.goal) {
     prompt += `\n\nATHLETE'S GOAL:\n${athleteData.goal}`;
@@ -1572,7 +1504,6 @@ async function generateSchedule() {
   if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
   if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
   if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${athleteData.strava.total_km_7d}km, ${athleteData.strava.total_moving_time_h_7d}h`;
-  if (athleteData.ftp) context += `\n\nFTP: ${athleteData.ftp}w. Power zones: ${buildZoneText(athleteData.ftp)}. Include wattage targets in session targets field.`;
 
   if (Object.keys(sessionFeedback).length > 0) {
     context += `\n\nRecent session feedback (use to calibrate difficulty):`;
@@ -1651,7 +1582,7 @@ async function adaptPlan() {
     if (r < 34) {
       recoveryDirective = `\n\nCRITICAL — WHOOP recovery is ${r}% (red). All remaining high-intensity sessions MUST be softened: replace intervals with Zone 2 endurance or full rest, reduce duration by 20–30%, and add "Low recovery day" notes. Do not schedule any threshold, VO2 max, or anaerobic work until recovery improves.`;
     } else if (r < 67) {
-      recoveryDirective = `\n\nCAUTION — WHOOP recovery is ${r}% (yellow). Reduce intensity on any upcoming high-intensity sessions: shorten interval sets by 15–20%, favour the lower end of wattage targets, and add an extra rest or Zone 2 day if possible.`;
+      recoveryDirective = `\n\nCAUTION — WHOOP recovery is ${r}% (yellow). Reduce intensity on any upcoming high-intensity sessions: shorten interval sets by 15–20%, keep effort in the lower end of the target zone, and add an extra rest or Zone 2 day if possible.`;
     } else {
       recoveryDirective = `\n\nWHOOP recovery is ${r}% (green) — no recovery-based restrictions needed.`;
     }
@@ -2092,7 +2023,7 @@ async function syncAndReconcile() {
     const recent = athleteData.strava.all_rides.filter(r => r.date >= yesterday);
     if (recent.length) {
       stravaContext = recent.map(r =>
-        `- ${r.date}: ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min, ${r.elevation_m}m elev${r.avg_watts ? `, ${r.avg_watts}w avg` : ''}`
+        `- ${r.date}: ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min, ${r.elevation_m}m elev`
       ).join('\n');
     } else {
       stravaContext = 'No rides in the past 2 days on Strava.';
