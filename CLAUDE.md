@@ -38,12 +38,11 @@ Claude Desktop must be running for chat and WHOOP. Strava is independent (launch
 
 ## Key functions in cycling-coach.html
 
-- **`buildSystemPrompt()`** — assembles the Claude system prompt from live `athleteData` (WHOOP + Strava + FTP zones + active training plan). Editing the coaching behaviour starts here.
+- **`buildSystemPrompt()`** — assembles the Claude system prompt from live `athleteData` (WHOOP + Strava + active training plan). Editing the coaching behaviour starts here.
 - **`generateSchedule()`** — sends a one-shot Claude call to produce a 7-day plan as JSON. The plan is stored in `trainingPlan[]` and `localStorage`.
 - **`adaptPlan()`** — reads `sessionFeedback` and `athleteData.whoop.recovery_score` to build a directive (red/yellow/green), then asks Claude to revise upcoming sessions. Called automatically every 2 logged sessions.
 - **`syncStrava()`** — `GET localhost:3002/api/strava`, populates `athleteData.strava` and the data panel.
 - **`syncWHOOP()`** — `GET localhost:3001/api/whoop`, populates `athleteData.whoop`.
-- **`buildZoneText(ftp)`** — returns a formatted string of all 7 power zones from `POWER_ZONES[]`; injected into both `buildSystemPrompt()` and `generateSchedule()`.
 
 ## Schedule update protocol
 

@@ -1,7 +1,7 @@
 # Cycling Coach
 
 An AI cycling coach — a single-file web app backed by live WHOOP recovery and
-Strava ride data, with FTP power zones and WHOOP-aware plan adaptation.
+Strava ride data, with WHOOP-aware plan adaptation.
 
 ## Layout
 
@@ -30,7 +30,8 @@ The app (opened in a browser) calls three local endpoints:
 
 The Strava proxy calls the Strava REST API directly (refresh-token flow) and
 normalises the response into the shape the app expects. It surfaces
-`avg_watts` and `suffer_score` per ride.
+`suffer_score` per ride. (The athlete has no power meter, so watts are not
+surfaced.)
 
 ## Secrets
 
@@ -60,8 +61,7 @@ Chat and WHOOP still require Claude Desktop to be running; Strava does not.
 |---|---|---|
 | Chat with coach | ✅ Complete | Full conversation history, persisted to localStorage (last 120 exchanges), restored on reload |
 | WHOOP sync | ✅ Complete | Fetches recovery, HRV, RHR, sleep efficiency, sleep duration, SpO2, strain — all injected into system prompt |
-| Strava sync | ✅ Complete | 7-day rolling window via REST proxy; surfaces distance, elevation, moving time, avg watts, suffer score per ride |
-| FTP entry & power zones | ✅ Complete | Z1–Z7 calculated from FTP, displayed in panel, injected into system prompt and schedule generation |
+| Strava sync | ✅ Complete | 7-day rolling window via REST proxy; surfaces distance, elevation, moving time, suffer score per ride |
 | 7-day schedule generation | ✅ Complete | Claude generates JSON plan; stored in localStorage; rendered as session cards |
 | Session feedback (RPE) | ✅ Complete | RPE 1–10 + feel chips + notes; auto-triggers `adaptPlan()` every 2 logged sessions |
 | WHOOP-aware adaptation | ✅ Complete | Red (<34%): intervals replaced with Z2/rest; yellow (34–66%): sets trimmed 15–20%; green: no restriction |
