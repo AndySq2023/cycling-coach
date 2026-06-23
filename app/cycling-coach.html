@@ -1476,6 +1476,15 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       prompt += `\nNo ride has been recorded today. Most recent ride: ${lr ? `${lr.name} on ${lr.date} (avg ${lr.avg_speed_kph} kph)` : 'none in the last 7 days'}.`;
     }
   }
+  if (athleteData.whoop && athleteData.whoop.recovery_score != null) {
+    const w = athleteData.whoop;
+    prompt += `\nWHOOP this morning — recovery ${w.recovery_score}%`
+      + (w.hrv != null ? `, HRV ${w.hrv}ms` : '')
+      + (w.rhr != null ? `, RHR ${w.rhr}bpm` : '')
+      + (w.sleep_duration_h != null ? `, sleep ${w.sleep_duration_h}h` : '')
+      + '.';
+  }
+  prompt += `\nYou ALREADY have the athlete's WHOOP recovery/HRV/sleep and their Strava rides above — interpret them directly. Do NOT ask the athlete for their recovery score, HRV, RHR, or sleep; the app provides them. You may ask only about things you cannot measure (e.g. how the ride or their legs felt).`;
   prompt += `\nThe conversation history below may include sessions from earlier days. NEVER treat a past date as "today". If the athlete asks about "today's ride" and nothing is dated today, tell them there is no ride today and refer to the most recent ride by its real date — do not relabel an old ride as today's.`;
 
   // ── Inject the active training schedule so chat stays in sync ──
@@ -1956,6 +1965,12 @@ async function sendMessage(text) {
   btn.disabled = true;
 
   const typingEl = appendTyping();
+
+  // Ensure the coach has live WHOOP + Strava before it answers — covers a fast first
+  // message sent before auto-sync finishes — so it never asks for data the app has.
+  if (!athleteData.whoop || !athleteData.strava) {
+    await Promise.allSettled([syncWHOOP(), syncStrava()]);
+  }
 
   try {
     const response = await fetch('http://localhost:3001/api/chat', {
