@@ -1195,6 +1195,37 @@ let currentBandWorkout = null;
 
 let feedbackTargetId = null; // which session we're logging
 
+// ── Backend routing: local dev → localhost servers; hosted (Vercel) → same-origin /api.
+const IS_LOCAL = location.protocol === 'file:'
+  || ['localhost', '127.0.0.1'].includes(location.hostname);
+const API = IS_LOCAL
+  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002' }
+  : { chat: '', whoop: '', strava: '' };
+
+function getAppPassword() {
+  let pw = localStorage.getItem('cyclingCoachPw');
+  if (!pw) {
+    pw = (prompt('Enter the app password:') || '').trim();
+    if (pw) localStorage.setItem('cyclingCoachPw', pw);
+  }
+  return pw;
+}
+function clearAppPassword() { localStorage.removeItem('cyclingCoachPw'); }
+
+// Wraps fetch for backend calls. On a hosted build it attaches the app password and
+// forgets it on a 401 so the next call re-prompts. Local dev is left untouched.
+async function coachFetch(url, options = {}) {
+  if (!IS_LOCAL) {
+    options = { ...options, headers: { ...(options.headers || {}), 'x-app-password': getAppPassword() } };
+  }
+  const res = await fetch(url, options);
+  if (res.status === 401 && !IS_LOCAL) {
+    clearAppPassword();
+    if (typeof showToast === 'function') showToast('Wrong app password — reload to re-enter.', true);
+  }
+  return res;
+}
+
 // ── INIT ───────────────────────────────────────────────────
 (function init() {
   buildRpeScale();
@@ -1337,7 +1368,7 @@ async function syncWHOOP() {
   status.textContent = '';
 
   try {
-    const res = await fetch('http://localhost:3001/api/whoop');
+    const res = await coachFetch(API.whoop + '/api/whoop');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
     if (d.error) throw new Error(d.error);
@@ -1378,7 +1409,7 @@ async function syncStrava() {
   status.textContent = '';
 
   try {
-    const res = await fetch('http://localhost:3002/api/strava');
+    const res = await coachFetch(API.strava + '/api/strava');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
     if (d.error) throw new Error(d.error);
@@ -1558,7 +1589,7 @@ For rest days use type "Rest Day", duration 0, intensity "rest".
 Include exactly 7 elements covering the next 7 days in order.`;
 
   try {
-    const res = await fetch('http://localhost:3001/api/chat', {
+    const res = await coachFetch(API.chat + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1623,7 +1654,7 @@ Feedback:\n${feedbackSummary || 'No feedback yet.'}
 Return the full 7-day plan as the same JSON array format, with "adaptation_note" fields added to changed sessions explaining what changed and why.`;
 
   try {
-    const res = await fetch('http://localhost:3001/api/chat', {
+    const res = await coachFetch(API.chat + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1858,7 +1889,7 @@ Return ONLY valid JSON — no markdown, no prose. Format:
 Include 6-8 exercises. Band resistance: Light = easy activation, Medium = main work, Heavy = strength.`;
 
   try {
-    const res = await fetch('http://localhost:3001/api/chat', {
+    const res = await coachFetch(API.chat + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1973,7 +2004,7 @@ async function sendMessage(text) {
   }
 
   try {
-    const response = await fetch('http://localhost:3001/api/chat', {
+    const response = await coachFetch(API.chat + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2019,7 +2050,7 @@ async function syncAndReconcile() {
 
   // 1. Pull fresh Strava data
   try {
-    const res = await fetch('http://localhost:3002/api/strava');
+    const res = await coachFetch(API.strava + '/api/strava');
     if (res.ok) {
       const d = await res.json();
       if (!d.error) {
