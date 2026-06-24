@@ -72,7 +72,6 @@ function normalizeActivity(a) {
     moving_time_s: num(a.moving_time),
     elevation_m: a.total_elevation_gain != null ? Math.round(a.total_elevation_gain) : null,
     avg_speed_kph: a.average_speed != null ? +(a.average_speed * 3.6).toFixed(1) : null,
-    avg_watts: num(a.average_watts),
     suffer_score: num(a.suffer_score),
     sport_type: a.sport_type || a.type || '',
   };
