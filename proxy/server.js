@@ -106,10 +106,94 @@ async function getStravaSummary() {
   };
 }
 
+// ── Windy point forecast (for ride-planning weather) ──────
+// Key: WINDY_API_KEY env var, or windy_key in ~/.strava-proxy/auth.json.
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function windDir(u, v) {
+  const deg = (Math.atan2(u, v) * 180 / Math.PI + 180) % 360;
+  return COMPASS[Math.round(deg / 45) % 8];
+}
+const wround = (n, d = 0) => (n == null || !Number.isFinite(n)) ? null : +n.toFixed(d);
+
+async function getForecast(lat, lon) {
+  const key = process.env.WINDY_API_KEY || readAuth().windy_key;
+  if (!key) throw new Error('Missing Windy key — set WINDY_API_KEY or add "windy_key" to ~/.strava-proxy/auth.json');
+
+  const res = await fetch('https://api.windy.com/api/point-forecast/v2', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      lat, lon, model: 'gfs',
+      parameters: ['wind', 'windGust', 'temp', 'precip'],
+      levels: ['surface'], key,
+    }),
+  });
+  if (!res.ok) throw new Error(`Windy API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const d = await res.json();
+
+  const ts = d.ts || [];
+  const U = d['wind_u-surface'] || [], V = d['wind_v-surface'] || [];
+  const G = d['gust-surface'] || [], T = d['temp-surface'] || [], P = d['past3hprecip-surface'] || [];
+  if (!ts.length) throw new Error('Windy returned no forecast timesteps.');
+
+  const HOURS_AHEAD = 48;
+  const now = Date.now(), horizon = now + HOURS_AHEAD * 3600000;
+  const hourly = [];
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i] < now - 3600000 || ts[i] > horizon) continue;
+    const u = U[i], v = V[i];
+    const speed = (u != null && v != null) ? Math.hypot(u, v) : null;
+    hourly.push({
+      time: new Date(ts[i]).toISOString(),
+      temp_c: wround(T[i] != null ? T[i] - 273.15 : null, 1),
+      wind_kph: wround(speed != null ? speed * 3.6 : null),
+      gust_kph: wround(G[i] != null ? G[i] * 3.6 : null),
+      wind_dir: (u != null && v != null) ? windDir(u, v) : null,
+      precip_mm: wround(P[i], 1),
+    });
+  }
+  if (!hourly.length) throw new Error('No forecast points within the next 48h.');
+
+  const nums = (arr) => arr.filter(n => n != null && Number.isFinite(n));
+  const winds = nums(hourly.map(h => h.wind_kph)), gusts = nums(hourly.map(h => h.gust_kph));
+  const temps = nums(hourly.map(h => h.temp_c));
+  const precipTotal = nums(hourly.map(h => h.precip_mm)).reduce((s, n) => s + n, 0);
+  return {
+    location: { lat: wround(lat, 3), lon: wround(lon, 3) }, model: 'gfs',
+    now: hourly[0], hourly,
+    summary: {
+      hours: HOURS_AHEAD,
+      wind_kph_min: winds.length ? Math.min(...winds) : null,
+      wind_kph_max: winds.length ? Math.max(...winds) : null,
+      gust_kph_max: gusts.length ? Math.max(...gusts) : null,
+      temp_c_min: temps.length ? Math.min(...temps) : null,
+      temp_c_max: temps.length ? Math.max(...temps) : null,
+      precip_mm_total: wround(precipTotal, 1),
+    },
+  };
+}
+
 // ── HTTP server ────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  if (url.pathname === '/api/windy') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const lat = parseFloat(url.searchParams.get('lat'));
+      const lon = parseFloat(url.searchParams.get('lon'));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        res.end(JSON.stringify({ error: 'Missing or invalid lat/lon.' }));
+        return;
+      }
+      res.end(JSON.stringify(await getForecast(lat, lon)));
+    } catch (err) {
+      console.error('GET /api/windy failed:', err.message);
+      res.end(JSON.stringify({ error: err.message || String(err) }));
+    }
+    return;
+  }
 
   if (url.pathname === '/api/strava') {
     res.setHeader('Content-Type', 'application/json');
@@ -136,5 +220,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Strava proxy listening on http://localhost:${PORT}`);
   console.log(`  GET /api/strava  → 7-day ride summary for cycling-coach.html`);
+  console.log(`  GET /api/windy   → 48h point forecast (?lat=&lon=)`);
   console.log(`  GET /api/health  → status`);
 });

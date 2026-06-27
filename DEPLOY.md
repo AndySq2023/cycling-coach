@@ -15,6 +15,7 @@ api/
   _auth.js     # shared password check for the hosted API
   chat.js      # → Anthropic Messages API (replaces the Claude Desktop bridge)
   strava.js    # → Strava REST API (port of proxy/server.js)
+  windy.js     # → Windy Point Forecast API (ride-planning weather)
 package.json   # root deps for the functions (@vercel/kv)
 vercel.json    # serves the app at "/", gives chat 60s to respond
 ```
@@ -44,9 +45,15 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `STRAVA_CLIENT_SECRET` | from `~/.strava-proxy/auth.json` |
 | `STRAVA_REFRESH_TOKEN` | from `~/.strava-proxy/auth.json` |
 | `APP_PASSWORD` | a password you choose — the app asks for it on first load |
+| `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
 
 > Without `APP_PASSWORD` the API refuses to run, so chat can't be left open to the
 > world by accident.
+>
+> `WINDY_API_KEY` is optional: leave it unset and the Weather panel just shows a sync
+> error (everything else works). Get a free key at **api.windy.com → sign in → API keys
+> → Point Forecast**. The app sends the ride location (set in the Weather panel, or 📍
+> from the device); the key itself never leaves the server.
 
 ### 4. (Recommended) Add Vercel KV for Strava token rotation
 Strava can hand back a new refresh token. The serverless filesystem is read-only, so

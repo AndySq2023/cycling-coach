@@ -1039,6 +1039,41 @@
         <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava()">⚡ Sync from Strava</button>
       </div>
 
+      <!-- WEATHER -->
+      <div>
+        <div class="data-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Weather — Next 48h</span>
+          <span id="weather-sync-status" style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;font-weight:400;letter-spacing:0;text-transform:none;"></span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Location</span>
+          <span class="metric-value" id="disp-wx-loc">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Now</span>
+          <span class="metric-value" id="disp-wx-now">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Wind</span>
+          <span class="metric-value" id="disp-wx-wind">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Temp range</span>
+          <span class="metric-value" id="disp-wx-temp">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Rain (48h)</span>
+          <span class="metric-value" id="disp-wx-rain">—</span>
+        </div>
+        <input class="data-textarea" id="wxLocInput"
+          style="margin-top:8px;font-family:'DM Mono',monospace;"
+          placeholder="lat, lon  e.g. 51.45, -2.59" />
+        <div style="display:flex;gap:8px;">
+          <button class="load-btn" id="weatherSyncBtn" style="flex:1;" onclick="syncWeather()">⚡ Sync weather</button>
+          <button class="load-btn" style="flex:0 0 auto;" onclick="useMyLocation()" title="Use this device's location">📍</button>
+        </div>
+      </div>
+
       <!-- GOALS -->
       <div>
         <div class="data-section-label">Your Goal</div>
@@ -1181,7 +1216,7 @@
 
 <script>
 // ── STATE ──────────────────────────────────────────────────
-let athleteData = { whoop: null, strava: null, goal: null };
+let athleteData = { whoop: null, strava: null, weather: null, goal: null };
 let conversationHistory = [];
 let panelOpen = true;
 let currentTab = 'chat';
@@ -1199,8 +1234,8 @@ let feedbackTargetId = null; // which session we're logging
 const IS_LOCAL = location.protocol === 'file:'
   || ['localhost', '127.0.0.1'].includes(location.hostname);
 const API = IS_LOCAL
-  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002' }
-  : { chat: '', whoop: '', strava: '' };
+  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002' }
+  : { chat: '', whoop: '', strava: '', weather: '' };
 
 function getAppPassword() {
   let pw = localStorage.getItem('cyclingCoachPw');
@@ -1271,6 +1306,10 @@ async function coachFetch(url, options = {}) {
   // Pull live WHOOP + Strava on load so the coach never runs on stale/empty data
   syncWHOOP();
   syncStrava();
+  // Weather: prefill saved home location and sync it (no-op if no location is set yet)
+  const home = getHomeLocation();
+  if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
+  syncWeather();
 })();
 
 function saveChat() {
@@ -1437,6 +1476,92 @@ async function syncStrava() {
   btn.disabled = false;
 }
 
+// ── WEATHER (Windy point forecast) ─────────────────────────
+// Home location lives in localStorage ('cyclingCoachHome' = "lat,lon"). The coach
+// uses it to plan rides (wind/temp/rain). No location set ⇒ weather is skipped, not errored.
+function getHomeLocation() {
+  const raw = localStorage.getItem('cyclingCoachHome');
+  if (!raw) return null;
+  const [lat, lon] = raw.split(',').map(s => parseFloat(s.trim()));
+  return (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+}
+function setHomeLocation(lat, lon) {
+  localStorage.setItem('cyclingCoachHome', `${(+lat).toFixed(4)},${(+lon).toFixed(4)}`);
+}
+function parseLocInput() {
+  const v = (document.getElementById('wxLocInput').value || '').trim();
+  if (!v) return null;
+  const [lat, lon] = v.split(',').map(s => parseFloat(s.trim()));
+  return (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+}
+function useMyLocation() {
+  if (!navigator.geolocation) { showToast('⚠️ Geolocation not available in this browser.', true); return; }
+  showToast('Locating…');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      setHomeLocation(latitude, longitude);
+      document.getElementById('wxLocInput').value = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      syncWeather();
+    },
+    (err) => showToast('⚠️ Could not get location: ' + err.message, true),
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+  );
+}
+
+async function syncWeather() {
+  const btn = document.getElementById('weatherSyncBtn');
+  const status = document.getElementById('weather-sync-status');
+
+  // Resolve location: input field first (and persist it), else saved home.
+  let loc = parseLocInput();
+  if (loc) setHomeLocation(loc.lat, loc.lon);
+  else loc = getHomeLocation();
+  if (!loc) {
+    status.textContent = 'set location';
+    status.style.color = 'var(--text-muted)';
+    return; // nothing to sync — silent, not an error
+  }
+  if (!document.getElementById('wxLocInput').value.trim()) {
+    document.getElementById('wxLocInput').value = `${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}`;
+  }
+
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const res = await coachFetch(`${API.weather}/api/windy?lat=${loc.lat}&lon=${loc.lon}`);
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    athleteData.weather = d;
+    const n = d.now || {};
+    const s = d.summary || {};
+    document.getElementById('disp-wx-loc').textContent = d.location ? `${d.location.lat}, ${d.location.lon}` : '—';
+    document.getElementById('disp-wx-now').textContent = n.temp_c != null ? `${n.temp_c}°C` : '—';
+    document.getElementById('disp-wx-wind').textContent = n.wind_kph != null
+      ? `${n.wind_kph}${n.wind_dir ? ' ' + n.wind_dir : ''} (gust ${n.gust_kph ?? '?'}) kph` : '—';
+    document.getElementById('disp-wx-temp').textContent = (s.temp_c_min != null && s.temp_c_max != null)
+      ? `${s.temp_c_min}–${s.temp_c_max}°C` : '—';
+    document.getElementById('disp-wx-rain').textContent = s.precip_mm_total != null ? `${s.precip_mm_total} mm` : '—';
+
+    const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    status.textContent = `synced ${now}`;
+    status.style.color = 'var(--accent)';
+    showToast('Weather synced ✓');
+  } catch (err) {
+    status.textContent = 'sync failed';
+    status.style.color = 'var(--danger)';
+    showToast('⚠️ Could not load weather. ' + (err.message || ''), true);
+    console.error(err);
+  }
+
+  btn.textContent = '⚡ Sync weather';
+  btn.disabled = false;
+}
+
 function saveGoal() {
   athleteData.goal = document.getElementById('goalInput').value.trim();
   if (athleteData.goal) {
@@ -1485,6 +1610,23 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
         prompt += `\n- ${r.date} | ${r.name} | ${r.distance_km}km | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
       });
     }
+  }
+  if (athleteData.weather) {
+    const wx = athleteData.weather;
+    const n = wx.now || {};
+    const s = wx.summary || {};
+    prompt += `\n\nWEATHER FORECAST (live, next ${s.hours || 48}h, for ride planning):`;
+    if (wx.location) prompt += `\nLocation: ${wx.location.lat}, ${wx.location.lon}`;
+    if (n.temp_c != null) prompt += `\nNow: ${n.temp_c}°C, wind ${n.wind_kph ?? '?'} kph${n.wind_dir ? ' from ' + n.wind_dir : ''}, gusting ${n.gust_kph ?? '?'} kph, ${n.precip_mm ?? 0}mm rain (last 3h)`;
+    if (s.wind_kph_max != null) prompt += `\nNext ${s.hours || 48}h: wind ${s.wind_kph_min}–${s.wind_kph_max} kph (max gust ${s.gust_kph_max} kph), temp ${s.temp_c_min}–${s.temp_c_max}°C, total rain ${s.precip_mm_total}mm`;
+    if (wx.hourly?.length) {
+      prompt += `\nHourly outlook (~3h steps): `;
+      prompt += wx.hourly.map(h => {
+        const t = new Date(h.time).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+        return `${t} ${h.temp_c}°C/${h.wind_kph}${h.wind_dir || ''}kph` + (h.precip_mm ? `/${h.precip_mm}mm` : '');
+      }).join('; ');
+    }
+    prompt += `\nUse this to advise on ride timing, kit (rain/wind), and whether to move/shorten a planned session.`;
   }
   if (athleteData.goal) {
     prompt += `\n\nATHLETE'S GOAL:\n${athleteData.goal}`;
