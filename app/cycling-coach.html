@@ -4,32 +4,37 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cycling Coach</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg: #0d0f0e;
-    --surface: #141714;
-    --surface2: #1c201b;
-    --border: #252925;
-    --accent: #b6f542;
-    --accent-dim: #8bbf2e;
-    --text: #e8ede6;
-    --text-muted: #6b7569;
-    --text-mid: #9da89b;
-    --coach-bubble: #1a2218;
-    --user-bubble: #b6f542;
-    --user-text: #0d0f0e;
-    --danger: #f5564a;
-    --warn: #f5a742;
-    --band-easy: #4a9eff;
-    --band-med: #f5a742;
-    --band-hard: #f5564a;
+    /* Daybreak — bright editorial light theme */
+    --bg: #F1EDE4;          /* cream canvas */
+    --surface: #ffffff;     /* white cards & panels */
+    --surface2: #f4f0e7;    /* cream-tinted inset */
+    --border: #e6e0d3;      /* warm hairline */
+    --accent: #FF5A1F;      /* daybreak orange */
+    --accent-dim: #d8480f;  /* darker orange for text on light */
+    --text: #1a1812;        /* warm near-black */
+    --text-muted: #8c8676;  /* warm grey */
+    --text-mid: #6b6557;    /* mid warm grey */
+    --coach-bubble: #ffffff;/* coach bubble white */
+    --user-bubble: #FF5A1F; /* user bubble orange */
+    --user-text: #ffffff;   /* text on orange */
+    --danger: #D64A3A;
+    --warn: #E0892B;
+    --good: #2E7D52;        /* easy / Z2 / positive green */
+    --panel-dark: #16140F;  /* topbar & dark accents */
+    --band-easy: #3B7DD8;
+    --band-med: #E0892B;
+    --band-hard: #D64A3A;
   }
 
   body {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     background: var(--bg);
     color: var(--text);
     height: 100dvh;
@@ -44,8 +49,8 @@
     align-items: center;
     gap: 12px;
     padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    border-bottom: 1px solid #2a2720;
+    background: var(--panel-dark);
     flex-shrink: 0;
   }
 
@@ -60,10 +65,10 @@
 
   .header-info { flex: 1; }
   .header-name {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-weight: 700;
     font-size: 15px;
-    color: var(--text);
+    color: #F1EDE4;
     letter-spacing: 0.02em;
   }
   .header-status {
@@ -88,9 +93,9 @@
   .data-panel-toggle {
     font-family: 'DM Mono', monospace;
     font-size: 11px;
-    color: var(--text-muted);
-    background: var(--surface2);
-    border: 1px solid var(--border);
+    color: #c9c2b2;
+    background: #24211a;
+    border: 1px solid #34302700;
     padding: 5px 10px;
     border-radius: 4px;
     cursor: pointer;
@@ -128,7 +133,7 @@
   }
 
   .data-section-label {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.12em;
@@ -192,7 +197,7 @@
     border: none;
     border-radius: 4px;
     padding: 8px;
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -224,7 +229,7 @@
     flex-shrink: 0;
   }
   .tab-btn {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -347,9 +352,9 @@
     border-radius: 3px;
     margin: 2px 2px 2px 0;
   }
-  .tag.good { background: rgba(182,245,66,0.15); color: var(--accent); border: 1px solid rgba(182,245,66,0.3); }
-  .tag.warn { background: rgba(245,167,66,0.15); color: var(--warn); border: 1px solid rgba(245,167,66,0.3); }
-  .tag.bad { background: rgba(245,86,74,0.15); color: var(--danger); border: 1px solid rgba(245,86,74,0.3); }
+  .tag.good { background: rgba(255,90,31,0.12); color: var(--accent); border: 1px solid rgba(255,90,31,0.32); }
+  .tag.warn { background: rgba(224,137,43,0.14); color: var(--warn); border: 1px solid rgba(224,137,43,0.35); }
+  .tag.bad { background: rgba(214,74,58,0.12); color: var(--danger); border: 1px solid rgba(214,74,58,0.35); }
 
   /* TYPING INDICATOR */
   .typing {
@@ -441,7 +446,7 @@
   }
   .empty-icon { font-size: 48px; }
   .empty-title {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 20px;
     font-weight: 800;
     color: var(--text);
@@ -492,7 +497,7 @@
     gap: 8px;
   }
   .schedule-header-left h2 {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 15px;
     font-weight: 800;
     color: var(--text);
@@ -505,7 +510,7 @@
   .schedule-header-actions { display: flex; gap: 6px; }
 
   .gen-btn {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
     font-weight: 700;
     padding: 7px 14px;
@@ -550,7 +555,7 @@
     transition: border-color 0.15s;
     animation: slideIn 0.2s ease;
   }
-  .session-card:hover { border-color: #333a32; }
+  .session-card:hover { border-color: #d8cfbd; }
   .session-card.completed { opacity: 0.7; border-style: dashed; }
   .session-card.rest-day { background: var(--bg); }
   .session-card.today { border-color: var(--accent); }
@@ -562,7 +567,7 @@
     gap: 10px;
   }
   .session-day-badge {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -577,13 +582,13 @@
     margin-top: 2px;
     flex-shrink: 0;
   }
-  .session-intensity-dot.low { background: var(--accent); }
+  .session-intensity-dot.low { background: var(--good); }
   .session-intensity-dot.medium { background: var(--warn); }
   .session-intensity-dot.high { background: var(--danger); }
   .session-intensity-dot.rest { background: var(--text-muted); }
 
   .session-type {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
@@ -669,15 +674,15 @@
     line-height: 1.5;
   }
   .feedback-rpe {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-weight: 700;
     color: var(--text);
   }
 
   /* adaptation note */
   .adaptation-note {
-    background: rgba(182,245,66,0.06);
-    border: 1px solid rgba(182,245,66,0.2);
+    background: rgba(255,90,31,0.07);
+    border: 1px solid rgba(255,90,31,0.22);
     border-radius: 6px;
     padding: 8px 12px;
     font-size: 11px;
@@ -703,7 +708,7 @@
   .bands-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .bands-header h2 {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 15px;
     font-weight: 800;
     color: var(--text);
@@ -716,7 +721,7 @@
     flex-wrap: wrap;
   }
   .band-cat-btn {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
     font-weight: 700;
     padding: 8px 16px;
@@ -746,7 +751,7 @@
     justify-content: space-between;
   }
   .bands-workout-title {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
@@ -778,7 +783,7 @@
   .exercise-item:hover { background: var(--surface2); }
 
   .exercise-num {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
     font-weight: 700;
     color: var(--text-muted);
@@ -814,8 +819,8 @@
     display: inline-block;
   }
   .band-color-badge.light { background: rgba(74,158,255,0.15); color: var(--band-easy); border: 1px solid rgba(74,158,255,0.3); }
-  .band-color-badge.medium { background: rgba(245,167,66,0.15); color: var(--warn); border: 1px solid rgba(245,167,66,0.3); }
-  .band-color-badge.heavy { background: rgba(245,86,74,0.15); color: var(--danger); border: 1px solid rgba(245,86,74,0.3); }
+  .band-color-badge.medium { background: rgba(224,137,43,0.14); color: var(--warn); border: 1px solid rgba(224,137,43,0.35); }
+  .band-color-badge.heavy { background: rgba(214,74,58,0.12); color: var(--danger); border: 1px solid rgba(214,74,58,0.35); }
 
   .bands-action-row {
     padding: 12px 16px;
@@ -841,7 +846,7 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.7);
+    background: rgba(40,30,15,0.45);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -864,7 +869,7 @@
     animation: slideIn 0.2s ease;
   }
   .modal-title {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 16px;
     font-weight: 800;
     color: var(--text);
@@ -872,7 +877,7 @@
   .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   .rpe-label {
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -891,7 +896,7 @@
     border: 1px solid var(--border);
     background: var(--surface2);
     color: var(--text-mid);
-    font-family: 'Syne', sans-serif;
+    font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
@@ -930,7 +935,7 @@
     transition: all 0.15s;
   }
   .feel-chip:hover { border-color: var(--accent); color: var(--accent); }
-  .feel-chip.selected { background: rgba(182,245,66,0.15); border-color: rgba(182,245,66,0.4); color: var(--accent); }
+  .feel-chip.selected { background: rgba(255,90,31,0.12); border-color: rgba(255,90,31,0.4); color: var(--accent); }
 
   .modal-actions {
     display: flex;
@@ -942,7 +947,7 @@
   .spinner {
     display: inline-block;
     width: 12px; height: 12px;
-    border: 2px solid rgba(182,245,66,0.3);
+    border: 2px solid rgba(255,90,31,0.3);
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
@@ -1432,7 +1437,7 @@ async function syncWHOOP() {
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
-    showToast('⚠️ Could not reach WHOOP server. Is Claude Desktop running?', true);
+    showToast(IS_LOCAL ? '⚠️ Could not reach WHOOP bridge. Is the local server (localhost:3001) running?' : '⚠️ WHOOP sync failed. Check /api/whoop (creds/KV) in Vercel.', true);
     console.error(err);
   }
 
@@ -2290,7 +2295,7 @@ function applyScheduleUpdates(updates) {
     showToast('Schedule updated by coach ✓');
     // Flash the schedule tab button to draw attention
     const schedTab = document.getElementById('tab-schedule');
-    schedTab.style.background = 'rgba(182,245,66,0.3)';
+    schedTab.style.background = 'rgba(255,90,31,0.25)';
     setTimeout(() => { schedTab.style.background = ''; }, 1500);
   }
 }
@@ -2455,9 +2460,9 @@ function showToast(msg, warn = false) {
   const t = document.createElement('div');
   t.style.cssText = `
     position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
-    background:${warn ? '#f5a742' : '#b6f542'}; color:#0d0f0e;
+    background:${warn ? '#D64A3A' : '#16140F'}; color:#fff;
     padding:8px 16px; border-radius:20px; font-size:12px; font-weight:600;
-    font-family:'Syne',sans-serif; z-index:999; animation:slideIn 0.2s ease;
+    font-family:'Bricolage Grotesque',sans-serif; z-index:999; animation:slideIn 0.2s ease;
     white-space:nowrap;
   `;
   t.textContent = msg;
