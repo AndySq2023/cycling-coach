@@ -1,8 +1,7 @@
-# Deploying to Vercel — Phase 1 (chat + Strava)
+# Deploying to Vercel — chat + Strava + WHOOP + weather
 
-Phase 1 puts the app online with **coach chat** and **Strava** working. WHOOP is
-Phase 2 (it needs the logic in `~/whoop-mcp` ported into an `api/whoop.js`); until
-then the WHOOP panel shows a sync error on the hosted site — that's expected.
+Puts the app online with **coach chat**, **Strava**, **WHOOP**, and **weather** all
+working hosted. (WHOOP is the `~/whoop-mcp` bridge logic ported into `api/whoop.js`.)
 
 The local desktop app is **unaffected** — it still talks to your localhost servers.
 The app auto-detects where it's running (`localhost`/`file://` → local servers; a real
@@ -15,6 +14,7 @@ api/
   _auth.js     # shared password check for the hosted API
   chat.js      # → Anthropic Messages API (replaces the Claude Desktop bridge)
   strava.js    # → Strava REST API (port of proxy/server.js)
+  whoop.js     # → WHOOP v2 API (port of the ~/whoop-mcp localhost:3001 bridge)
   windy.js     # → Windy Point Forecast API (ride-planning weather)
 package.json   # root deps for the functions (@vercel/kv)
 vercel.json    # serves the app at "/", gives chat 60s to respond
@@ -28,6 +28,8 @@ near a public URL:
 - **Anthropic API key** — console.anthropic.com → API keys → create new (revoke old).
 - **Strava** — only the **refresh token** needs care; you can keep client id/secret,
   but rotate the secret if you want to be thorough.
+- **WHOOP** — same idea; the **refresh token** is the sensitive part (rotate the client
+  secret too if you want). You'll seed the refresh token into KV in step 4.
 
 ### 2. Import the GitHub repo
 Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
@@ -44,9 +46,16 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `STRAVA_CLIENT_ID` | from `~/.strava-proxy/auth.json` |
 | `STRAVA_CLIENT_SECRET` | from `~/.strava-proxy/auth.json` |
 | `STRAVA_REFRESH_TOKEN` | from `~/.strava-proxy/auth.json` |
+| `WHOOP_CLIENT_ID` | from `~/whoop-mcp/.env` |
+| `WHOOP_CLIENT_SECRET` | from `~/whoop-mcp/.env` |
+| `WHOOP_REFRESH_TOKEN` | from `~/whoop-mcp/.whoop-tokens.json` (seed — migrates to KV on first call) |
 | `APP_PASSWORD` | a password you choose — the app asks for it on first load |
 | `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
 
+> **WHOOP does not need `WHOOP_REDIRECT_URI`** (the refresh-token grant doesn't use it).
+> The `WHOOP_REFRESH_TOKEN` here is just a one-time seed — see step 4 for why it then
+> lives in KV.
+>
 > Without `APP_PASSWORD` the API refuses to run, so chat can't be left open to the
 > world by accident.
 >
@@ -55,16 +64,36 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 > → Point Forecast**. The app sends the ride location (set in the Weather panel, or 📍
 > from the device); the key itself never leaves the server.
 
-### 4. (Recommended) Add Vercel KV for Strava token rotation
-Strava can hand back a new refresh token. The serverless filesystem is read-only, so
-to persist it: Vercel → **Storage → Create → KV**, link it to this project. That sets
-`KV_REST_API_URL` automatically and `api/strava.js` starts using it. Skip this and the
-app still works until Strava rotates the token (often a long time), at which point
-you'd update `STRAVA_REFRESH_TOKEN` by hand.
+### 4. Add a KV store (required for WHOOP, recommended for Strava)
+The serverless filesystem is read-only, so rotated refresh tokens have to be persisted
+somewhere. **Vercel KV is now the Marketplace "Upstash for Redis" integration** (the old
+standalone "KV" button is gone): Vercel → **Storage → Create Database → Upstash for
+Redis → Create**, free plan, then **Connect to Project** (`cycling-coach`). It auto-injects
+`KV_REST_API_URL` + `KV_REST_API_TOKEN` (plus `KV_URL` etc.) — the exact names `@vercel/kv`
+reads, so no code change needed. Ignore Upstash's "pull env vars / install SDK" quickstart
+steps; those are a generic Next.js tutorial.
+
+- **Strava:** optional. Without KV the app works until Strava rotates the token (often a
+  long time), at which point you'd update `STRAVA_REFRESH_TOKEN` by hand.
+- **WHOOP:** effectively **required**. WHOOP rotates the refresh token on *every* refresh
+  and invalidates the old one, so the `WHOOP_REFRESH_TOKEN` env seed is single-use — the
+  first hosted refresh burns it. KV is where the live token has to live.
+
+**Seeding WHOOP:** easiest path is to just set `WHOOP_REFRESH_TOKEN` (step 3) with the
+current value from `~/whoop-mcp/.whoop-tokens.json`. On the first `/api/whoop` request the
+function reads that seed, refreshes, and writes the rotated token into KV itself —
+correctly serialized. (Avoid pasting it straight into the KV Data Browser: `@vercel/kv`
+JSON-encodes values, so a raw string set by hand won't read back cleanly.)
+
+> ⚠️ **Seeding KV breaks the local WHOOP bridge.** Once Vercel does its first refresh, the
+> token in `~/whoop-mcp/.whoop-tokens.json` is dead. WHOOP can be live *either* locally
+> *or* on Vercel, not both, unless they share a token store. Re-authorise locally
+> (`cd ~/whoop-mcp && npm run auth`) if you need the desktop bridge back.
 
 ### 5. Deploy
 Push to the branch / merge to `main` → Vercel builds automatically. Open the URL,
-enter the app password when prompted, and Strava + chat should work.
+enter the app password when prompted, and chat + Strava + WHOOP should work. (Remember:
+**env-var or KV changes need a redeploy** to take effect.)
 
 ## Notes & limits
 - **Function timeout:** chat is capped at 60s (`vercel.json`). If long replies get cut
@@ -74,6 +103,12 @@ enter the app password when prompted, and Strava + chat should work.
 - **State** (plan, chat history) still lives in the browser's localStorage — per-device,
   same as today.
 
-## Phase 2 (later)
-Port `~/whoop-mcp`'s WHOOP OAuth into `api/whoop.js` (refresh token → Vercel KV, same
-pattern as Strava), then the WHOOP panel works on the hosted site too.
+## Troubleshooting WHOOP on the hosted site
+The Strava-style debugging applies — read Network → `/api/whoop` Response:
+- **401** = wrong `APP_PASSWORD` cached in the browser (clear localStorage `cyclingCoachPw`, reload).
+- **503** = `APP_PASSWORD` env unset.
+- **200 `{error: "WHOOP token refresh failed (400/401)…"}`** = the KV refresh token is
+  missing, stale, or was invalidated (e.g. the local bridge refreshed after you seeded KV).
+  Re-seed from a fresh authorise (`cd ~/whoop-mcp && npm run auth`), update `WHOOP_REFRESH_TOKEN`, redeploy.
+- **200 `{error: "Missing WHOOP credentials…"}`** = `WHOOP_CLIENT_ID/SECRET` unset, or no
+  token in KV and no `WHOOP_REFRESH_TOKEN` env seed.
