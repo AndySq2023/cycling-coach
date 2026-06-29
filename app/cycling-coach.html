@@ -956,6 +956,96 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* ── TODAY DASHBOARD ──────────────────────────── */
+  .dashboard-view { flex:1; overflow-y:auto; padding:18px 16px 30px; }
+  .dashboard-view.hidden { display:none; }
+  .dashboard-view::-webkit-scrollbar { width:4px; }
+  .dashboard-view::-webkit-scrollbar-track { background:transparent; }
+  .dashboard-view::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  #dashboardContent { display:flex; flex-direction:column; gap:16px; max-width:920px; margin:0 auto; }
+
+  .dash-greeting-row { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; padding:2px 2px 0; }
+  .dash-greeting { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:26px; line-height:1.08; letter-spacing:-0.025em; color:var(--text); }
+  .dash-greeting .accent { color:var(--accent); }
+  .dash-date { font-family:'DM Mono',monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); white-space:nowrap; flex-shrink:0; }
+
+  .dash-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .dash-card-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
+
+  .dash-hero { display:grid; grid-template-columns:248px minmax(0,1fr); gap:16px; }
+
+  .recovery-card { display:flex; flex-direction:column; align-items:center; }
+  .ring-wrap { position:relative; width:150px; height:150px; margin:10px 0; }
+  .ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring-num { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:44px; line-height:1; letter-spacing:-0.03em; color:var(--text); }
+  .ring-pct { font-size:18px; color:var(--text-muted); }
+  .ring-status { font-family:'DM Mono',monospace; font-size:11px; margin-top:4px; letter-spacing:0.05em; }
+  .vitals-row { display:flex; gap:8px; width:100%; }
+  .vital { flex:1; text-align:center; background:var(--surface2); border:1px solid var(--border); border-radius:9px; padding:9px 4px; }
+  .vital-label { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); }
+  .vital-val { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:15px; color:var(--text); margin-top:3px; }
+  .vital-val .u { font-size:10px; color:var(--text-muted); font-weight:400; margin-left:1px; }
+
+  .today-card { position:relative; overflow:hidden; background:var(--panel-dark); color:#F1EDE4; display:flex; flex-direction:column; }
+  .today-glow { position:absolute; right:-40px; bottom:-40px; width:170px; height:170px; border-radius:50%; background:radial-gradient(circle, rgba(255,90,31,0.28), transparent 70%); pointer-events:none; }
+  .today-card.rest { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+  .today-card.empty { background:var(--surface); color:var(--text); border:1px dashed var(--border); }
+  .today-top { display:flex; align-items:center; justify-content:space-between; gap:10px; position:relative; }
+  .today-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:#9b958a; }
+  .today-card.rest .today-label, .today-card.empty .today-label { color:var(--text-muted); }
+  .today-tag { font-family:'DM Mono',monospace; font-size:10px; padding:3px 11px; border-radius:20px; color:#fff; }
+  .today-tag.low { background:var(--good); } .today-tag.medium { background:var(--warn); } .today-tag.high { background:var(--danger); }
+  .today-title { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:27px; letter-spacing:-0.025em; margin-top:12px; position:relative; }
+  .today-metrics { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; position:relative; }
+  .today-chip { font-family:'DM Mono',monospace; font-size:12px; background:rgba(255,255,255,0.08); border-radius:7px; padding:5px 10px; }
+  .today-card.rest .today-chip { background:#fff; border:1px solid var(--border); }
+  .today-desc { font-size:13px; line-height:1.55; color:#c4bdb0; margin-top:13px; max-width:460px; position:relative; }
+  .today-card.rest .today-desc, .today-card.empty .today-desc { color:var(--text-mid); }
+  .today-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin-top:18px; position:relative; }
+  .dash-btn { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:13px; border-radius:10px; padding:10px 18px; border:none; cursor:pointer; transition:all 0.15s; letter-spacing:0.02em; }
+  .dash-btn.primary { background:var(--accent); color:#fff; }
+  .dash-btn.primary:hover { opacity:0.88; }
+  .dash-btn.ghost { background:transparent; color:#e7e1d4; border:1px solid rgba(255,255,255,0.22); }
+  .dash-btn.ghost:hover { border-color:var(--accent); color:var(--accent); }
+  .today-card.rest .dash-btn.ghost, .today-card.empty .dash-btn.ghost { color:var(--text-mid); border-color:var(--border); }
+  .today-card.rest .dash-btn.ghost:hover, .today-card.empty .dash-btn.ghost:hover { color:var(--accent); border-color:var(--accent); }
+  .today-done { font-family:'DM Mono',monospace; font-size:12px; color:#9be0b0; }
+
+  .agenda-card { padding:8px 18px 10px; }
+  .agenda-head { display:flex; align-items:center; justify-content:space-between; padding:12px 0 8px; }
+  .agenda-meta { font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); }
+  .agenda-row { display:flex; align-items:center; gap:13px; padding:11px 0; border-top:1px solid var(--border); cursor:pointer; transition:opacity 0.15s; }
+  .agenda-row:first-of-type { border-top:none; }
+  .agenda-row.done { opacity:0.55; }
+  .agenda-row:hover { opacity:0.8; }
+  .agenda-date { width:40px; text-align:center; flex-shrink:0; }
+  .agenda-dow { font-family:'DM Mono',monospace; font-size:9px; letter-spacing:0.06em; color:var(--text-muted); }
+  .agenda-dnum { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:17px; line-height:1; color:var(--text); }
+  .agenda-bar { width:4px; height:32px; border-radius:4px; flex-shrink:0; background:var(--text-muted); }
+  .agenda-bar.low { background:var(--good); } .agenda-bar.medium { background:var(--warn); } .agenda-bar.high { background:var(--danger); } .agenda-bar.rest { background:#cfc8b8; }
+  .agenda-info { flex:1; min-width:0; }
+  .agenda-type { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:14px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .agenda-sub { font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .agenda-badge { font-family:'DM Mono',monospace; font-size:10px; background:rgba(255,90,31,0.12); color:var(--accent); border-radius:7px; padding:4px 9px; flex-shrink:0; }
+  .agenda-badge.done { background:var(--surface2); color:var(--good); }
+
+  .glance-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .glance-big { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:40px; line-height:1; letter-spacing:-0.03em; margin-top:12px; color:var(--text); }
+  .glance-big .u { font-family:'DM Mono',monospace; font-size:14px; color:var(--text-muted); font-weight:400; margin-left:4px; }
+  .glance-stats { display:flex; gap:18px; margin-top:14px; border-top:1px solid var(--border); padding-top:13px; }
+  .glance-stats div { display:flex; flex-direction:column; }
+  .glance-stats b { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:19px; color:var(--text); }
+  .glance-stats span { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:2px; }
+  .glance.weather { background:#FFF3D9; border-color:#f0e3bf; }
+  .glance-weather { display:flex; align-items:center; gap:16px; margin-top:10px; }
+  .glance-temp { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:42px; line-height:1; letter-spacing:-0.03em; color:#1a1812; }
+  .glance-wx-meta { display:flex; flex-direction:column; gap:3px; font-family:'DM Mono',monospace; font-size:12px; color:#7a6a3e; }
+
+  @media (max-width: 720px) {
+    .dash-hero { grid-template-columns:1fr; }
+    .glance-row { grid-template-columns:1fr; }
+  }
+
   @media (max-width: 600px) {
     .data-panel { display: none; }
   }
@@ -1095,14 +1185,20 @@
 
     <!-- TAB BAR -->
     <div class="tab-bar">
-      <button class="tab-btn active" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
+      <button class="tab-btn active" id="tab-today" onclick="switchTab('today')">◎ Today</button>
+      <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
       <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
       <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;" title="Clear chat history">✕ Clear</button>
     </div>
 
+    <!-- TODAY DASHBOARD -->
+    <div class="dashboard-view" id="dashboardView">
+      <div id="dashboardContent"></div>
+    </div>
+
     <!-- CHAT MESSAGES -->
-    <div class="messages" id="messages">
+    <div class="messages hidden" id="messages">
       <div class="empty-state" id="emptyState">
         <div class="empty-icon">🚴‍♂️</div>
         <div class="empty-title">Your AI Cycling Coach</div>
@@ -1224,7 +1320,7 @@
 let athleteData = { whoop: null, strava: null, weather: null, goal: null };
 let conversationHistory = [];
 let panelOpen = true;
-let currentTab = 'chat';
+let currentTab = 'today';
 
 let trainingPlan = [];       // array of session objects
 let sessionFeedback = {};    // sessionId → { rpe, feel, notes }
@@ -1315,6 +1411,7 @@ async function coachFetch(url, options = {}) {
   const home = getHomeLocation();
   if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
   syncWeather();
+  switchTab('today');
 })();
 
 function saveChat() {
@@ -1390,18 +1487,186 @@ function togglePanel() {
 // ── TAB SWITCHING ──────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
-  ['chat','schedule','bands'].forEach(t => {
-    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+  ['today','chat','schedule','bands'].forEach(t => {
+    const b = document.getElementById(`tab-${t}`);
+    if (b) b.classList.toggle('active', t === tab);
   });
+  document.getElementById('dashboardView').classList.toggle('hidden', tab !== 'today');
   document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
   document.getElementById('scheduleView').classList.toggle('hidden', tab !== 'schedule');
   document.getElementById('bandsView').classList.toggle('hidden', tab !== 'bands');
   document.getElementById('chatInputBar').style.display = tab === 'chat' ? '' : 'none';
 
+  if (tab === 'today') renderDashboard();
   if (tab === 'schedule' && trainingPlan.length) renderSchedule();
 }
 
 function switchTabTo(tab) { switchTab(tab); }
+
+// ── TODAY DASHBOARD ──────────────────────────────────
+function dashGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+function intensityWord(i) {
+  return ({ low:'Easy', medium:'Moderate', high:'Hard', rest:'Rest' })[i] || '';
+}
+function renderDashboard() {
+  const el = document.getElementById('dashboardContent');
+  if (!el) return;
+
+  const today = new Date().toISOString().slice(0,10);
+  const w  = athleteData.whoop || {};
+  const st = athleteData.strava || null;
+  const wx = athleteData.weather || null;
+
+  // greeting
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+  const rec = (w.recovery_score != null) ? w.recovery_score : null;
+  let headline = 'ready when you are.';
+  if (rec != null) headline = rec >= 67 ? "you're primed to ride." : rec >= 34 ? 'ease into today.' : 'recovery comes first today.';
+  const greetHtml = `
+    <div class="dash-greeting-row">
+      <div class="dash-greeting">${dashGreeting()},<br><span class="accent">${headline}</span></div>
+      <div class="dash-date">${dateStr}</div>
+    </div>`;
+
+  // recovery ring
+  const R = 66, C = 2 * Math.PI * R;
+  const pct = rec != null ? Math.max(0, Math.min(100, rec)) : 0;
+  const dash = (pct / 100) * C;
+  let ringColor = 'var(--border)', statusWord = 'No data', statusColor = 'var(--text-muted)';
+  if (rec != null) {
+    if (rec >= 67)      { ringColor = 'var(--good)';   statusWord = 'Primed';   statusColor = 'var(--good)'; }
+    else if (rec >= 34) { ringColor = 'var(--warn)';   statusWord = 'Moderate'; statusColor = 'var(--warn)'; }
+    else                { ringColor = 'var(--danger)'; statusWord = 'Low';      statusColor = 'var(--danger)'; }
+  }
+  const vital = (label, val) => `<div class="vital"><div class="vital-label">${label}</div><div class="vital-val">${val}</div></div>`;
+  const hrv   = w.hrv != null ? `${w.hrv}<span class="u">ms</span>`  : '—';
+  const rhr   = w.rhr != null ? `${w.rhr}<span class="u">bpm</span>` : '—';
+  const sleep = w.sleep_efficiency != null ? `${w.sleep_efficiency}<span class="u">%</span>`
+              : (w.sleep_duration_h != null ? `${w.sleep_duration_h}<span class="u">h</span>` : '—');
+  const recoveryHtml = `
+    <div class="dash-card recovery-card">
+      <div class="dash-card-label" style="align-self:flex-start">Recovery · today</div>
+      <div class="ring-wrap">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="12"></circle>
+          <circle cx="75" cy="75" r="${R}" fill="none" stroke="${ringColor}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 75 75)"></circle>
+        </svg>
+        <div class="ring-center">
+          <div class="ring-num">${rec != null ? rec : '—'}<span class="ring-pct">${rec != null ? '%' : ''}</span></div>
+          <div class="ring-status" style="color:${statusColor}">${statusWord}</div>
+        </div>
+      </div>
+      <div class="vitals-row">${vital('HRV', hrv)}${vital('RHR', rhr)}${vital('Sleep', sleep)}</div>
+    </div>`;
+
+  // today's session
+  const ts = trainingPlan.find(s => s.date === today);
+  let todayHtml;
+  if (!trainingPlan.length) {
+    todayHtml = `
+      <div class="dash-card today-card empty">
+        <div class="today-label">Today's plan</div>
+        <div class="today-title" style="font-size:22px;margin-top:8px">No plan yet</div>
+        <div class="today-desc">Generate a personalised training week from your goal and live data.</div>
+        <div class="today-actions"><button class="dash-btn primary" onclick="switchTab('schedule')">Generate plan →</button></div>
+      </div>`;
+  } else if (!ts || ts.intensity === 'rest') {
+    todayHtml = `
+      <div class="dash-card today-card rest">
+        <div class="today-label">Today · ${formatSessionDate(today)}</div>
+        <div class="today-title">${ts ? escapeHtml(ts.type || 'Rest Day') : 'Rest Day'}</div>
+        <div class="today-desc">${ts && ts.description ? escapeHtml(ts.description) : 'Full recovery — keep it easy, hydrate and stretch.'}</div>
+        <div class="today-actions"><button class="dash-btn ghost" onclick="switchTab('chat')">Ask coach</button></div>
+      </div>`;
+  } else {
+    const done = sessionFeedback[ts.id];
+    const chips = [];
+    if (ts.duration > 0) chips.push(`⏱ ${ts.duration} min`);
+    if (ts.targets) chips.push(ts.targets);
+    todayHtml = `
+      <div class="dash-card today-card">
+        <div class="today-glow"></div>
+        <div class="today-top">
+          <div class="today-label">Today's ride · ${formatSessionDate(today)}</div>
+          <div class="today-tag ${ts.intensity}">${intensityWord(ts.intensity)}</div>
+        </div>
+        <div class="today-title">${escapeHtml(ts.type)}</div>
+        <div class="today-metrics">${chips.map(c => `<span class="today-chip">${escapeHtml(c)}</span>`).join('')}</div>
+        ${ts.description ? `<div class="today-desc">${escapeHtml(ts.description)}</div>` : ''}
+        <div class="today-actions">
+          ${done
+            ? `<span class="today-done">✓ Logged · RPE ${done.rpe}/10</span><button class="dash-btn ghost" onclick="openFeedbackModal('${ts.id}')">Edit</button>`
+            : `<button class="dash-btn primary" onclick="openFeedbackModal('${ts.id}')">✓ Log session</button>`}
+          <button class="dash-btn ghost" onclick="chatAboutSession('${ts.id}')">Ask coach</button>
+        </div>
+      </div>`;
+  }
+
+  // week agenda
+  let agendaHtml = '';
+  if (trainingPlan.length) {
+    const rows = trainingPlan.map(s => {
+      const isToday = s.date === today;
+      const isDone = !!sessionFeedback[s.id];
+      const d = new Date(s.date + 'T12:00:00');
+      const dow = d.toLocaleDateString('en-GB', { weekday:'short' }).toUpperCase();
+      const sub = (s.duration > 0 ? `${s.duration} min` : 'Recovery') + (s.targets ? ` · ${escapeHtml(s.targets)}` : '');
+      const badge = isToday ? '<span class="agenda-badge">Today</span>' : (isDone ? '<span class="agenda-badge done">✓</span>' : '');
+      return `
+        <div class="agenda-row ${isDone ? 'done' : ''}" onclick="switchTab('schedule')">
+          <div class="agenda-date"><div class="agenda-dow">${dow}</div><div class="agenda-dnum">${d.getDate()}</div></div>
+          <div class="agenda-bar ${s.intensity}"></div>
+          <div class="agenda-info"><div class="agenda-type">${escapeHtml(s.type)}</div><div class="agenda-sub">${sub}</div></div>
+          ${badge}
+        </div>`;
+    }).join('');
+    const logged = trainingPlan.filter(s => sessionFeedback[s.id]).length;
+    const trainTotal = trainingPlan.filter(s => s.intensity !== 'rest').length;
+    agendaHtml = `
+      <div class="dash-card agenda-card">
+        <div class="agenda-head"><div class="dash-card-label">This week</div><div class="agenda-meta">${logged}/${trainTotal} logged</div></div>
+        ${rows}
+      </div>`;
+  }
+
+  // glances
+  let glances = '';
+  if (st) {
+    glances += `
+      <div class="dash-card glance">
+        <div class="dash-card-label">Last 7 days · Strava</div>
+        <div class="glance-big">${st.total_km_7d != null ? st.total_km_7d : '—'}<span class="u">km</span></div>
+        <div class="glance-stats">
+          <div><b>${st.rides_7d != null ? st.rides_7d : '—'}</b><span>rides</span></div>
+          <div><b>${st.total_elevation_7d != null ? st.total_elevation_7d + 'm' : '—'}</b><span>climb</span></div>
+          <div><b>${st.total_moving_time_h_7d != null ? st.total_moving_time_h_7d + 'h' : '—'}</b><span>moving</span></div>
+        </div>
+      </div>`;
+  }
+  if (wx && wx.now) {
+    const n = wx.now, sm = wx.summary || {};
+    glances += `
+      <div class="dash-card glance weather">
+        <div class="dash-card-label">Weather · next 48h</div>
+        <div class="glance-weather">
+          <div class="glance-temp">${n.temp_c != null ? n.temp_c + '°' : '—'}</div>
+          <div class="glance-wx-meta">
+            <div>💨 ${n.wind_kph != null ? n.wind_kph + (n.wind_dir ? ' ' + n.wind_dir : '') + ' kph' : '—'}</div>
+            <div>🌡 ${sm.temp_c_min != null ? sm.temp_c_min + '–' + sm.temp_c_max + '°C' : '—'}</div>
+            <div>🌧 ${sm.precip_mm_total != null ? sm.precip_mm_total + ' mm' : '—'}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+  const glanceHtml = glances ? `<div class="glance-row">${glances}</div>` : '';
+
+  el.innerHTML = greetHtml + `<div class="dash-hero">${recoveryHtml}${todayHtml}</div>` + agendaHtml + glanceHtml;
+}
 
 // ── WHOOP LIVE SYNC ────────────────────────────────────────
 async function syncWHOOP() {
@@ -1434,6 +1699,7 @@ async function syncWHOOP() {
     status.textContent = `synced ${now}`;
     status.style.color = 'var(--accent)';
     showToast('WHOOP synced ✓');
+    renderDashboard();
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
@@ -1470,6 +1736,7 @@ async function syncStrava() {
     status.textContent = `synced ${now}`;
     status.style.color = 'var(--accent)';
     showToast('Strava synced ✓');
+    renderDashboard();
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
@@ -1556,6 +1823,7 @@ async function syncWeather() {
     status.textContent = `synced ${now}`;
     status.style.color = 'var(--accent)';
     showToast('Weather synced ✓');
+    renderDashboard();
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
@@ -1760,6 +2028,7 @@ Include exactly 7 elements covering the next 7 days in order.`;
     document.getElementById('generateBtn').textContent = '↺ Regenerate';
     document.getElementById('adaptBtn').style.display = '';
     showToast('Training plan generated ✓');
+    renderDashboard();
   } catch(err) {
     console.error(err);
     showToast('Could not generate plan. Check server connection.', true);
@@ -1823,6 +2092,7 @@ Return the full 7-day plan as the same JSON array format, with "adaptation_note"
     savePlan();
     renderSchedule();
     showToast('Plan adapted to your feedback ✓');
+    renderDashboard();
   } catch(err) {
     console.error(err);
     showToast('Could not adapt plan. Check server.', true);
@@ -1990,6 +2260,7 @@ async function submitFeedback() {
   closeFeedbackModal();
   renderSchedule();
   showToast('Session logged ✓');
+  renderDashboard();
 
   // auto-adapt after feedback
   const loggedCount = Object.keys(sessionFeedback).length;
@@ -2292,6 +2563,7 @@ function applyScheduleUpdates(updates) {
   if (changed) {
     savePlan();
     if (currentTab === 'schedule') renderSchedule();
+    renderDashboard();
     showToast('Schedule updated by coach ✓');
     // Flash the schedule tab button to draw attention
     const schedTab = document.getElementById('tab-schedule');
@@ -2381,6 +2653,7 @@ function saveEditModal() {
   renderSchedule();
   closeEditModal();
   showToast('Session updated ✓');
+  renderDashboard();
 }
 
 function appendBubble(role, text) {
