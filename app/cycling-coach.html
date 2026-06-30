@@ -1120,7 +1120,7 @@
           <span class="metric-value" id="disp-rides">—</span>
         </div>
         <div class="metric-row">
-          <span class="metric-label">Weekly km</span>
+          <span class="metric-label">Weekly miles</span>
           <span class="metric-value" id="disp-km">—</span>
         </div>
         <div class="metric-row">
@@ -1226,6 +1226,7 @@
         </div>
         <div class="schedule-header-actions">
           <button class="gen-btn secondary" id="adaptBtn" onclick="adaptPlan()" style="display:none">↺ Adapt Plan</button>
+          <button class="gen-btn secondary" id="exportBtn" onclick="exportCalendar()" title="Download a .ics file to add this week to Apple/Google Calendar">📆 Export</button>
           <button class="gen-btn primary" id="generateBtn" onclick="generateSchedule()">Generate Plan</button>
         </div>
       </div>
@@ -1330,6 +1331,11 @@ let currentBandCategory = null;
 let currentBandWorkout = null;
 
 let feedbackTargetId = null; // which session we're logging
+
+// ── Units: backend data is metric; display + coach prompt use imperial ──
+const mi   = km  => km  == null ? null : Math.round(km  * 0.621371 * 10) / 10; // km → miles (1dp)
+const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);          // kph → mph
+const degF = c   => c   == null ? null : Math.round(c * 9 / 5 + 32);          // °C → °F
 
 // ── Backend routing: local dev → localhost servers; hosted (Vercel) → same-origin /api.
 const IS_LOCAL = location.protocol === 'file:'
@@ -1640,7 +1646,7 @@ function renderDashboard() {
     glances += `
       <div class="dash-card glance">
         <div class="dash-card-label">Last 7 days · Strava</div>
-        <div class="glance-big">${st.total_km_7d != null ? st.total_km_7d : '—'}<span class="u">km</span></div>
+        <div class="glance-big">${st.total_km_7d != null ? mi(st.total_km_7d) : '—'}<span class="u">mi</span></div>
         <div class="glance-stats">
           <div><b>${st.rides_7d != null ? st.rides_7d : '—'}</b><span>rides</span></div>
           <div><b>${st.total_elevation_7d != null ? st.total_elevation_7d + 'm' : '—'}</b><span>climb</span></div>
@@ -1654,10 +1660,10 @@ function renderDashboard() {
       <div class="dash-card glance weather">
         <div class="dash-card-label">Weather · next 48h</div>
         <div class="glance-weather">
-          <div class="glance-temp">${n.temp_c != null ? n.temp_c + '°' : '—'}</div>
+          <div class="glance-temp">${n.temp_c != null ? degF(n.temp_c) + '°' : '—'}</div>
           <div class="glance-wx-meta">
-            <div>💨 ${n.wind_kph != null ? n.wind_kph + (n.wind_dir ? ' ' + n.wind_dir : '') + ' kph' : '—'}</div>
-            <div>🌡 ${sm.temp_c_min != null ? sm.temp_c_min + '–' + sm.temp_c_max + '°C' : '—'}</div>
+            <div>💨 ${n.wind_kph != null ? mph(n.wind_kph) + (n.wind_dir ? ' ' + n.wind_dir : '') + ' mph' : '—'}</div>
+            <div>🌡 ${sm.temp_c_min != null ? degF(sm.temp_c_min) + '–' + degF(sm.temp_c_max) + '°F' : '—'}</div>
             <div>🌧 ${sm.precip_mm_total != null ? sm.precip_mm_total + ' mm' : '—'}</div>
           </div>
         </div>
@@ -1726,9 +1732,9 @@ async function syncStrava() {
 
     athleteData.strava = d;
 
-    document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${d.last_ride.distance_km}km)` : '—';
+    document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${mi(d.last_ride.distance_km)}mi)` : '—';
     document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
-    document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${d.total_km_7d} km` : '—';
+    document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${mi(d.total_km_7d)} mi` : '—';
     document.getElementById('disp-elev').textContent = d.total_elevation_7d != null ? `${d.total_elevation_7d}m` : '—';
     document.getElementById('disp-movingtime').textContent = d.total_moving_time_h_7d != null ? `${d.total_moving_time_h_7d}h` : '—';
 
@@ -1812,11 +1818,11 @@ async function syncWeather() {
     const n = d.now || {};
     const s = d.summary || {};
     document.getElementById('disp-wx-loc').textContent = d.location ? `${d.location.lat}, ${d.location.lon}` : '—';
-    document.getElementById('disp-wx-now').textContent = n.temp_c != null ? `${n.temp_c}°C` : '—';
+    document.getElementById('disp-wx-now').textContent = n.temp_c != null ? `${degF(n.temp_c)}°F` : '—';
     document.getElementById('disp-wx-wind').textContent = n.wind_kph != null
-      ? `${n.wind_kph}${n.wind_dir ? ' ' + n.wind_dir : ''} (gust ${n.gust_kph ?? '?'}) kph` : '—';
+      ? `${mph(n.wind_kph)}${n.wind_dir ? ' ' + n.wind_dir : ''} (gust ${n.gust_kph != null ? mph(n.gust_kph) : '?'}) mph` : '—';
     document.getElementById('disp-wx-temp').textContent = (s.temp_c_min != null && s.temp_c_max != null)
-      ? `${s.temp_c_min}–${s.temp_c_max}°C` : '—';
+      ? `${degF(s.temp_c_min)}–${degF(s.temp_c_max)}°F` : '—';
     document.getElementById('disp-wx-rain').textContent = s.precip_mm_total != null ? `${s.precip_mm_total} mm` : '—';
 
     const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -1869,18 +1875,18 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     const s = athleteData.strava;
     prompt += `\n\nATHLETE'S STRAVA DATA (last 7 days, live):`;
     prompt += `\nRides: ${s.rides_7d}`;
-    prompt += `\nTotal distance: ${s.total_km_7d} km`;
+    prompt += `\nTotal distance: ${mi(s.total_km_7d)} mi`;
     prompt += `\nTotal elevation: ${s.total_elevation_7d}m`;
     prompt += `\nTotal moving time: ${s.total_moving_time_h_7d}h`;
     if (s.last_ride) {
       prompt += `\n\nMost recent ride: ${s.last_ride.name} on ${s.last_ride.date}`;
-      prompt += `\n  Distance: ${s.last_ride.distance_km}km, Moving time: ${s.last_ride.moving_time_min}min`;
-      prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${s.last_ride.avg_speed_kph} kph`;
+      prompt += `\n  Distance: ${mi(s.last_ride.distance_km)}mi, Moving time: ${s.last_ride.moving_time_min}min`;
+      prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${mph(s.last_ride.avg_speed_kph)} mph`;
     }
     if (s.all_rides?.length > 1) {
       prompt += `\n\nAll rides this week:`;
       s.all_rides.forEach((r) => {
-        prompt += `\n- ${r.date} | ${r.name} | ${r.distance_km}km | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
+        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
       });
     }
   }
@@ -1890,13 +1896,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     const s = wx.summary || {};
     prompt += `\n\nWEATHER FORECAST (live, next ${s.hours || 48}h, for ride planning):`;
     if (wx.location) prompt += `\nLocation: ${wx.location.lat}, ${wx.location.lon}`;
-    if (n.temp_c != null) prompt += `\nNow: ${n.temp_c}°C, wind ${n.wind_kph ?? '?'} kph${n.wind_dir ? ' from ' + n.wind_dir : ''}, gusting ${n.gust_kph ?? '?'} kph, ${n.precip_mm ?? 0}mm rain (last 3h)`;
-    if (s.wind_kph_max != null) prompt += `\nNext ${s.hours || 48}h: wind ${s.wind_kph_min}–${s.wind_kph_max} kph (max gust ${s.gust_kph_max} kph), temp ${s.temp_c_min}–${s.temp_c_max}°C, total rain ${s.precip_mm_total}mm`;
+    if (n.temp_c != null) prompt += `\nNow: ${degF(n.temp_c)}°F, wind ${n.wind_kph != null ? mph(n.wind_kph) : '?'} mph${n.wind_dir ? ' from ' + n.wind_dir : ''}, gusting ${n.gust_kph != null ? mph(n.gust_kph) : '?'} mph, ${n.precip_mm ?? 0}mm rain (last 3h)`;
+    if (s.wind_kph_max != null) prompt += `\nNext ${s.hours || 48}h: wind ${mph(s.wind_kph_min)}–${mph(s.wind_kph_max)} mph (max gust ${mph(s.gust_kph_max)} mph), temp ${degF(s.temp_c_min)}–${degF(s.temp_c_max)}°F, total rain ${s.precip_mm_total}mm`;
     if (wx.hourly?.length) {
       prompt += `\nHourly outlook (~3h steps): `;
       prompt += wx.hourly.map(h => {
         const t = new Date(h.time).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-        return `${t} ${h.temp_c}°C/${h.wind_kph}${h.wind_dir || ''}kph` + (h.precip_mm ? `/${h.precip_mm}mm` : '');
+        return `${t} ${degF(h.temp_c)}°F/${mph(h.wind_kph)}${h.wind_dir || ''}mph` + (h.precip_mm ? `/${h.precip_mm}mm` : '');
       }).join('; ');
     }
     prompt += `\nUse this to advise on ride timing, kit (rain/wind), and whether to move/shorten a planned session.`;
@@ -1916,10 +1922,10 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   if (athleteData.strava) {
     const ridesToday = (athleteData.strava.all_rides || []).filter(r => r.date === todayISO);
     if (ridesToday.length) {
-      prompt += `\nRide(s) recorded TODAY: ` + ridesToday.map(r => `${r.name} — ${r.distance_km}km at ${r.avg_speed_kph} kph`).join('; ') + `.`;
+      prompt += `\nRide(s) recorded TODAY: ` + ridesToday.map(r => `${r.name} — ${mi(r.distance_km)}mi at ${mph(r.avg_speed_kph)} mph`).join('; ') + `.`;
     } else {
       const lr = athleteData.strava.last_ride;
-      prompt += `\nNo ride has been recorded today. Most recent ride: ${lr ? `${lr.name} on ${lr.date} (avg ${lr.avg_speed_kph} kph)` : 'none in the last 7 days'}.`;
+      prompt += `\nNo ride has been recorded today. Most recent ride: ${lr ? `${lr.name} on ${lr.date} (avg ${mph(lr.avg_speed_kph)} mph)` : 'none in the last 7 days'}.`;
     }
   }
   if (athleteData.whoop && athleteData.whoop.recovery_score != null) {
@@ -1933,7 +1939,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   prompt += `\nYou ALREADY have the athlete's WHOOP recovery/HRV/sleep and their Strava rides above — interpret them directly. Do NOT ask the athlete for their recovery score, HRV, RHR, or sleep; the app provides them. You may ask only about things you cannot measure (e.g. how the ride or their legs felt).`;
   prompt += `\nThe conversation history below may include sessions from earlier days. NEVER treat a past date as "today". If the athlete asks about "today's ride" and nothing is dated today, tell them there is no ride today and refer to the most recent ride by its real date — do not relabel an old ride as today's.`;
 
-  // ── Inject the active training schedule so chat stays in sync ──
+  // ── Inject the active training schedule + tell the coach it CAN write to it ──
+  // The capability lines are ALWAYS included (even with no plan) so the coach never
+  // claims it can't write the schedule. Two write paths: schedule_set (create/replace
+  // the whole week) and schedule_update (patch one existing session).
+  prompt += `\n\n=== YOU CAN WRITE TO THE ATHLETE'S SCHEDULE ===
+You are not just a chat box — you have direct write access to the in-app Training Schedule (the "Schedule" tab). When you want to create or change the plan, emit a fenced JSON block and the app applies it instantly. Never tell the athlete you can't write to their schedule — you can.`;
+
   if (trainingPlan.length) {
     const today = new Date().toISOString().slice(0,10);
     prompt += `\n\nACTIVE TRAINING SCHEDULE (this is the athlete's current plan — always reference this when discussing sessions, never contradict it):`;
@@ -1946,18 +1958,29 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       if (done) line += ` [COMPLETED — RPE ${done.rpe}/10, felt: ${done.feel.join(', ')}${done.notes ? `, "${done.notes}"` : ''}]`;
       prompt += line;
     });
-    prompt += `\n\nWhen the athlete asks to change, swap, or update any session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
+    prompt += `\n\nTo CHANGE ONE existing session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
 \`\`\`schedule_update
 {"id":"s3","type":"Rest Day","duration":0,"intensity":"rest","description":"Full rest — legs were heavy.","targets":"","tips":[]}
 \`\`\`
 Only include fields you are changing. The id must match one of the session ids listed above. You can update: type, duration, intensity (low/medium/high/rest), description, targets, tips. After making a change, briefly explain to the athlete what you changed and why.
 
-Also use schedule_update blocks proactively when:
+Use schedule_update blocks proactively when:
 - The athlete says they just rode (mark that day as completed with ride details, adjust next session)
 - The athlete says they took a rest day (mark scheduled session as skipped, adjust load)
 - The athlete says they skipped a session or felt terrible
-- Strava data shows a ride on a day marked as rest, or no ride on a training day`;
+- Strava data shows a ride on a day marked as rest, or no ride on a training day
+
+To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use a schedule_set block instead — see the format below.`;
+  } else {
+    prompt += `\n\nThe athlete has no plan yet. If they ask you to map out, build, or plan their week (or it would clearly help), CREATE one — don't tell them to press a button.`;
   }
+
+  const todayISO2 = new Date().toISOString().slice(0,10);
+  prompt += `\n\nTo CREATE or REPLACE the entire schedule, include this block at the very end of your reply (no text after it):
+\`\`\`schedule_set
+[{"id":"s1","day":"Monday","date":"YYYY-MM-DD","type":"Zone 2 Endurance","duration":90,"intensity":"low","description":"One concise sentence.","targets":"e.g. HR 130-145bpm","tips":["short tip"],"bands":false}]
+\`\`\`
+Rules: start from today (${todayISO2}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
   return prompt;
 }
@@ -1976,7 +1999,7 @@ async function generateSchedule() {
 
   if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
   if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
-  if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${athleteData.strava.total_km_7d}km, ${athleteData.strava.total_moving_time_h_7d}h`;
+  if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${mi(athleteData.strava.total_km_7d)}mi, ${athleteData.strava.total_moving_time_h_7d}h`;
 
   if (Object.keys(sessionFeedback).length > 0) {
     context += `\n\nRecent session feedback (use to calibrate difficulty):`;
@@ -2439,10 +2462,12 @@ async function sendMessage(text) {
       conversationHistory.pop();
     } else {
       const reply = data.content[0].text;
-      const { clean, updates } = extractScheduleUpdates(reply);
+      const { clean, updates, planSet } = extractScheduleUpdates(reply);
       appendBubble('coach', clean);
       conversationHistory.push({ role: 'assistant', content: clean });
-      if (updates.length) {
+      if (planSet) {
+        applyScheduleSet(planSet);
+      } else if (updates.length) {
         applyScheduleUpdates(updates);
       }
       saveChat();
@@ -2474,9 +2499,9 @@ async function syncAndReconcile() {
       if (!d.error) {
         athleteData.strava = d;
         // update panel displays silently
-        document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${d.last_ride.distance_km}km)` : '—';
+        document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${mi(d.last_ride.distance_km)}mi)` : '—';
         document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
-        document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${d.total_km_7d} km` : '—';
+        document.getElementById('disp-km').textContent = d.total_km_7d != null ? `${mi(d.total_km_7d)} mi` : '—';
       }
     }
   } catch(e) { /* continue even if strava fails */ }
@@ -2505,14 +2530,14 @@ async function syncAndReconcile() {
     const recent = athleteData.strava.all_rides.filter(r => r.date >= yesterday);
     if (recent.length) {
       stravaContext = recent.map(r =>
-        `- ${r.date}: ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min, ${r.elevation_m}m elev`
+        `- ${r.date}: ${r.name}, ${mi(r.distance_km)}mi, ${r.moving_time_min}min, ${r.elevation_m}m elev`
       ).join('\n');
     } else {
       stravaContext = 'No rides in the past 2 days on Strava.';
     }
   } else if (athleteData.strava?.last_ride) {
     const r = athleteData.strava.last_ride;
-    stravaContext = `Last ride: ${r.date} — ${r.name}, ${r.distance_km}km, ${r.moving_time_min}min`;
+    stravaContext = `Last ride: ${r.date} — ${r.name}, ${mi(r.distance_km)}mi, ${r.moving_time_min}min`;
   }
 
   const reconcilePrompt = `Check my Strava rides against my schedule and update anything that doesn't match.
@@ -2539,7 +2564,7 @@ Apply all changes using schedule_update blocks. Then give me a brief 2-3 sentenc
 // ── SCHEDULE UPDATE FROM CHAT ──────────────────────────────
 function extractScheduleUpdates(text) {
   const updates = [];
-  // Match ```schedule_update ... ``` blocks
+  // Match ```schedule_update ... ``` blocks (single-session patches)
   const re = /```schedule_update\s*([\s\S]*?)```/gi;
   let match;
   while ((match = re.exec(text)) !== null) {
@@ -2547,9 +2572,24 @@ function extractScheduleUpdates(text) {
       updates.push(JSON.parse(match[1].trim()));
     } catch(e) { console.warn('Bad schedule_update JSON:', e); }
   }
-  // Strip the blocks from the displayed text
-  const clean = text.replace(/```schedule_update[\s\S]*?```/gi, '').trim();
-  return { clean, updates };
+
+  // Match a ```schedule_set ... ``` block (full plan create/replace). Last one wins.
+  let planSet = null;
+  const setRe = /```schedule_set\s*([\s\S]*?)```/gi;
+  let setMatch;
+  while ((setMatch = setRe.exec(text)) !== null) {
+    try {
+      const arr = JSON.parse(setMatch[1].trim());
+      if (Array.isArray(arr) && arr.length) planSet = arr;
+    } catch(e) { console.warn('Bad schedule_set JSON:', e); }
+  }
+
+  // Strip both block types from the displayed text
+  const clean = text
+    .replace(/```schedule_update[\s\S]*?```/gi, '')
+    .replace(/```schedule_set[\s\S]*?```/gi, '')
+    .trim();
+  return { clean, updates, planSet };
 }
 
 function applyScheduleUpdates(updates) {
@@ -2570,6 +2610,96 @@ function applyScheduleUpdates(updates) {
     schedTab.style.background = 'rgba(255,90,31,0.25)';
     setTimeout(() => { schedTab.style.background = ''; }, 1500);
   }
+}
+
+// ── CALENDAR EXPORT (.ics) ────────────────────────────────
+// Turns the active plan into an iCalendar file that opens in Apple/Google/Outlook
+// Calendar. All-day events (no per-session start time is collected), one per day.
+function exportCalendar() {
+  if (!trainingPlan.length) { showToast('Generate a schedule first', true); return; }
+
+  // RFC 5545 text escaping for property values.
+  const esc = (t) => String(t == null ? '' : t)
+    .replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  // Fold lines longer than 75 octets (CRLF + leading space continuation).
+  const fold = (line) => {
+    if (line.length <= 75) return line;
+    let out = line.slice(0, 75), rest = line.slice(75);
+    while (rest.length) { out += '\r\n ' + rest.slice(0, 74); rest = rest.slice(74); }
+    return out;
+  };
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const ymd = (d) => d.replace(/-/g, '');
+  const nextDay = (iso) => {
+    const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10).replace(/-/g, '');
+  };
+
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cycling Coach//Training Schedule//EN',
+    'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Cycling Training'
+  ];
+  trainingPlan.forEach((s, i) => {
+    if (!s.date) return;
+    const dur = s.duration > 0 ? ` (${s.duration} min)` : '';
+    const summary = `${s.intensity === 'rest' ? '😴' : '🚴'} ${s.type}${dur}`;
+    const desc = [];
+    if (s.targets) desc.push(`Targets: ${s.targets}`);
+    if (s.description) desc.push(s.description);
+    if (s.tips?.length) desc.push('Tips: ' + s.tips.join('; '));
+    if (sessionFeedback[s.id]) {
+      const fb = sessionFeedback[s.id];
+      desc.push(`✓ Logged — RPE ${fb.rpe}/10, felt ${fb.feel.join(', ')}`);
+    }
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:cc-${s.id || i}-${ymd(s.date)}@cycling-coach`);
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${ymd(s.date)}`);
+    lines.push(`DTEND;VALUE=DATE:${nextDay(s.date)}`);
+    lines.push(fold(`SUMMARY:${esc(summary)}`));
+    if (desc.length) lines.push(fold(`DESCRIPTION:${esc(desc.join('\n'))}`));
+    lines.push('TRANSP:TRANSPARENT');
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cycling-training-week.ics';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  showToast('Calendar file downloaded — open it to add the week ✓');
+}
+
+// Coach created/replaced the whole week from chat (schedule_set block).
+function applyScheduleSet(plan) {
+  // Normalise: guarantee ids and the fields the renderer/prompt expect.
+  trainingPlan = plan.map((s, i) => ({
+    id: s.id || `s${i + 1}`,
+    day: s.day || '',
+    date: s.date || '',
+    type: s.type || 'Session',
+    duration: Number(s.duration) || 0,
+    intensity: ['low','medium','high','rest'].includes(s.intensity) ? s.intensity : 'low',
+    description: s.description || '',
+    targets: s.targets || '',
+    tips: Array.isArray(s.tips) ? s.tips : [],
+    bands: !!s.bands
+  }));
+  // Fresh plan ⇒ ids may be reassigned, so clear prior feedback/notes (mirrors generateSchedule).
+  sessionFeedback = {};
+  adaptationNotes = {};
+  savePlan();
+  document.getElementById('generateBtn').textContent = '↺ Regenerate';
+  document.getElementById('adaptBtn').style.display = '';
+  if (currentTab === 'schedule') renderSchedule();
+  renderDashboard();
+  showToast('Coach built your schedule ✓');
+  const schedTab = document.getElementById('tab-schedule');
+  schedTab.style.background = 'rgba(255,90,31,0.25)';
+  setTimeout(() => { schedTab.style.background = ''; }, 1500);
 }
 
 // ── PER-SESSION EDIT MODAL ────────────────────────────────
