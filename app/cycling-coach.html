@@ -1354,6 +1354,102 @@ function getAppPassword() {
 }
 function clearAppPassword() { localStorage.removeItem('cyclingCoachPw'); }
 
+// ── SERVER STATE SYNC (hosted only) — the bridge to the Telegram bot ──────────────
+// On a hosted build the app mirrors its localStorage (plan, feedback, goal, home, chat)
+// to the server (api/state.js → KV), and pulls the server copy on load/focus. This is
+// what lets the Telegram coach see the same schedule, training plan and recent
+// conversation — and lets Telegram-originated messages / schedule edits show up here.
+// Local dev has no KV, so all of this is a no-op (guarded by IS_LOCAL).
+let _pushTimer = null;
+let _suppressPush = false; // true while pullState() applies server data, so we don't echo it back
+function pushState() {
+  if (IS_LOCAL || _suppressPush) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = setTimeout(() => {
+    coachFetch('/api/state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: trainingPlan,
+        feedback: sessionFeedback,
+        adaptations: adaptationNotes,
+        goal: athleteData.goal || null,
+        home: localStorage.getItem('cyclingCoachHome') || null,
+        conversationHistory: conversationHistory.slice(-120),
+      }),
+    }).catch(() => { /* offline / transient — local copy is still source of truth */ });
+  }, 600);
+}
+
+function serverHistoryDiffers(serverHist) {
+  if (!Array.isArray(serverHist) || !serverHist.length) return false; // never wipe local from an empty server
+  if (serverHist.length !== conversationHistory.length) return true;
+  const a = serverHist[serverHist.length - 1];
+  const b = conversationHistory[conversationHistory.length - 1];
+  return !b || a.role !== b.role || a.content !== b.content;
+}
+
+// Re-render the chat thread from conversationHistory (used after adopting server history
+// that contains new Telegram turns). assistant→coach to match the bubble roles.
+function renderChatFromHistory() {
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  const divider = document.createElement('div');
+  divider.className = 'date-divider';
+  divider.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  msgs.appendChild(divider);
+  conversationHistory.forEach(t => restoreBubble(t.role === 'assistant' ? 'coach' : 'user', t.content, ''));
+}
+
+async function pullState() {
+  if (IS_LOCAL) return;
+  let s;
+  try {
+    const res = await coachFetch('/api/state');
+    if (!res.ok) return;
+    s = await res.json();
+  } catch (e) { return; }
+  if (!s || s.error) return;
+
+  // First hosted load for an existing user: the server is empty but localStorage has a
+  // plan/chat. Seed the server from local so Telegram sees it (rather than adopting blank).
+  const serverEmpty = !(s.plan?.length) && !(s.conversationHistory?.length);
+  if (serverEmpty && (trainingPlan.length || conversationHistory.length)) {
+    pushState();
+    return;
+  }
+
+  _suppressPush = true;
+  try {
+    // Adopt the server plan/feedback if present — Telegram may have changed the schedule.
+    if (Array.isArray(s.plan)) {
+      trainingPlan = s.plan;
+      if (s.feedback && typeof s.feedback === 'object') sessionFeedback = s.feedback;
+      if (s.adaptations && typeof s.adaptations === 'object') adaptationNotes = s.adaptations;
+      savePlan();
+      if (trainingPlan.length) {
+        document.getElementById('generateBtn').textContent = '↺ Regenerate';
+        document.getElementById('adaptBtn').style.display = '';
+      }
+      if (currentTab === 'schedule') renderSchedule();
+      renderDashboard();
+    }
+    if (s.goal) {
+      athleteData.goal = s.goal;
+      localStorage.setItem('cyclingCoachGoal', s.goal);
+      const gi = document.getElementById('goalInput'); if (gi) gi.value = s.goal;
+    }
+    // Adopt the shared conversation if the server's differs (e.g. new Telegram messages).
+    if (serverHistoryDiffers(s.conversationHistory)) {
+      conversationHistory = s.conversationHistory;
+      renderChatFromHistory();
+      saveChat();
+    }
+  } finally {
+    _suppressPush = false;
+  }
+}
+
 // Wraps fetch for backend calls. On a hosted build it attaches the app password and
 // forgets it on a 401 so the next call re-prompts. Local dev is left untouched.
 async function coachFetch(url, options = {}) {
@@ -1417,8 +1513,17 @@ async function coachFetch(url, options = {}) {
   const home = getHomeLocation();
   if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
   syncWeather();
+  // Pull the server copy (hosted only) so Telegram-originated messages and schedule
+  // edits made while the app was closed show up. No-op on local dev.
+  pullState();
   switchTab('today');
 })();
+
+// Re-pull shared state when the tab regains focus — catches anything done over Telegram
+// while the app was in the background.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') pullState();
+});
 
 function saveChat() {
   // Keep last 60 exchanges (120 entries) to cap storage
@@ -1430,6 +1535,7 @@ function saveChat() {
     time: row.querySelector('.bubble-meta')?.textContent?.trim() || ''
   }));
   localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles }));
+  pushState();
 }
 
 function confirmClearChat() {
@@ -1765,6 +1871,7 @@ function getHomeLocation() {
 }
 function setHomeLocation(lat, lon) {
   localStorage.setItem('cyclingCoachHome', `${(+lat).toFixed(4)},${(+lon).toFixed(4)}`);
+  pushState();
 }
 function parseLocInput() {
   const v = (document.getElementById('wxLocInput').value || '').trim();
@@ -1846,6 +1953,7 @@ function saveGoal() {
   if (athleteData.goal) {
     localStorage.setItem('cyclingCoachGoal', athleteData.goal);
     showToast('Goal saved ✓');
+    pushState();
   }
 }
 
@@ -2205,6 +2313,7 @@ function savePlan() {
     feedback: sessionFeedback,
     adaptations: adaptationNotes
   }));
+  pushState();
 }
 
 function chatAboutSession(sessionId) {

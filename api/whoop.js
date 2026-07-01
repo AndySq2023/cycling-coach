@@ -55,7 +55,7 @@ async function whoopGet(token, pathAndQuery) {
   return res.json();
 }
 
-async function getWhoopSummary() {
+export async function getWhoopSummary() {
   const token = await getAccessToken();
   const [profile, recovery, sleep] = await Promise.all([
     whoopGet(token, '/user/profile/basic'),

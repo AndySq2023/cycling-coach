@@ -63,7 +63,7 @@ async function getAccessToken() {
   return tok.access_token;
 }
 
-async function getStravaSummary() {
+export async function getStravaSummary() {
   const token = await getAccessToken();
   const after = Math.floor((Date.now() - 7 * 86400000) / 1000);
   const res = await fetch(`${STRAVA_ACTIVITIES_URL}?after=${after}&per_page=50`, {

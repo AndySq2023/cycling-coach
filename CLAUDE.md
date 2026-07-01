@@ -54,6 +54,12 @@ The coach can mutate the training plan mid-conversation. Claude is instructed to
 ~~~
 `extractScheduleUpdates()` strips these blocks from the displayed reply; `applyScheduleUpdates()` patches the matching session in `trainingPlan[]` by id and calls `savePlan()`.
 
+## Hosted surface + Telegram bot (Vercel)
+
+On a real domain the app talks to same-origin `api/` serverless functions instead of the localhost servers (auto-detected via `IS_LOCAL`). Beyond the chat/strava/whoop/windy ports, the hosted build adds **shared server-side state** so a Telegram bot can see the same data:
+- **`api/state.js`** (+ `api/_state.js`, `api/_kv.js`) — single KV blob `coach_state` (plan, feedback, goal, home, conversationHistory). The app `pushState()`s on every `savePlan`/`saveChat`/goal/home change and `pullState()`s on load + tab focus. `_suppressPush` guards the pull from echoing back.
+- **`api/telegram.js`** — Telegram webhook. Locked to `TELEGRAM_CHAT_ID`, verified via the `x-telegram-bot-api-secret-token` header (`TELEGRAM_WEBHOOK_SECRET`). Per message it fetches live WHOOP/Strava/weather server-side, builds the prompt via **`api/_prompt.js`** (a server-side mirror of `buildSystemPrompt()` + the schedule-block parser/appliers), calls Claude, applies any `schedule_set`/`schedule_update`, and appends the exchange to `coach_state`. Commands: `/start`, `/plan`, `/reset`. **`_prompt.js` must be kept in sync with the app's `buildSystemPrompt()`/`extractScheduleUpdates()`/`applyScheduleSet()` when either changes.** Setup + webhook registration: see DEPLOY.md → "Telegram bot".
+
 ## Credentials
 
 Strava credentials live at `~/.strava-proxy/auth.json` (chmod 600, never committed):
