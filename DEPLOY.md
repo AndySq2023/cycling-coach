@@ -12,12 +12,17 @@ domain → same-origin `/api`).
 ```
 api/
   _auth.js     # shared password check for the hosted API
+  _kv.js       # shared Vercel KV (Upstash) get/set helpers
+  _state.js    # shared single-user state blob (plan, goal, chat) the app + bot both use
+  _prompt.js   # server-side buildSystemPrompt + schedule-block parser (mirror of the app's)
   chat.js      # → Anthropic Messages API (replaces the Claude Desktop bridge)
   strava.js    # → Strava REST API (port of proxy/server.js)
   whoop.js     # → WHOOP v2 API (port of the ~/whoop-mcp localhost:3001 bridge)
   windy.js     # → Windy Point Forecast API (ride-planning weather)
+  state.js     # → GET/PUT the shared state blob (the app syncs its localStorage here)
+  telegram.js  # → Telegram webhook: chat with the coach over Telegram (see "Telegram bot")
 package.json   # root deps for the functions (@vercel/kv)
-vercel.json    # serves the app at "/", gives chat 60s to respond
+vercel.json    # serves the app at "/", gives chat + telegram 60s to respond
 ```
 
 ## One-time setup in Vercel
@@ -51,6 +56,9 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `WHOOP_REFRESH_TOKEN` | from `~/whoop-mcp/.whoop-tokens.json` (seed — migrates to KV on first call) |
 | `APP_PASSWORD` | a password you choose — the app asks for it on first load |
 | `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
+| `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
+| `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
+| `TELEGRAM_CHAT_ID` | *(optional)* the **only** Telegram chat id allowed to use the bot (yours) |
 
 > **WHOOP does not need `WHOOP_REDIRECT_URI`** (the refresh-token grant doesn't use it).
 > The `WHOOP_REFRESH_TOKEN` here is just a one-time seed — see step 4 for why it then
@@ -100,8 +108,46 @@ enter the app password when prompted, and chat + Strava + WHOOP should work. (Re
   off, shorten history or lower `MAX_TOKENS` in `api/chat.js`.
 - **Model:** `api/chat.js` uses `claude-opus-4-8`. Switch to `claude-sonnet-4-6` there
   for faster/cheaper replies if you prefer.
-- **State** (plan, chat history) still lives in the browser's localStorage — per-device,
-  same as today.
+- **State** (plan, chat history) lives in the browser's localStorage as before, but on a
+  hosted build the app also **mirrors it to KV** (`api/state.js`) so the Telegram bot can
+  see the same schedule, plan and recent conversation. The app pushes on every change and
+  pulls on load/focus, so Telegram messages and schedule edits show up in the web app too.
+  KV is required for this (and for WHOOP); without it the bot just runs on empty state.
+
+## Telegram bot (optional)
+
+Chat with the coach from Telegram with full context — live WHOOP/Strava/weather (fetched
+per message), your training plan and goal, and the conversation shared with the web app.
+The bot can also **write your schedule** (same `schedule_set`/`schedule_update` blocks the
+web chat uses), so "move tomorrow to a rest day" from Telegram updates the app's Schedule
+tab on next sync.
+
+**Requires a KV store** (step 4) — that's the shared state the bot reads/writes.
+
+1. **Get the bot token.** In Telegram, message **@BotFather** → `/newbot` (or reuse an
+   existing bot's token). Set `TELEGRAM_BOT_TOKEN` in Vercel to that token.
+2. **Find your chat id.** Message your bot once, then open
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and read
+   `result[].message.chat.id`. Set `TELEGRAM_CHAT_ID` to that number — the bot ignores
+   every other chat, so strangers can't spend your API credits or read your data.
+3. **Pick a webhook secret.** Choose any random string; set `TELEGRAM_WEBHOOK_SECRET` in
+   Vercel to it. Telegram echoes it back on every call so only Telegram can drive the
+   endpoint.
+4. **Redeploy** (env-var changes need it), then **register the webhook** — open this URL
+   once in a browser (it `200`s with `{"ok":true}`):
+
+   ```
+   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-app>.vercel.app/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>
+   ```
+
+5. **Use it.** Message the bot. Commands: `/start` (intro), `/plan` (show this week),
+   `/reset` (clear the conversation — plan/data untouched).
+
+**Troubleshooting:** check `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` —
+`last_error_message` shows the most recent failure. `pending_update_count` climbing means
+the function is erroring (check Vercel logs). A `401` from the webhook = the secret header
+didn't match `TELEGRAM_WEBHOOK_SECRET`. Silence with no reply = your `TELEGRAM_CHAT_ID`
+doesn't match the chat you're messaging from.
 
 ## Troubleshooting WHOOP on the hosted site
 The Strava-style debugging applies — read Network → `/api/whoop` Response:
