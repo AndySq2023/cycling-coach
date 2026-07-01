@@ -1360,7 +1360,10 @@ function clearAppPassword() { localStorage.removeItem('cyclingCoachPw'); }
 // conversation — and lets Telegram-originated messages / schedule edits show up here.
 // Local dev has no KV, so all of this is a no-op (guarded by IS_LOCAL).
 let _pushTimer = null;
+let _pollTimer = null;
 let _suppressPush = false; // true while pullState() applies server data, so we don't echo it back
+let _lastServerUpdatedAt = null; // server's updatedAt we last wrote/adopted; gates the poll so it
+                                 // only re-renders when the shared state actually changed elsewhere
 function pushState() {
   if (IS_LOCAL || _suppressPush) return;
   clearTimeout(_pushTimer);
@@ -1376,7 +1379,12 @@ function pushState() {
         home: localStorage.getItem('cyclingCoachHome') || null,
         conversationHistory: conversationHistory.slice(-120),
       }),
-    }).catch(() => { /* offline / transient — local copy is still source of truth */ });
+    })
+      .then(r => (r && r.ok) ? r.json() : null)
+      // Adopt our own write as the new baseline so the next poll doesn't treat it as a
+      // foreign change and needlessly re-render (which would stomp chat scroll position).
+      .then(j => { if (j && j.updatedAt) _lastServerUpdatedAt = j.updatedAt; })
+      .catch(() => { /* offline / transient — local copy is still source of truth */ });
   }, 600);
 }
 
@@ -1410,6 +1418,11 @@ async function pullState() {
   } catch (e) { return; }
   if (!s || s.error) return;
 
+  // Poll guard: if the shared state hasn't changed since we last synced, there's nothing
+  // to adopt. This is what makes 15s polling cheap — no re-render of chat/schedule unless
+  // another device or Telegram actually changed something.
+  if (s.updatedAt && s.updatedAt === _lastServerUpdatedAt) return;
+
   // First hosted load for an existing user: the server is empty but localStorage has a
   // plan/chat. Seed the server from local so Telegram sees it (rather than adopting blank).
   const serverEmpty = !(s.plan?.length) && !(s.conversationHistory?.length);
@@ -1418,6 +1431,9 @@ async function pullState() {
     return;
   }
 
+  // Record what we're about to adopt as the baseline so our own follow-up saves (which
+  // re-stamp updatedAt) don't bounce back as a foreign change on the next poll.
+  _lastServerUpdatedAt = s.updatedAt || _lastServerUpdatedAt;
   _suppressPush = true;
   try {
     // Adopt the server plan/feedback if present — Telegram may have changed the schedule.
@@ -1515,11 +1531,24 @@ async function coachFetch(url, options = {}) {
   // Pull the server copy (hosted only) so Telegram-originated messages and schedule
   // edits made while the app was closed show up. No-op on local dev.
   pullState();
+  startStatePolling();
   switchTab('today');
 })();
 
-// Re-pull shared state when the tab regains focus — catches anything done over Telegram
-// while the app was in the background.
+// Keep every surface (chat, schedule, resistance) mirrored across devices in near-real-time:
+// poll the shared state every 15s while the tab is visible. pullState() is a cheap no-op when
+// the server's updatedAt is unchanged, so this only re-renders when another device or the
+// Telegram bot actually changed something. No-op on local dev (no KV).
+const STATE_POLL_MS = 15000;
+function startStatePolling() {
+  if (IS_LOCAL || _pollTimer) return;
+  _pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') pullState();
+  }, STATE_POLL_MS);
+}
+
+// Also re-pull immediately when the tab regains focus, rather than waiting up to 15s —
+// catches anything done on another device or over Telegram while backgrounded.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') pullState();
 });
