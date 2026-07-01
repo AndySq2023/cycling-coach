@@ -1332,10 +1332,9 @@ let currentBandWorkout = null;
 
 let feedbackTargetId = null; // which session we're logging
 
-// ── Units: backend data is metric; display + coach prompt use imperial ──
+// ── Units: backend data is metric; distance/speed shown imperial, temp stays °C ──
 const mi   = km  => km  == null ? null : Math.round(km  * 0.621371 * 10) / 10; // km → miles (1dp)
 const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);          // kph → mph
-const degF = c   => c   == null ? null : Math.round(c * 9 / 5 + 32);          // °C → °F
 
 // ── Backend routing: local dev → localhost servers; hosted (Vercel) → same-origin /api.
 const IS_LOCAL = location.protocol === 'file:'
@@ -1660,10 +1659,10 @@ function renderDashboard() {
       <div class="dash-card glance weather">
         <div class="dash-card-label">Weather · next 48h</div>
         <div class="glance-weather">
-          <div class="glance-temp">${n.temp_c != null ? degF(n.temp_c) + '°' : '—'}</div>
+          <div class="glance-temp">${n.temp_c != null ? n.temp_c + '°' : '—'}</div>
           <div class="glance-wx-meta">
             <div>💨 ${n.wind_kph != null ? mph(n.wind_kph) + (n.wind_dir ? ' ' + n.wind_dir : '') + ' mph' : '—'}</div>
-            <div>🌡 ${sm.temp_c_min != null ? degF(sm.temp_c_min) + '–' + degF(sm.temp_c_max) + '°F' : '—'}</div>
+            <div>🌡 ${sm.temp_c_min != null ? sm.temp_c_min + '–' + sm.temp_c_max + '°C' : '—'}</div>
             <div>🌧 ${sm.precip_mm_total != null ? sm.precip_mm_total + ' mm' : '—'}</div>
           </div>
         </div>
@@ -1818,11 +1817,11 @@ async function syncWeather() {
     const n = d.now || {};
     const s = d.summary || {};
     document.getElementById('disp-wx-loc').textContent = d.location ? `${d.location.lat}, ${d.location.lon}` : '—';
-    document.getElementById('disp-wx-now').textContent = n.temp_c != null ? `${degF(n.temp_c)}°F` : '—';
+    document.getElementById('disp-wx-now').textContent = n.temp_c != null ? `${n.temp_c}°C` : '—';
     document.getElementById('disp-wx-wind').textContent = n.wind_kph != null
       ? `${mph(n.wind_kph)}${n.wind_dir ? ' ' + n.wind_dir : ''} (gust ${n.gust_kph != null ? mph(n.gust_kph) : '?'}) mph` : '—';
     document.getElementById('disp-wx-temp').textContent = (s.temp_c_min != null && s.temp_c_max != null)
-      ? `${degF(s.temp_c_min)}–${degF(s.temp_c_max)}°F` : '—';
+      ? `${s.temp_c_min}–${s.temp_c_max}°C` : '—';
     document.getElementById('disp-wx-rain').textContent = s.precip_mm_total != null ? `${s.precip_mm_total} mm` : '—';
 
     const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -1896,13 +1895,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     const s = wx.summary || {};
     prompt += `\n\nWEATHER FORECAST (live, next ${s.hours || 48}h, for ride planning):`;
     if (wx.location) prompt += `\nLocation: ${wx.location.lat}, ${wx.location.lon}`;
-    if (n.temp_c != null) prompt += `\nNow: ${degF(n.temp_c)}°F, wind ${n.wind_kph != null ? mph(n.wind_kph) : '?'} mph${n.wind_dir ? ' from ' + n.wind_dir : ''}, gusting ${n.gust_kph != null ? mph(n.gust_kph) : '?'} mph, ${n.precip_mm ?? 0}mm rain (last 3h)`;
-    if (s.wind_kph_max != null) prompt += `\nNext ${s.hours || 48}h: wind ${mph(s.wind_kph_min)}–${mph(s.wind_kph_max)} mph (max gust ${mph(s.gust_kph_max)} mph), temp ${degF(s.temp_c_min)}–${degF(s.temp_c_max)}°F, total rain ${s.precip_mm_total}mm`;
+    if (n.temp_c != null) prompt += `\nNow: ${n.temp_c}°C, wind ${n.wind_kph != null ? mph(n.wind_kph) : '?'} mph${n.wind_dir ? ' from ' + n.wind_dir : ''}, gusting ${n.gust_kph != null ? mph(n.gust_kph) : '?'} mph, ${n.precip_mm ?? 0}mm rain (last 3h)`;
+    if (s.wind_kph_max != null) prompt += `\nNext ${s.hours || 48}h: wind ${mph(s.wind_kph_min)}–${mph(s.wind_kph_max)} mph (max gust ${mph(s.gust_kph_max)} mph), temp ${s.temp_c_min}–${s.temp_c_max}°C, total rain ${s.precip_mm_total}mm`;
     if (wx.hourly?.length) {
       prompt += `\nHourly outlook (~3h steps): `;
       prompt += wx.hourly.map(h => {
         const t = new Date(h.time).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-        return `${t} ${degF(h.temp_c)}°F/${mph(h.wind_kph)}${h.wind_dir || ''}mph` + (h.precip_mm ? `/${h.precip_mm}mm` : '');
+        return `${t} ${h.temp_c}°C/${mph(h.wind_kph)}${h.wind_dir || ''}mph` + (h.precip_mm ? `/${h.precip_mm}mm` : '');
       }).join('; ');
     }
     prompt += `\nUse this to advise on ride timing, kit (rain/wind), and whether to move/shorten a planned session.`;
