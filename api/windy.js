@@ -20,7 +20,7 @@ function windDir(u, v) {
 }
 const round = (n, d = 0) => (n == null || !Number.isFinite(n)) ? null : +n.toFixed(d);
 
-async function getForecast(lat, lon) {
+export async function getForecast(lat, lon) {
   const key = process.env.WINDY_API_KEY;
   if (!key) throw new Error('Missing WINDY_API_KEY — set it in the Vercel project env vars.');
 
