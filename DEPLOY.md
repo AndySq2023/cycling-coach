@@ -149,6 +149,34 @@ the function is erroring (check Vercel logs). A `401` from the webhook = the sec
 didn't match `TELEGRAM_WEBHOOK_SECRET`. Silence with no reply = your `TELEGRAM_CHAT_ID`
 doesn't match the chat you're messaging from.
 
+### Daily morning briefing (optional)
+
+`api/briefing.js` + a Vercel Cron entry (`vercel.json` → `crons`) send an automated
+Claude-written briefing to your Telegram chat every morning: WHOOP recovery read,
+today's scheduled session (the coach may adapt it if recovery is poor — same
+`schedule_update` path as chat), and the best weather window to ride. The exchange is
+appended to the shared history, so it also appears in the web app's chat.
+
+Setup on top of the Telegram bot:
+1. Add a `CRON_SECRET` env var in Vercel (any random string). Vercel Cron sends it as
+   `Authorization: Bearer <CRON_SECRET>` automatically; the endpoint refuses to run
+   without it so strangers can't trigger paid briefings.
+2. Redeploy. The cron registers automatically from `vercel.json`.
+
+Schedule: `20 7 * * *` = **07:20 UTC** (8:20am UK in summer / 7:20am in winter — Vercel
+crons are UTC-only, so nudge it after clock changes if the time matters). ⚠️ On the
+**Hobby plan** Vercel only guarantees the run lands *within the hour* after the
+scheduled time, so the briefing may arrive anywhere from 8:20–9:20 BST. For to-the-minute
+delivery, use a free external pinger (e.g. cron-job.org) hitting
+`https://<app>.vercel.app/api/briefing` with the `Authorization: Bearer <CRON_SECRET>`
+header instead of (or as well as) the Vercel cron.
+
+Manual test after deploying:
+```
+curl -H "Authorization: Bearer <CRON_SECRET>" https://<your-app>.vercel.app/api/briefing
+```
+— should return `{"ok":true,"sent":true,...}` and the briefing appears in Telegram.
+
 ## Troubleshooting WHOOP on the hosted site
 The Strava-style debugging applies — read Network → `/api/whoop` Response:
 - **401** = wrong `APP_PASSWORD` cached in the browser (clear localStorage `cyclingCoachPw`, reload).
