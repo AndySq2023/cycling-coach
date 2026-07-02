@@ -159,7 +159,10 @@ export default async function handler(req, res) {
       return;
     }
 
-    const state = await getState();
+    // The Telegram bot is master-only (locked to TELEGRAM_CHAT_ID), so it always
+    // reads/writes the master's state blob. Per-member Telegram would map chat ids
+    // to roster user ids here.
+    const state = await getState('master');
 
     if (cmd === '/plan' || cmd === '/schedule') {
       await tgSend(chatId, renderPlanText(state.plan, state.feedback));
@@ -167,7 +170,7 @@ export default async function handler(req, res) {
       return;
     }
     if (cmd === '/reset') {
-      await setState({ ...state, conversationHistory: [], updatedBy: 'telegram' });
+      await setState('master', { ...state, conversationHistory: [], updatedBy: 'telegram' });
       await tgSend(chatId, '🧹 Conversation cleared. Fresh start — your plan and data are untouched.');
       res.status(200).json({ ok: true });
       return;
@@ -197,7 +200,7 @@ export default async function handler(req, res) {
 
     // Append this exchange to the shared history so it shows up in the web app on sync.
     const finalState = { ...applied.state, updatedBy: 'telegram' };
-    await appendTurns(finalState, text, outText);
+    await appendTurns('master', finalState, text, outText);
 
     await tgSend(chatId, outText);
 

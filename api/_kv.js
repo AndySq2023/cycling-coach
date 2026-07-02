@@ -7,8 +7,28 @@ export async function kvGet(key) {
   catch { return null; }
 }
 
-export async function kvSet(key, value) {
+// opts is passed through to @vercel/kv, e.g. { ex: 600 } for a 10-minute TTL.
+export async function kvSet(key, value, opts) {
   if (!process.env.KV_REST_API_URL) return;
-  try { const { kv } = await import('@vercel/kv'); await kv.set(key, value); }
+  try { const { kv } = await import('@vercel/kv'); await kv.set(key, value, opts); }
   catch { /* non-fatal: value just won't persist this time */ }
+}
+
+export async function kvDel(key) {
+  if (!process.env.KV_REST_API_URL) return;
+  try { const { kv } = await import('@vercel/kv'); await kv.del(key); }
+  catch { /* non-fatal */ }
+}
+
+// Atomic counter (used for per-user daily chat quotas). Returns the new count, or
+// null when KV is unavailable — callers should NOT enforce limits on null, otherwise
+// a KV outage would lock everyone out of the coach.
+export async function kvIncr(key, ttlSeconds) {
+  if (!process.env.KV_REST_API_URL) return null;
+  try {
+    const { kv } = await import('@vercel/kv');
+    const n = await kv.incr(key);
+    if (n === 1 && ttlSeconds) await kv.expire(key, ttlSeconds);
+    return n;
+  } catch { return null; }
 }

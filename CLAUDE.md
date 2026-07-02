@@ -56,7 +56,11 @@ The coach can mutate the training plan mid-conversation. Claude is instructed to
 
 ## Hosted surface + Telegram bot (Vercel)
 
-On a real domain the app talks to same-origin `api/` serverless functions instead of the localhost servers (auto-detected via `IS_LOCAL`). Beyond the chat/strava/whoop/windy ports, the hosted build adds **shared server-side state** so a Telegram bot can see the same data:
+On a real domain the app talks to same-origin `api/` serverless functions instead of the localhost servers (auto-detected via `IS_LOCAL`).
+
+**Multi-user (June 2026, see TEAM.md):** the `x-app-password` header identifies WHO is calling — `APP_PASSWORD` → master, a roster password → that member (`api/_auth.js` `requireUser` → `{ id, name, role }`; roster in KV `team_roster` via `api/_users.js`, salted sha256). All per-user data is keyed server-side by the resolved id: state at `coach_state` (master, legacy key) / `coach_state:<uid>`, provider tokens at `strava_tokens:<uid>` / `whoop_tokens:<uid>` (members connect their own accounts via `api/oauth.js`; nonce in KV). `api/team.js` (master-only) = team report (5-min cache) + add/remove/reset members. Members get a `CHAT_DAILY_LIMIT` quota in `api/chat.js`. Front-end: `currentUser` from the `/api/state` pull → `applyUserRole()` shows the 👥 Team tab; `?teamDemo=1` previews it with canned data. Local dev stays single-user.
+
+Beyond the chat/strava/whoop/windy ports, the hosted build adds **shared server-side state** so a Telegram bot can see the same data:
 - **`api/state.js`** (+ `api/_state.js`, `api/_kv.js`) — single KV blob `coach_state` (plan, feedback, goal, home, conversationHistory). The app `pushState()`s on every `savePlan`/`saveChat`/goal/home change and `pullState()`s on load + tab focus. `_suppressPush` guards the pull from echoing back.
 - **`api/telegram.js`** — Telegram webhook. Locked to `TELEGRAM_CHAT_ID`, verified via the `x-telegram-bot-api-secret-token` header (`TELEGRAM_WEBHOOK_SECRET`). Per message it fetches live WHOOP/Strava/weather server-side, builds the prompt via **`api/_prompt.js`** (a server-side mirror of `buildSystemPrompt()` + the schedule-block parser/appliers), calls Claude, applies any `schedule_set`/`schedule_update`, and appends the exchange to `coach_state`. Commands: `/start`, `/plan`, `/reset`. **`_prompt.js` must be kept in sync with the app's `buildSystemPrompt()`/`extractScheduleUpdates()`/`applyScheduleSet()` when either changes.** Setup + webhook registration: see DEPLOY.md → "Telegram bot".
 

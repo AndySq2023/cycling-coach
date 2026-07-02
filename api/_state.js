@@ -1,15 +1,17 @@
-// Single-user shared state for the cycling coach — the bridge between the web app
-// (browser localStorage) and the Telegram bot (server-side). Both read and write the
-// same KV blob so the schedule, training plan, goal and conversation history are
-// visible from either surface.
-//
-// This is deliberately single-user: one KV key holds everything. The hosted app is
-// already gated behind a single APP_PASSWORD and the bot behind a single chat id, so
-// there is exactly one athlete. Multi-user would key these by athlete id.
+// Per-user coach state — the bridge between the web app (browser localStorage) and
+// the server (Telegram bot, team report). Each athlete's schedule, training plan,
+// goal and conversation history live in their own KV blob:
+//   master  → 'coach_state'          (the original single-user key, kept for
+//                                     backward compatibility with existing deploys)
+//   members → 'coach_state:<userId>'
 import { kvGet, kvSet } from './_kv.js';
 
 const STATE_KEY = 'coach_state';
 const MAX_HISTORY = 120; // entries (≈60 exchanges) — mirrors the app's localStorage cap
+
+export function stateKey(userId = 'master') {
+  return userId === 'master' ? STATE_KEY : `${STATE_KEY}:${userId}`;
+}
 
 // Default-shaped empty state so callers never have to null-check every field.
 function emptyState() {
@@ -25,26 +27,26 @@ function emptyState() {
   };
 }
 
-export async function getState() {
-  const s = await kvGet(STATE_KEY);
+export async function getState(userId = 'master') {
+  const s = await kvGet(stateKey(userId));
   return { ...emptyState(), ...(s && typeof s === 'object' ? s : {}) };
 }
 
-export async function setState(state) {
+export async function setState(userId, state) {
   const next = { ...emptyState(), ...state };
   if (Array.isArray(next.conversationHistory) && next.conversationHistory.length > MAX_HISTORY) {
     next.conversationHistory = next.conversationHistory.slice(-MAX_HISTORY);
   }
   next.updatedAt = new Date().toISOString();
-  await kvSet(STATE_KEY, next);
+  await kvSet(stateKey(userId), next);
   return next;
 }
 
-// Append a user turn and the coach's reply to the shared history, persisting the result.
+// Append a user turn and the coach's reply to that user's history, persisting the result.
 // Used by the Telegram webhook so its exchanges show up in the app on next sync.
-export async function appendTurns(state, userText, assistantText) {
+export async function appendTurns(userId, state, userText, assistantText) {
   const history = Array.isArray(state.conversationHistory) ? state.conversationHistory.slice() : [];
   history.push({ role: 'user', content: userText });
   history.push({ role: 'assistant', content: assistantText });
-  return setState({ ...state, conversationHistory: history });
+  return setState(userId, { ...state, conversationHistory: history });
 }

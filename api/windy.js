@@ -7,7 +7,7 @@
 //
 // Env: WINDY_API_KEY (set in the Vercel project env vars). Same APP_PASSWORD gate as
 // the other functions, so this can't be left open to the public by accident.
-import { requirePassword } from './_auth.js';
+import { requireUser } from './_auth.js';
 
 const WINDY_URL = 'https://api.windy.com/api/point-forecast/v2';
 const HOURS_AHEAD = 48; // how far forward to summarise
@@ -88,7 +88,7 @@ export async function getForecast(lat, lon) {
 }
 
 export default async function handler(req, res) {
-  if (!requirePassword(req, res)) return;
+  if (!(await requireUser(req, res))) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
     const lat = parseFloat(req.query?.lat);

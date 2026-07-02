@@ -54,7 +54,9 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `WHOOP_CLIENT_ID` | from `~/whoop-mcp/.env` |
 | `WHOOP_CLIENT_SECRET` | from `~/whoop-mcp/.env` |
 | `WHOOP_REFRESH_TOKEN` | from `~/whoop-mcp/.whoop-tokens.json` (seed — migrates to KV on first call) |
-| `APP_PASSWORD` | a password you choose — the app asks for it on first load |
+| `APP_PASSWORD` | a password you choose — the app asks for it on first load. **This is now the *master* login** (team owner); members get their own generated passwords (see "Team accounts"). |
+| `MASTER_NAME` | *(optional — teams)* your display name on the Team Report (default "Coach") |
+| `CHAT_DAILY_LIMIT` | *(optional — teams)* coach messages per member per day (default 40; master exempt) |
 | `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
 | `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
@@ -113,6 +115,28 @@ enter the app password when prompted, and chat + Strava + WHOOP should work. (Re
   see the same schedule, plan and recent conversation. The app pushes on every change and
   pulls on load/focus, so Telegram messages and schedule edits show up in the web app too.
   KV is required for this (and for WHOOP); without it the bot just runs on empty state.
+
+## Team accounts (multi-user, optional)
+
+The app supports **up to 6 members plus you as master**. Full spec, architecture and
+rollout checklist: **[TEAM.md](TEAM.md)**. Short version:
+
+1. **KV is required** (same Upstash integration as above — roster, per-user state and
+   tokens live there).
+2. Register the OAuth callback with both providers so members can connect their own
+   accounts: **Strava** → add the Vercel domain to *Authorization Callback Domain* AND
+   request an athlete-capacity increase (apps start capped at 1 athlete);
+   **WHOOP** → add `https://<app>.vercel.app/api/oauth` to *Redirect URIs*.
+3. Log in with `APP_PASSWORD` → **👥 Team** tab → **+ Add member** → copy the one-time
+   password and send it to the rider with the URL.
+4. The rider logs in with that password and taps **Connect your Strava / WHOOP** in the
+   data panel. Their row on your Team Report fills in from live data (5-min cache).
+5. Manage from the same tab: reset password, or remove (deletes their plan, chat and
+   connections).
+
+Members chat with the same coach on your Anthropic key — hence `CHAT_DAILY_LIMIT`.
+A member's browser stores their own password under the same `cyclingCoachPw`
+localStorage key; wrong password → the app clears it and re-prompts on reload.
 
 ## Telegram bot (optional)
 

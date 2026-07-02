@@ -6,6 +6,7 @@
   "functions": {
     "api/chat.js": { "maxDuration": 60 },
     "api/telegram.js": { "maxDuration": 60 },
+    "api/team.js": { "maxDuration": 60 },
     "api/briefing.js": { "maxDuration": 60 }
   },
   "crons": [
