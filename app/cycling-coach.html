@@ -526,6 +526,38 @@
   .gen-btn.secondary:hover { border-color: var(--accent); color: var(--accent); }
   .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  /* TEAM (master user only) */
+  .team-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .team-view.hidden { display: none; }
+  .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .team-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .team-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .team-card-name { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 14px; color: var(--text); }
+  .team-role-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-mid); }
+  .team-role-badge.master { background: var(--panel-dark); color: #F1EDE4; border-color: var(--panel-dark); }
+  .team-metric { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+  .team-metric:last-of-type { border-bottom: none; }
+  .team-metric .lbl { color: var(--text-muted); flex-shrink: 0; }
+  .team-metric .val { font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-metric .val.good { color: var(--good); }
+  .team-metric .val.warn { color: var(--warn); }
+  .team-metric .val.bad { color: var(--danger); }
+  .team-adherence-track { height: 6px; border-radius: 3px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+  .team-adherence-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+  .team-goal { font-size: 11px; color: var(--text-mid); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .team-card-actions { display: flex; gap: 6px; margin-top: 2px; }
+  .team-mini-btn { flex: 1; font-size: 10px; padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-mid); cursor: pointer; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; transition: all 0.15s; }
+  .team-mini-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .team-mini-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+  .team-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 12px; padding: 40px 12px; text-align: center; }
+
   .schedule-empty {
     flex: 1;
     display: flex;
@@ -1063,6 +1095,7 @@
     </div>
   </div>
   <div class="header-actions">
+    <span id="userChip" style="display:none;font-size:10px;color:#B8B0A0;font-family:'DM Mono',monospace;margin-right:8px;"></span>
     <button class="data-panel-toggle" onclick="togglePanel()">⚡ My Data</button>
   </div>
 </header>
@@ -1103,6 +1136,7 @@
           <span class="metric-value" id="disp-spo2">—</span>
         </div>
         <button class="load-btn" id="whoopSyncBtn" onclick="syncWHOOP()">⚡ Sync from WHOOP</button>
+        <button class="load-btn" id="whoopConnectBtn" style="display:none" onclick="connectProvider('whoop')">🔗 Connect your WHOOP</button>
       </div>
 
       <!-- STRAVA -->
@@ -1132,6 +1166,7 @@
           <span class="metric-value" id="disp-movingtime">—</span>
         </div>
         <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava()">⚡ Sync from Strava</button>
+        <button class="load-btn" id="stravaConnectBtn" style="display:none" onclick="connectProvider('strava')">🔗 Connect your Strava</button>
       </div>
 
       <!-- WEATHER -->
@@ -1189,6 +1224,7 @@
       <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
       <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
+      <button class="tab-btn" id="tab-team" onclick="switchTab('team')" style="display:none">👥 Team</button>
       <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;" title="Clear chat history">✕ Clear</button>
     </div>
 
@@ -1257,6 +1293,23 @@
           <div class="bands-empty-icon">💪</div>
           <p>Select a focus area above to generate a resistance band workout tailored to your cycling goals.</p>
         </div>
+      </div>
+    </div>
+
+    <!-- TEAM VIEW (master user only) -->
+    <div class="team-view hidden" id="teamView">
+      <div class="schedule-header">
+        <div class="schedule-header-left">
+          <h2>Team Report</h2>
+          <p id="teamMeta">Live recovery, riding volume and plan adherence for the whole squad.</p>
+        </div>
+        <div class="schedule-header-actions">
+          <button class="gen-btn secondary" id="teamRefreshBtn" onclick="loadTeamReport(true)">↺ Refresh</button>
+          <button class="gen-btn primary" onclick="addTeamMember()">+ Add member</button>
+        </div>
+      </div>
+      <div id="teamContent">
+        <div class="team-empty">Loading team report…</div>
       </div>
     </div>
 
@@ -1343,6 +1396,24 @@ const API = IS_LOCAL
   ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002' }
   : { chat: '', whoop: '', strava: '', weather: '' };
 
+// Who is signed in — { id, name, role: 'master'|'member' }, resolved server-side from
+// the password on the first /api/state pull. null on local dev (single-user by nature)
+// and until that pull returns. Role 'master' unlocks the Team tab.
+let currentUser = null;
+// ?teamDemo=1 renders the Team tab with canned data — for styling work and local dev,
+// where there is no backend to report on.
+const TEAM_DEMO = new URLSearchParams(location.search).get('teamDemo') === '1';
+
+function applyUserRole() {
+  const teamBtn = document.getElementById('tab-team');
+  if (teamBtn) teamBtn.style.display = (currentUser?.role === 'master' || TEAM_DEMO) ? '' : 'none';
+  const chip = document.getElementById('userChip');
+  if (chip && currentUser) {
+    chip.textContent = `👤 ${currentUser.name}`;
+    chip.style.display = '';
+  }
+}
+
 function getAppPassword() {
   let pw = localStorage.getItem('cyclingCoachPw');
   if (!pw) {
@@ -1416,6 +1487,9 @@ async function pullState() {
     if (!res.ok) return;
     s = await res.json();
   } catch (e) { return; }
+  // Adopt the server-resolved identity before any state guards — it arrives on every
+  // pull and is what shows/hides the master-only Team tab.
+  if (s && s.user) { currentUser = s.user; applyUserRole(); }
   if (!s || s.error) return;
 
   // Poll guard: if the shared state hasn't changed since we last synced, there's nothing
@@ -1481,6 +1555,16 @@ async function coachFetch(url, options = {}) {
 
 // ── INIT ───────────────────────────────────────────────────
 (function init() {
+  // OAuth connect round-trip feedback (?connected=strava / ?connect_error=...) — the
+  // /api/oauth callback bounces back here after the provider's consent screen.
+  const q = new URLSearchParams(location.search);
+  if (q.get('connected') || q.get('connect_error')) {
+    if (q.get('connected')) showToast(`✓ ${q.get('connected') === 'whoop' ? 'WHOOP' : 'Strava'} connected — syncing…`);
+    else showToast('⚠️ Connection failed: ' + q.get('connect_error'), true);
+    history.replaceState(null, '', location.pathname);
+  }
+  if (TEAM_DEMO) applyUserRole(); // unhide the Team tab for the canned-data preview
+
   buildRpeScale();
   const saved = localStorage.getItem('cyclingCoachPlan');
   if (saved) {
@@ -1627,7 +1711,7 @@ function togglePanel() {
 // ── TAB SWITCHING ──────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
-  ['today','chat','schedule','bands'].forEach(t => {
+  ['today','chat','schedule','bands','team'].forEach(t => {
     const b = document.getElementById(`tab-${t}`);
     if (b) b.classList.toggle('active', t === tab);
   });
@@ -1635,13 +1719,194 @@ function switchTab(tab) {
   document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
   document.getElementById('scheduleView').classList.toggle('hidden', tab !== 'schedule');
   document.getElementById('bandsView').classList.toggle('hidden', tab !== 'bands');
+  document.getElementById('teamView').classList.toggle('hidden', tab !== 'team');
   document.getElementById('chatInputBar').style.display = tab === 'chat' ? '' : 'none';
 
   if (tab === 'today') renderDashboard();
   if (tab === 'schedule' && trainingPlan.length) renderSchedule();
+  if (tab === 'team') renderTeam();
 }
 
 function switchTabTo(tab) { switchTab(tab); }
+
+// ── TEAM REPORT (master user only) ─────────────────────────
+// Rendered from /api/team, which aggregates every athlete's live WHOOP + Strava +
+// plan adherence server-side (5-min cache; Refresh forces a rebuild).
+let _teamReport = null;
+
+function renderTeam() {
+  if (_teamReport) renderTeamRows(_teamReport);
+  else loadTeamReport(false);
+}
+
+async function loadTeamReport(fresh) {
+  const el = document.getElementById('teamContent');
+  el.innerHTML = '<div class="team-empty">Loading team report… (live data for every rider, can take a few seconds)</div>';
+  try {
+    let d;
+    if (TEAM_DEMO) {
+      d = teamDemoReport();
+    } else {
+      const res = await coachFetch('/api/team' + (fresh ? '?fresh=1' : ''));
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      d = await res.json();
+      if (d.error) throw new Error(d.error);
+    }
+    _teamReport = d;
+    renderTeamRows(d);
+  } catch (err) {
+    el.innerHTML = `<div class="team-empty">⚠️ ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// escapeHtml doesn't cover quotes — needed when interpolating into an attribute.
+function escAttr(t) { return escapeHtml(t).replace(/"/g, '&quot;'); }
+
+function timeAgo(iso) {
+  if (!iso) return 'never';
+  const s = Math.floor((Date.now() - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(s)) return 'never';
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+// Same recovery bands the WHOOP panel and adaptPlan() use: <34 red, 34–66 yellow, 67+ green.
+function recoveryClass(score) {
+  if (score == null) return '';
+  return score >= 67 ? 'good' : score >= 34 ? 'warn' : 'bad';
+}
+
+function renderTeamRows(report) {
+  const el = document.getElementById('teamContent');
+  const meta = document.getElementById('teamMeta');
+  if (meta) {
+    const at = new Date(report.generatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    meta.textContent = `${report.memberCount}/${report.maxMembers} members · updated ${at}${report.cached ? ' (cached)' : ''}`;
+  }
+
+  const cards = (report.rows || []).map(r => {
+    const w = r.whoop || {};
+    const s = r.strava || {};
+    const adh = r.adherence || { done: 0, total: 0 };
+    const pct = adh.total ? Math.round((adh.done / adh.total) * 100) : 0;
+    const isMaster = r.role === 'master';
+    const rec = w.connected ? (w.recovery_score != null ? w.recovery_score + '%' : '—') : 'not connected';
+    const lastRide = s.connected
+      ? (s.last_ride ? `${escapeHtml(s.last_ride.name)} · ${mi(s.last_ride.distance_km)}mi` : 'no rides this week')
+      : 'not connected';
+    const actions = isMaster ? '' : `
+      <div class="team-card-actions">
+        <button class="team-mini-btn" onclick="resetTeamPassword('${r.id}')">🔑 Reset password</button>
+        <button class="team-mini-btn danger" onclick="removeTeamMember('${r.id}')">✕ Remove</button>
+      </div>`;
+    return `
+      <div class="team-card">
+        <div class="team-card-head">
+          <span class="team-card-name">${escapeHtml(r.name)}</span>
+          <span class="team-role-badge ${isMaster ? 'master' : ''}">${isMaster ? '👑 you' : 'rider'}</span>
+        </div>
+        <div>
+          <div class="team-metric"><span class="lbl">Recovery</span><span class="val ${recoveryClass(w.connected ? w.recovery_score : null)}">${rec}</span></div>
+          <div class="team-metric"><span class="lbl">Strain</span><span class="val">${w.connected && w.strain != null ? (+w.strain).toFixed(1) : '—'}</span></div>
+          <div class="team-metric"><span class="lbl">Sleep</span><span class="val">${w.connected && w.sleep_duration_h != null ? w.sleep_duration_h + 'h' : '—'}</span></div>
+          <div class="team-metric"><span class="lbl">Rides (7d)</span><span class="val">${s.connected && s.rides_7d != null ? s.rides_7d : '—'}</span></div>
+          <div class="team-metric"><span class="lbl">Distance (7d)</span><span class="val">${s.connected && s.total_km_7d != null ? mi(s.total_km_7d) + ' mi' : '—'}</span></div>
+          <div class="team-metric"><span class="lbl">Last ride</span><span class="val" style="max-width:150px;" title="${escAttr(lastRide)}">${lastRide}</span></div>
+          <div class="team-metric"><span class="lbl">Plan</span><span class="val">${r.hasPlan ? `${adh.done}/${adh.total} sessions done` : 'no plan yet'}</span></div>
+        </div>
+        <div class="team-adherence-track"><div class="team-adherence-fill" style="width:${pct}%"></div></div>
+        ${r.goal ? `<div class="team-goal" title="${escAttr(r.goal)}">🎯 ${escapeHtml(r.goal)}</div>` : ''}
+        <div class="team-metric" style="border:none;"><span class="lbl">Last active</span><span class="val">${timeAgo(r.lastActive)}</span></div>
+        ${actions}
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="team-grid">${cards}</div>`;
+}
+
+function teamMemberName(id) {
+  return _teamReport?.rows?.find(r => r.id === id)?.name || 'this member';
+}
+
+async function teamPost(body) {
+  const res = await coachFetch('/api/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+
+async function addTeamMember() {
+  const name = (prompt('New member name:') || '').trim();
+  if (!name) return;
+  try {
+    const d = await teamPost({ action: 'add', name });
+    // prompt() with a default value = copyable one-time password, no extra modal needed.
+    prompt(`${name}'s login password — copy it now, it is never shown again:`, d.password);
+    loadTeamReport(true);
+  } catch (err) { showToast('⚠️ ' + err.message, true); }
+}
+
+async function removeTeamMember(id) {
+  const name = teamMemberName(id);
+  if (!confirm(`Remove ${name} from the team?\n\nTheir plan, chat history and Strava/WHOOP connections are deleted. This cannot be undone.`)) return;
+  try {
+    await teamPost({ action: 'remove', id });
+    showToast(`${name} removed`);
+    loadTeamReport(true);
+  } catch (err) { showToast('⚠️ ' + err.message, true); }
+}
+
+async function resetTeamPassword(id) {
+  const name = teamMemberName(id);
+  try {
+    const d = await teamPost({ action: 'reset-password', id });
+    prompt(`${name}'s NEW password — copy it now, it is never shown again:`, d.password);
+  } catch (err) { showToast('⚠️ ' + err.message, true); }
+}
+
+// Canned report for ?teamDemo=1 (styling/local dev — no backend involved).
+function teamDemoReport() {
+  const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString();
+  const row = (id, name, role, rec, strain, sleep, rides, km, ride, done, total, goal, active) => ({
+    id, name, role, goal, lastActive: daysAgo(active), hasPlan: total > 0,
+    adherence: { done, total },
+    whoop: rec == null ? { connected: false, reason: 'not_connected' }
+      : { connected: true, recovery_score: rec, strain, hrv: 78, rhr: 52, sleep_duration_h: sleep },
+    strava: rides == null ? { connected: false, reason: 'not_connected' }
+      : { connected: true, rides_7d: rides, total_km_7d: km, total_moving_time_h_7d: 6.5, last_ride: ride },
+  });
+  return {
+    generatedAt: new Date().toISOString(), memberCount: 3, maxMembers: 6,
+    rows: [
+      row('master', 'Andy', 'master', 72, 14.2, 7.4, 4, 118.3, { name: 'Sunday club run', distance_km: 52.1, date: daysAgo(1).slice(0, 10) }, 3, 5, 'Gran Fondo in 8 weeks, targeting sub-4h', 0),
+      row('m_demo1', 'Sam', 'member', 45, 9.1, 6.2, 2, 41.0, { name: 'Lunch spin', distance_km: 18.5, date: daysAgo(2).slice(0, 10) }, 2, 4, 'Build to a 100km ride', 1),
+      row('m_demo2', 'Priya', 'member', 88, 11.8, 8.1, 5, 160.2, { name: 'Hill repeats', distance_km: 30.4, date: daysAgo(0).slice(0, 10) }, 4, 4, 'Race season prep', 0),
+      row('m_demo3', 'Jo', 'member', null, null, null, null, null, null, 0, 0, null, 5),
+    ],
+  };
+}
+
+// ── PROVIDER CONNECT (each rider links their own Strava/WHOOP via OAuth) ──────
+async function connectProvider(provider) {
+  try {
+    const res = await coachFetch('/api/oauth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    window.location.href = d.url; // off to the provider's consent screen; it bounces back here
+  } catch (err) { showToast('⚠️ ' + err.message, true); }
+}
 
 // ── TODAY DASHBOARD ──────────────────────────────────
 function dashGreeting() {
@@ -1820,7 +2085,17 @@ async function syncWHOOP() {
     const res = await coachFetch(API.whoop + '/api/whoop');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
+    if (d.not_connected) {
+      // This rider hasn't linked their WHOOP yet — offer the OAuth connect instead of an error.
+      status.textContent = 'not connected';
+      status.style.color = 'var(--text-muted)';
+      document.getElementById('whoopConnectBtn').style.display = '';
+      btn.textContent = '⚡ Sync from WHOOP';
+      btn.disabled = false;
+      return;
+    }
     if (d.error) throw new Error(d.error);
+    document.getElementById('whoopConnectBtn').style.display = 'none';
 
     athleteData.whoop = d;
 
@@ -1862,7 +2137,17 @@ async function syncStrava() {
     const res = await coachFetch(API.strava + '/api/strava');
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
+    if (d.not_connected) {
+      // This rider hasn't linked their Strava yet — offer the OAuth connect instead of an error.
+      status.textContent = 'not connected';
+      status.style.color = 'var(--text-muted)';
+      document.getElementById('stravaConnectBtn').style.display = '';
+      btn.textContent = '⚡ Sync from Strava';
+      btn.disabled = false;
+      return;
+    }
     if (d.error) throw new Error(d.error);
+    document.getElementById('stravaConnectBtn').style.display = 'none';
 
     athleteData.strava = d;
 
@@ -2018,11 +2303,29 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       prompt += `\n\nMost recent ride: ${s.last_ride.name} on ${s.last_ride.date}`;
       prompt += `\n  Distance: ${mi(s.last_ride.distance_km)}mi, Moving time: ${s.last_ride.moving_time_min}min`;
       prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${mph(s.last_ride.avg_speed_kph)} mph`;
+      if (s.last_ride.avg_hr != null) prompt += `\n  Avg HR: ${s.last_ride.avg_hr}bpm, Max HR: ${s.last_ride.max_hr}bpm`;
+    }
+    if (s.last_ride_detail) {
+      const d = s.last_ride_detail;
+      const ms = (t) => t == null ? '?' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      if (d.laps?.length) {
+        prompt += `\n\nRecorded laps on the most recent ride:`;
+        d.laps.forEach(l => {
+          prompt += `\n- Lap ${l.lap}: ${mi(l.distance_km)}mi in ${ms(l.time_s)}${l.avg_hr != null ? ` @ avg ${l.avg_hr}bpm (max ${l.max_hr})` : ''}`;
+        });
+      }
+      if (d.repeated_segments?.length) {
+        prompt += `\n\nSEGMENT SPLITS from the most recent ride (live from Strava). These are Strava segments the athlete rode more than once in the ride — on a loop course, pass 1 vs pass 2 IS the lap-1 vs lap-2 comparison. The longest segment ≈ the full loop. Use these to assess pacing (even/negative splits) and HR drift; you don't need to ask the athlete for lap times.`;
+        d.repeated_segments.forEach(g => {
+          prompt += `\n- ${g.name} (${mi(g.distance_km)}mi): ` + g.efforts.map((e, i) =>
+            `pass ${i + 1}: ${ms(e.time_s)}${e.avg_hr != null ? ` @ ${e.avg_hr}bpm` : ''}`).join(' → ');
+        });
+      }
     }
     if (s.all_rides?.length > 1) {
       prompt += `\n\nAll rides this week:`;
       s.all_rides.forEach((r) => {
-        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
+        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev${r.avg_hr != null ? ` | avg HR ${r.avg_hr}` : ''}`;
       });
     }
   }

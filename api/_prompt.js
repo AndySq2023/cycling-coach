@@ -48,11 +48,29 @@ You are talking to the athlete over Telegram, so keep replies tight and skimmabl
       prompt += `\n\nMost recent ride: ${s.last_ride.name} on ${s.last_ride.date}`;
       prompt += `\n  Distance: ${mi(s.last_ride.distance_km)}mi, Moving time: ${s.last_ride.moving_time_min}min`;
       prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${mph(s.last_ride.avg_speed_kph)} mph`;
+      if (s.last_ride.avg_hr != null) prompt += `\n  Avg HR: ${s.last_ride.avg_hr}bpm, Max HR: ${s.last_ride.max_hr}bpm`;
+    }
+    if (s.last_ride_detail) {
+      const d = s.last_ride_detail;
+      const ms = (t) => t == null ? '?' : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+      if (d.laps?.length) {
+        prompt += `\n\nRecorded laps on the most recent ride:`;
+        d.laps.forEach(l => {
+          prompt += `\n- Lap ${l.lap}: ${mi(l.distance_km)}mi in ${ms(l.time_s)}${l.avg_hr != null ? ` @ avg ${l.avg_hr}bpm (max ${l.max_hr})` : ''}`;
+        });
+      }
+      if (d.repeated_segments?.length) {
+        prompt += `\n\nSEGMENT SPLITS from the most recent ride (live from Strava). These are Strava segments the athlete rode more than once in the ride — on a loop course, pass 1 vs pass 2 IS the lap-1 vs lap-2 comparison. The longest segment ≈ the full loop. Use these to assess pacing (even/negative splits) and HR drift; you don't need to ask the athlete for lap times.`;
+        d.repeated_segments.forEach(g => {
+          prompt += `\n- ${g.name} (${mi(g.distance_km)}mi): ` + g.efforts.map((e, i) =>
+            `pass ${i + 1}: ${ms(e.time_s)}${e.avg_hr != null ? ` @ ${e.avg_hr}bpm` : ''}`).join(' → ');
+        });
+      }
     }
     if (s.all_rides?.length > 1) {
       prompt += `\n\nAll rides this week:`;
       s.all_rides.forEach((r) => {
-        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev`;
+        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev${r.avg_hr != null ? ` | avg HR ${r.avg_hr}` : ''}`;
       });
     }
   }

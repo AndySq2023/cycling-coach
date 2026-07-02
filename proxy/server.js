@@ -65,6 +65,7 @@ function num(...vals) {
 
 function normalizeActivity(a) {
   return {
+    id: a.id,
     name: a.name || 'Ride',
     date: String(a.start_date_local || a.start_date || '').slice(0, 10),
     distance_km: a.distance != null ? +(a.distance / 1000).toFixed(1) : null,
@@ -72,9 +73,72 @@ function normalizeActivity(a) {
     moving_time_s: num(a.moving_time),
     elevation_m: a.total_elevation_gain != null ? Math.round(a.total_elevation_gain) : null,
     avg_speed_kph: a.average_speed != null ? +(a.average_speed * 3.6).toFixed(1) : null,
+    avg_hr: a.average_heartrate != null ? Math.round(a.average_heartrate) : null,
+    max_hr: a.max_heartrate != null ? Math.round(a.max_heartrate) : null,
     suffer_score: num(a.suffer_score),
     sport_type: a.sport_type || a.type || '',
   };
+}
+
+// Compact per-segment lap comparison for one activity. Segments the rider hit
+// 2+ times in the ride ARE the laps (park loops) — Strava's own lap array is
+// usually a single entry unless the lap button was pressed.
+function buildRideDetail(a) {
+  const hr = (v) => (v != null && Number.isFinite(v)) ? Math.round(v) : null;
+  const secs = (e) => num(e.moving_time, e.elapsed_time);
+
+  const laps = (a.laps || []).length > 1
+    ? a.laps.map((l, i) => ({
+        lap: i + 1,
+        distance_km: l.distance != null ? +(l.distance / 1000).toFixed(1) : null,
+        time_s: secs(l),
+        avg_hr: hr(l.average_heartrate),
+        max_hr: hr(l.max_heartrate),
+      }))
+    : [];
+
+  const bySeg = new Map();
+  for (const e of a.segment_efforts || []) {
+    const id = e.segment?.id;
+    if (id == null) continue;
+    if (!bySeg.has(id)) bySeg.set(id, []);
+    bySeg.get(id).push(e);
+  }
+  // Overlapping segment definitions abound (a park loop has ~10 "full lap"
+  // variants) — after sorting by length, only keep a segment if it's meaningfully
+  // shorter (<80%) than the last one kept, so the list spans lap → climbs.
+  const candidates = [...bySeg.values()]
+    .filter(v => v.length >= 2 && (v[0].distance || 0) >= 400)
+    .sort((x, y) => (y[0].distance || 0) - (x[0].distance || 0));
+  const kept = [];
+  for (const v of candidates) {
+    if (kept.length >= 10) break;
+    const last = kept[kept.length - 1];
+    if (!last || (v[0].distance || 0) < 0.8 * (last[0].distance || 0)) kept.push(v);
+  }
+  const repeated_segments = kept
+    .map(v => ({
+      name: v[0].name || v[0].segment?.name || 'segment',
+      distance_km: +((v[0].distance || 0) / 1000).toFixed(1),
+      efforts: v
+        .sort((x, y) => (x.start_index ?? 0) - (y.start_index ?? 0))
+        .map(e => ({ time_s: secs(e), avg_hr: hr(e.average_heartrate) })),
+    }));
+
+  return {
+    avg_hr: hr(a.average_heartrate),
+    max_hr: hr(a.max_heartrate),
+    laps,
+    repeated_segments,
+  };
+}
+
+async function getRideDetail(token, activityId) {
+  const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}?include_all_efforts=true`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Strava activity detail error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  return buildRideDetail(await res.json());
 }
 
 async function getStravaSummary() {
@@ -95,9 +159,21 @@ async function getStravaSummary() {
   const totalElev = rides.reduce((s, r) => s + (r.elevation_m || 0), 0);
   const totalH = rides.reduce((s, r) => s + (r.moving_time_s || 0), 0) / 3600;
 
-  const strip = ({ moving_time_s, sport_type, ...keep }) => keep;
+  // Segment-level detail for the most recent ride only (one extra API call);
+  // a failure here must not take down the whole summary.
+  let last_ride_detail = null;
+  if (rides.length && rides[0].id != null) {
+    try {
+      last_ride_detail = await getRideDetail(token, rides[0].id);
+    } catch (err) {
+      console.error('Strava ride detail failed:', err.message);
+    }
+  }
+
+  const strip = ({ id, moving_time_s, sport_type, ...keep }) => keep;
   return {
     last_ride: rides.length ? strip(rides[0]) : null,
+    last_ride_detail,
     rides_7d: rides.length,
     total_km_7d: +totalKm.toFixed(1),
     total_elevation_7d: Math.round(totalElev),
