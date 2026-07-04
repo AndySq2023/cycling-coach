@@ -1112,6 +1112,147 @@
   .chart-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
   .chart-note { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:8px; }
 
+  /* ── FLIGHT DECK (Performance Dashboard re-theme, design handoff 2a) ──
+     Scoped to .charts-view only — the rest of the app keeps the Daybreak theme.
+     The variable overrides recolor the existing SVG charts (they stroke/fill
+     with var(--accent) etc.) without touching the chart geometry code. */
+  .charts-view {
+    --accent: #00e5ff;
+    --warn: #ff5a1f;
+    --danger: #ff5a1f;
+    --good: #7CFF6B;
+    --border: #16333e;
+    --surface2: #050b11;
+    --text: #e8f4ff;
+    --text-mid: #5c7688;
+    --text-muted: #3d5666;
+  }
+  .fd-hull {
+    max-width: 980px; margin: 0 auto; background: #020409;
+    box-shadow: 0 0 0 1px #0e2a33, 0 0 0 5px #04080d, 0 0 0 6px #123340, 0 40px 100px rgba(0,229,255,0.1);
+    clip-path: polygon(24px 0, calc(100% - 24px) 0, 100% 24px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 24px 100%, 0 calc(100% - 24px), 0 24px);
+  }
+  .fd-header {
+    background: linear-gradient(180deg,#071018,#040910); color: #e8f4ff;
+    padding: 8px 26px; display: flex; align-items: center; justify-content: space-between;
+    min-height: 60px; border-bottom: 1px solid #0e2a33; position: relative; gap: 12px; flex-wrap: wrap;
+    box-sizing: border-box;
+  }
+  .fd-header::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg,transparent,#00e5ff 30%,#00e5ff 70%,transparent); opacity: 0.5;
+  }
+  .fd-header-left { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .fd-brand { display: flex; align-items: center; gap: 9px; }
+  .fd-logo {
+    width: 28px; height: 28px; background: linear-gradient(135deg,#ff5a1f,#ff2f7e);
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+    box-shadow: 0 0 18px rgba(255,90,31,0.7);
+    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  }
+  .fd-lockup { font-family: 'Courier New',monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; color: #e8f4ff; }
+  .fd-lockup span { color: #00e5ff; }
+  .fd-lockup-sub { font-family: 'Courier New',monospace; font-size: 8px; letter-spacing: 0.22em; color: #3d5666; }
+  .fd-nav {
+    display: flex; gap: 2px; background: #050b11; padding: 3px; border: 1px solid #0e2a33;
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  }
+  .fd-nav button {
+    background: none; border: none; cursor: pointer; color: #3d5666;
+    font-family: 'Courier New',monospace; font-size: 10px; padding: 6px 12px; white-space: nowrap;
+  }
+  .fd-nav button:hover { color: #7d94a3; }
+  .fd-nav button.active {
+    background: rgba(0,229,255,0.1); color: #00e5ff; font-weight: 700;
+    box-shadow: inset 0 0 12px rgba(0,229,255,0.25), inset 0 0 0 1px #00e5ff;
+    text-shadow: 0 0 8px #00e5ff;
+  }
+  .fd-header-right { text-align: right; font-family: 'Courier New',monospace; }
+  .fd-link { font-size: 10px; color: #00e5ff; display: flex; align-items: center; gap: 6px; justify-content: flex-end; text-shadow: 0 0 8px #00e5ff; }
+  .fd-link.down { color: #ff5a1f; text-shadow: 0 0 8px rgba(255,90,31,0.7); }
+  .fd-link.standby { color: #3d5666; text-shadow: none; }
+  .fd-link-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; display: inline-block; animation: fdPulse 2s ease-in-out infinite; }
+  .fd-sync { font-size: 8px; color: #3d5666; letter-spacing: 0.14em; }
+  .fd-deck {
+    padding: 24px 26px;
+    background-color: #020409;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(255,255,255,0.05) 1px, transparent 1px),
+      radial-gradient(circle at 70% 60%, rgba(255,255,255,0.04) 1px, transparent 1px),
+      radial-gradient(circle at 45% 85%, rgba(255,255,255,0.05) 1px, transparent 1px),
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% -20%, #0a1a24, #020409 65%);
+    background-size: 240px 240px, 300px 300px, 260px 260px, 28px 28px, 28px 28px, auto;
+  }
+  .fd-section-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
+  .fd-section-title {
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Courier New',monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+    color: #00e5ff; text-shadow: 0 0 10px rgba(0,229,255,0.6);
+  }
+  .fd-diamond { width: 10px; height: 10px; border: 1px solid #00e5ff; transform: rotate(45deg); box-shadow: 0 0 8px rgba(0,229,255,0.6); flex-shrink: 0; }
+  .fd-section-meta { display: flex; gap: 14px; align-items: center; font-family: 'Courier New',monospace; font-size: 9px; color: #3d5666; letter-spacing: 0.1em; }
+  .fd-pwr { color: #7CFF6B; }
+  .fd-sort {
+    background: none; border: none; color: #e8f4ff; cursor: pointer;
+    font-family: 'Courier New',monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+    -webkit-appearance: none; appearance: none; padding: 0;
+  }
+  .fd-sort option { background: #050b11; color: #e8f4ff; }
+  .charts-view .chart-grid { gap: 10px; max-width: none; margin: 0; }
+  .charts-view .dash-card {
+    background: linear-gradient(180deg, rgba(10,22,30,0.9), rgba(5,10,15,0.9));
+    border: 1px solid #16333e; border-left: 2px solid #00e5ff; border-radius: 0;
+    padding: 14px 16px;
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .charts-view .dash-card:hover { border-left-color: #9df3ff; box-shadow: 0 0 20px rgba(0,229,255,0.12); }
+  .fd-card-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }
+  .fd-card-title { font-family: 'Courier New',monospace; font-size: 14px; font-weight: 700; color: #f2fbff; text-transform: uppercase; }
+  .fd-badge {
+    background: rgba(255,90,31,0.12); color: #ff8a4c; border: 1px solid #ff5a1f;
+    font-family: 'Courier New',monospace; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 3px;
+  }
+  .fd-card-sub { font-family: Helvetica,Arial,sans-serif; font-size: 12px; color: #7d94a3; }
+  .charts-view .chart-big { font-family: 'Courier New',monospace; font-size: 26px; letter-spacing: 0; color: #f2fbff; }
+  .charts-view .chart-big .u { font-family: 'Courier New',monospace; color: #3d5666; }
+  .charts-view .chart-delta { font-family: 'Courier New',monospace; background: #050b11; border: 1px solid #16333e; border-radius: 3px; color: #7d94a3; }
+  .charts-view .chart-delta.good { background: rgba(124,255,107,0.08); color: #7CFF6B; border-color: rgba(124,255,107,0.35); }
+  .charts-view .chart-delta.warn { background: rgba(255,176,32,0.08); color: #ffb020; border-color: rgba(255,176,32,0.35); }
+  .charts-view .chart-delta.bad  { background: rgba(255,90,31,0.1); color: #ff8a4c; border-color: #ff5a1f; }
+  .charts-view .chart-legend { font-family: 'Courier New',monospace; color: #3d5666; }
+  .charts-view .chart-legend i { border-radius: 1px; }
+  .charts-view .chart-note { font-family: 'Courier New',monospace; color: #5c7688; }
+  .charts-view svg .fd-glow-c { filter: drop-shadow(0 0 4px #00e5ff); }
+  .charts-view svg .fd-glow-o { filter: drop-shadow(0 0 4px #ff5a1f); }
+  .charts-view svg .fd-glow-w { filter: drop-shadow(0 0 3px rgba(232,244,255,0.6)); }
+  .fd-nosignal {
+    height: 120px; display: flex; align-items: center; justify-content: center;
+    background: #050b0e; border: 1px solid #142028; margin-top: 10px;
+    font-family: 'Courier New',monospace; font-size: 11px; font-weight: 700; letter-spacing: 0.2em; color: #3d5666;
+  }
+  .charts-view .dash-btn.primary {
+    background: rgba(0,229,255,0.1); color: #00e5ff; border: 1px solid #00e5ff; border-radius: 0;
+    box-shadow: inset 0 0 12px rgba(0,229,255,0.25); text-shadow: 0 0 8px #00e5ff;
+    font-family: 'Courier New',monospace;
+  }
+  .fd-footer {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+    border-top: 1px solid #0e2a33; padding-top: 12px; margin-top: 16px;
+    font-family: 'Courier New',monospace; font-size: 9px; letter-spacing: 0.12em; color: #3d5666;
+  }
+  .fd-sources { display: flex; gap: 18px; flex-wrap: wrap; }
+  .fd-src-dot { animation: fdPulse 2s ease-in-out infinite; }
+  .fd-rider { color: #00e5ff; }
+  @keyframes fdPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  @media (max-width: 700px) {
+    .fd-header { padding: 8px 14px; }
+    .fd-deck { padding: 16px 14px; }
+    .fd-header-right { display: flex; flex-direction: column-reverse; align-items: flex-start; text-align: left; }
+  }
+
   @media (max-width: 720px) {
     .dash-hero { grid-template-columns:1fr; }
     .glance-row { grid-template-columns:1fr; }
@@ -1260,7 +1401,7 @@
     <!-- TAB BAR -->
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-today" onclick="switchTab('today')">◎ Today</button>
-      <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">📊 Dashboard</button>
+      <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">◈ Dashboard</button>
       <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
       <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
@@ -1273,15 +1414,44 @@
       <div id="dashboardContent"></div>
     </div>
 
-    <!-- PERFORMANCE DASHBOARD (charts) -->
+    <!-- PERFORMANCE DASHBOARD (charts) — "flight deck" theme, design handoff 2a -->
     <div class="charts-view hidden" id="chartsView">
-      <div class="schedule-header">
-        <div class="schedule-header-left">
-          <h2>Performance Dashboard</h2>
-          <p id="chartsMeta">Trends from your last 90 days of riding — no power meter needed.</p>
+      <div class="fd-hull">
+        <div class="fd-header">
+          <div class="fd-header-left">
+            <div class="fd-brand">
+              <div class="fd-logo">🚴</div>
+              <div>
+                <div class="fd-lockup">CC-01 <span>VELOCITY</span></div>
+                <div class="fd-lockup-sub">RIDER TELEMETRY SYSTEM</div>
+              </div>
+            </div>
+            <div class="fd-nav" id="fdNav"></div>
+          </div>
+          <div class="fd-header-right">
+            <div class="fd-link standby" id="fdLink"><span class="fd-link-dot"></span><span id="fdLinkLabel">LINK STANDBY</span></div>
+            <div class="fd-sync" id="fdSync">LAST SYNC —</div>
+          </div>
+        </div>
+        <div class="fd-deck">
+          <div class="fd-section-row">
+            <div class="fd-section-title"><span class="fd-diamond"></span>PERFORMANCE // FLIGHT DECK</div>
+            <div class="fd-section-meta">
+              <span>PWR <span class="fd-pwr">▮▮▮▮▯</span></span>
+              <span>SORT: <select class="fd-sort" id="fdSort" onchange="fdSetSort(this.value)">
+                <option value="priority">PRIORITY ▾</option>
+                <option value="recent">RECENT ▾</option>
+                <option value="alpha">A–Z ▾</option>
+              </select></span>
+            </div>
+          </div>
+          <div id="chartsContent"></div>
+          <div class="fd-footer">
+            <div class="fd-sources" id="fdSources"></div>
+            <div class="fd-rider">RIDER STATUS: <span id="fdRider">—</span></div>
+          </div>
         </div>
       </div>
-      <div id="chartsContent"></div>
     </div>
 
     <!-- CHAT MESSAGES -->
@@ -2132,6 +2302,7 @@ function renderDashboard() {
 // state here: everything lives inside functions (see the STATE_POLL_MS TDZ bug).
 
 function renderCharts() {
+  fdRenderChrome();
   const el = document.getElementById('chartsContent');
   if (!el) return;
   const st = athleteData.strava;
@@ -2141,24 +2312,103 @@ function renderCharts() {
       : 'Sync Strava to build your performance charts from the last 90 days of riding.';
     el.innerHTML = `
       <div class="dash-card" style="text-align:center;padding:40px 20px;">
-        <div style="font-size:26px;margin-bottom:10px;">📊</div>
-        <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);max-width:420px;margin:0 auto;">${msg}</div>
-        <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava()">⚡ Sync Strava</button></div>
+        <div class="fd-nosignal" style="margin:0 auto 14px;max-width:280px;">NO SIGNAL</div>
+        <div style="font-family:'Courier New',monospace;font-size:12px;color:var(--text-mid);max-width:420px;margin:0 auto;">${msg}</div>
+        <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava()">⚡ SYNC STRAVA</button></div>
       </div>`;
     return;
   }
   const perRide = chartLoadModel(st.history, athleteData.whoop ? athleteData.whoop.rhr : null);
-  el.innerHTML = `<div class="chart-grid">${chartEfficiency(st.history)}${chartLoadCurve(perRide)}${chartWeekly(perRide)}</div>`;
+  // Sortable card registry — keys double as the sort handles for fdSetSort().
+  const cards = {
+    eff: chartEfficiency(st.history),
+    load: chartLoadCurve(perRide),
+    weekly: chartWeekly(perRide),
+  };
+  const order = {
+    priority: ['eff', 'load', 'weekly'],
+    recent: ['weekly', 'load', 'eff'],   // most-recently-moving series first
+    alpha: ['load', 'eff', 'weekly'],    // ATL/CTL · HR EFFICIENCY · WEEKLY
+  }[fdGetSort()];
+  el.innerHTML = `<div class="chart-grid">${order.map(k => cards[k]).join('')}</div>`;
 }
 
-function chartCardShell(label, headHtml, legendHtml, svg, note) {
+function chartCardShell(title, sub, headHtml, legendHtml, svg, note) {
   return `<div class="dash-card chart-card">
-    <div class="dash-card-label">${label}</div>
+    <div class="fd-card-title-row"><div class="fd-card-title">${title}</div><span class="fd-badge">MVP</span></div>
+    <div class="fd-card-sub">${sub}</div>
     ${headHtml ? `<div class="chart-head">${headHtml}</div>` : ''}
     ${legendHtml ? `<div class="chart-legend" style="margin-top:8px;">${legendHtml}</div>` : ''}
     ${svg}
     ${note ? `<div class="chart-note">${note}</div>` : ''}
   </div>`;
+}
+
+function fdGetSort() {
+  try {
+    const v = localStorage.getItem('fdSort');
+    return ['priority', 'recent', 'alpha'].includes(v) ? v : 'priority';
+  } catch (e) { return 'priority'; }
+}
+
+function fdSetSort(v) {
+  try { localStorage.setItem('fdSort', v); } catch (e) {}
+  renderCharts();
+}
+
+// Sync functions report in here so the flight-deck chrome (header link light,
+// footer source dots) reflects real connection state, per the handoff spec.
+function fdMarkSource(name, state) {
+  if (!athleteData.sources) athleteData.sources = {};
+  athleteData.sources[name] = state;
+  if (state === 'online') athleteData.lastSyncAt = Date.now();
+  fdRenderChrome();
+}
+
+// Header nav pills, LINK/LAST SYNC readout, source status dots and rider status.
+// All guarded on element presence so it's a no-op anywhere the deck isn't mounted.
+function fdRenderChrome() {
+  const nav = document.getElementById('fdNav');
+  if (!nav) return;
+  const tabs = [['today', 'TODAY'], ['charts', '◈ DASHBOARD'], ['chat', 'CHAT'], ['schedule', 'SCHEDULE'], ['bands', 'RESISTANCE']];
+  const teamBtn = document.getElementById('tab-team');
+  if (teamBtn && teamBtn.style.display !== 'none') tabs.push(['team', 'TEAM']);
+  nav.innerHTML = tabs.map(([id, label]) =>
+    `<button class="${id === 'charts' ? 'active' : ''}" onclick="switchTab('${id}')">${label}</button>`).join('');
+
+  const src = athleteData.sources || {};
+  const anyOnline = src.strava === 'online' || src.whoop === 'online';
+  const anyDown = src.strava === 'down' || src.whoop === 'down';
+  const link = document.getElementById('fdLink');
+  link.className = 'fd-link' + (anyOnline ? '' : anyDown ? ' down' : ' standby');
+  document.getElementById('fdLinkLabel').textContent = anyOnline ? 'LINK STABLE' : anyDown ? 'LINK DOWN' : 'LINK STANDBY';
+  document.getElementById('fdSync').textContent = athleteData.lastSyncAt
+    ? `LAST SYNC ${new Date(athleteData.lastSyncAt).toISOString().slice(11, 19)} UTC`
+    : 'LAST SYNC —';
+
+  const dotColor = { online: '#7CFF6B', stale: '#ffb020', down: '#ff5a1f' };
+  const srcRow = (state, label) =>
+    `<span><span class="fd-src-dot" style="color:${dotColor[state] || '#3d5666'}">●</span> ${label}</span>`;
+  document.getElementById('fdSources').innerHTML = [
+    srcRow(src.whoop, `WHOOP ${src.whoop === 'online' ? 'ONLINE' : src.whoop === 'down' ? 'OFFLINE' : 'STANDBY'}`),
+    srcRow(src.strava, `STRAVA ${src.strava === 'online' ? 'ONLINE' : src.strava === 'down' ? 'OFFLINE' : 'STANDBY'}`),
+    srcRow(src.weather, `WX ${src.weather === 'online' ? 'FEED 48H' : src.weather === 'down' ? 'FEED DOWN' : 'NO FEED'}`),
+  ].join('');
+
+  // Rider status — same recovery bands that drive adaptPlan()'s traffic light.
+  const rec = athleteData.whoop ? athleteData.whoop.recovery_score : null;
+  const rider = rec == null
+    ? { word: 'AWAITING TELEMETRY', color: '#3d5666', glow: 'none' }
+    : rec < 34
+      ? { word: 'RECOVERY PROTOCOL', color: '#ff5a1f', glow: '0 0 8px rgba(255,90,31,0.7)' }
+      : rec < 67
+        ? { word: 'CAUTION — SCALE INTENSITY', color: '#ffb020', glow: '0 0 8px rgba(255,176,32,0.5)' }
+        : { word: 'ALL SYSTEMS GO', color: '#7CFF6B', glow: '0 0 8px rgba(124,255,107,0.5)' };
+  document.getElementById('fdRider').innerHTML =
+    `<span style="color:${rider.color};text-shadow:${rider.glow};">${rider.word}</span>`;
+
+  const sel = document.getElementById('fdSort');
+  if (sel) sel.value = fdGetSort();
 }
 
 function chartMedian(arr) {
@@ -2222,13 +2472,14 @@ function chartMonthMarks(t0, t1, xOf, yTop, yBottom) {
 // Chart 1 — HR ÷ speed per ride, the no-power efficiency proxy. Lower = fitter.
 // Flat-ride filter (≥30 min, ≤10 m climb/km) keeps terrain noise out.
 function chartEfficiency(history) {
-  const label = 'HR efficiency trend · MVP';
+  const title = 'HR EFFICIENCY TREND';
+  const sub = 'HR ÷ speed over time — your no-power FTP proxy';
   const rows = history.filter(r =>
     r.avg_hr && r.avg_speed_kph && r.distance_km > 3 && (r.moving_time_min || 0) >= 30 &&
     ((r.elevation_m || 0) / r.distance_km) <= 10);
   if (rows.length < 3) {
-    return chartCardShell(label, '', '',
-      '',
+    return chartCardShell(title, sub, '', '',
+      '<div class="fd-nosignal">NO SIGNAL</div>',
       `Need 3+ steady rides with heart rate to draw a trend — ${rows.length} of ${history.length} synced rides qualify (≥30 min, ≤10 m climb/km).`);
   }
   const pts = rows.map(r => ({ t: Date.parse(r.date), v: r.avg_hr / (r.avg_speed_kph * 0.621371), r }));
@@ -2254,15 +2505,15 @@ function chartEfficiency(history) {
   const { ticks, step } = chartTicks(vmin - vpad, vmax + vpad, 4);
 
   const line = pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.t).toFixed(1)} ${yOf(p.v).toFixed(1)}`).join(' ');
-  const dots = pts.map(p => `<circle cx="${xOf(p.t).toFixed(1)}" cy="${yOf(p.v).toFixed(1)}" r="3.5" fill="var(--accent)"><title>${p.r.date} · ${p.v.toFixed(2)} bpm/mph · ${Math.round(p.r.avg_hr)} bpm @ ${mi(p.r.avg_speed_kph)} mph</title></circle>`).join('');
+  const dots = pts.map(p => `<circle cx="${xOf(p.t).toFixed(1)}" cy="${yOf(p.v).toFixed(1)}" r="3.5" fill="var(--accent)" class="fd-glow-c"><title>${p.r.date} · ${p.v.toFixed(2)} bpm/mph · ${Math.round(p.r.avg_hr)} bpm @ ${mi(p.r.avg_speed_kph)} mph</title></circle>`).join('');
   const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     ${chartYAxis(ticks, yOf, padL, W - padR, t => step < 1 ? t.toFixed(1) : Math.round(t))}
     ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
     <line x1="${xOf(t0).toFixed(1)}" y1="${yOf(fit(0)).toFixed(1)}" x2="${xOf(t1).toFixed(1)}" y2="${yOf(fit(xs[n - 1])).toFixed(1)}" stroke="var(--text-mid)" stroke-width="2" stroke-dasharray="6 5"/>
-    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.35"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.9" class="fd-glow-c"/>
     ${dots}
   </svg>`;
-  return chartCardShell(label, head, '', svg,
+  return chartCardShell(title, sub, head, '', svg,
     `Avg HR ÷ avg speed per steady ride (≥30 min, ≤10 m climb/km — ${rows.length} of ${history.length} rides). Dashed line = trend; lower = a stronger aerobic engine.`);
 }
 
@@ -2270,7 +2521,8 @@ function chartEfficiency(history) {
 // load curve. Seeded with the first 28 days then hidden, so the warm-up bias
 // doesn't show.
 function chartLoadCurve(perRide) {
-  const label = 'Fitness vs fatigue · ATL / CTL · MVP';
+  const title = 'ATL / CTL LOAD CURVE';
+  const sub = '7-day vs 42-day rolling load — fitness vs fatigue';
   const byDay = new Map();
   perRide.forEach(r => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.load || 0)));
   const DAYS = 90, WARM = 28;
@@ -2309,19 +2561,20 @@ function chartLoadCurve(perRide) {
     ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
     ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
     <path d="${ctlPath} L${xOf(t1).toFixed(1)} ${yOf(0).toFixed(1)} L${xOf(t0).toFixed(1)} ${yOf(0).toFixed(1)} Z" fill="var(--accent)" opacity="0.10"/>
-    <path d="${ctlPath}" fill="none" stroke="var(--accent)" stroke-width="2.5"><title>CTL — 42-day fitness</title></path>
-    <path d="${pathOf('atl')}" fill="none" stroke="var(--warn)" stroke-width="2"><title>ATL — 7-day fatigue</title></path>
-    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.ctl).toFixed(1)}" r="4" fill="var(--accent)"><title>CTL ${Math.round(last.ctl)}</title></circle>
-    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.atl).toFixed(1)}" r="4" fill="var(--warn)"><title>ATL ${Math.round(last.atl)}</title></circle>
+    <path d="${ctlPath}" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.7"><title>CTL — 42-day fitness</title></path>
+    <path d="${pathOf('atl')}" fill="none" stroke="var(--warn)" stroke-width="2" class="fd-glow-o"><title>ATL — 7-day fatigue</title></path>
+    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.ctl).toFixed(1)}" r="4" fill="var(--accent)" class="fd-glow-c"><title>CTL ${Math.round(last.ctl)}</title></circle>
+    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.atl).toFixed(1)}" r="4" fill="var(--warn)" class="fd-glow-o"><title>ATL ${Math.round(last.atl)}</title></circle>
   </svg>`;
-  return chartCardShell(label, head, legend, svg,
+  return chartCardShell(title, sub, head, legend, svg,
     `Daily load = Strava Relative Effort${estCount ? ` (TRIMP estimate for ${estCount} ride${estCount > 1 ? 's' : ''} without it)` : ''}. Form ≥ +5 fresh · −10 to −30 productive · below −30 overreaching.`);
 }
 
 // Chart 3 — weekly load bars with a 4-week rolling average. The often-cited ramp
 // guide is ≲ +10% week-on-week; the 4-week line stops one odd week reading as a trend.
 function chartWeekly(perRide) {
-  const label = 'Weekly volume &amp; TSS proxy · MVP';
+  const title = 'WEEKLY VOLUME &amp; TSS PROXY';
+  const sub = 'Load score bar + 4-week rolling average';
   const weekOf = ds => {
     const d = new Date(ds + 'T12:00:00Z');
     d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
@@ -2368,9 +2621,10 @@ function chartWeekly(perRide) {
 
   const bars = weeks.map((w, i) => {
     const partial = w.start === thisWeek;
+    const over = !partial && w.avg > 0 && w.load > w.avg * 1.1; // above the ~10% ramp guide → orange
     const h = Math.max(0, yOf(0) - yOf(w.load));
-    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(w.load).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"
-      fill="var(--accent)" opacity="${partial ? '0.35' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}>
+    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(w.load).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1"
+      fill="var(${over ? '--warn' : '--accent'})" class="${over ? 'fd-glow-o' : 'fd-glow-c'}" opacity="${partial ? '0.35' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}>
       <title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · load ${Math.round(w.load)} · ${w.rides} ride${w.rides === 1 ? '' : 's'} · ${(w.min / 60).toFixed(1)}h · ${mi(w.km)}mi</title></rect>`;
   }).join('');
   const xLabels = weeks.map((w, i) => i % 2 === (weeks.length - 1) % 2
@@ -2379,11 +2633,11 @@ function chartWeekly(perRide) {
   const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
     ${bars}
-    <path d="${avgLine}" fill="none" stroke="var(--text)" stroke-width="2"><title>4-week rolling average</title></path>
+    <path d="${avgLine}" fill="none" stroke="var(--text)" stroke-width="2" class="fd-glow-w"><title>4-week rolling average</title></path>
     ${xLabels}
   </svg>`;
-  return chartCardShell(label, head, legend, svg,
-    'Weekly load score (same TRIMP-style series as the curve above) · hatched bar = current week in progress. Guide: grow ≲ 10% week-on-week.');
+  return chartCardShell(title, sub, head, legend, svg,
+    'Weekly load score (same TRIMP-style series as the curve above) · hatched bar = current week in progress · orange bar = above the ~10% ramp guide.');
 }
 
 // ── WHOOP LIVE SYNC ────────────────────────────────────────
@@ -2411,6 +2665,7 @@ async function syncWHOOP() {
     document.getElementById('whoopConnectBtn').style.display = 'none';
 
     athleteData.whoop = d;
+    fdMarkSource('whoop', 'online');
 
     const recEl = document.getElementById('disp-recovery');
     recEl.textContent = d.recovery_score != null ? d.recovery_score + '%' : '—';
@@ -2431,6 +2686,7 @@ async function syncWHOOP() {
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
+    fdMarkSource('whoop', 'down');
     showToast(IS_LOCAL ? '⚠️ Could not reach WHOOP bridge. Is the local server (localhost:3001) running?' : '⚠️ WHOOP sync failed. Check /api/whoop (creds/KV) in Vercel.', true);
     console.error(err);
   }
@@ -2463,6 +2719,7 @@ async function syncStrava() {
     document.getElementById('stravaConnectBtn').style.display = 'none';
 
     athleteData.strava = d;
+    fdMarkSource('strava', 'online');
 
     document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${mi(d.last_ride.distance_km)}mi)` : '—';
     document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
@@ -2479,6 +2736,7 @@ async function syncStrava() {
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
+    fdMarkSource('strava', 'down');
     showToast('⚠️ Could not reach Strava proxy. Run: cd ~/strava-proxy && npm start', true);
     console.error(err);
   }
@@ -2549,6 +2807,7 @@ async function syncWeather() {
     if (d.error) throw new Error(d.error);
 
     athleteData.weather = d;
+    fdMarkSource('weather', 'online');
     const n = d.now || {};
     const s = d.summary || {};
     document.getElementById('disp-wx-loc').textContent = d.location ? `${d.location.lat}, ${d.location.lon}` : '—';
@@ -2567,6 +2826,7 @@ async function syncWeather() {
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';
+    fdMarkSource('weather', 'down');
     showToast('⚠️ Could not load weather. ' + (err.message || ''), true);
     console.error(err);
   }
