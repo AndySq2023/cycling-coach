@@ -1456,6 +1456,7 @@ function clearAppPassword() { localStorage.removeItem('cyclingCoachPw'); }
 // Local dev has no KV, so all of this is a no-op (guarded by IS_LOCAL).
 let _pushTimer = null;
 let _pollTimer = null;
+const STATE_POLL_MS = 15000; // hoisted above init() — startStatePolling() (called from init()) reads this
 let _suppressPush = false; // true while pullState() applies server data, so we don't echo it back
 let _lastServerUpdatedAt = null; // server's updatedAt we last wrote/adopted; gates the poll so it
                                  // only re-renders when the shared state actually changed elsewhere
@@ -1647,7 +1648,6 @@ async function coachFetch(url, options = {}) {
 // poll the shared state every 15s while the tab is visible. pullState() is a cheap no-op when
 // the server's updatedAt is unchanged, so this only re-renders when another device or the
 // Telegram bot actually changed something. No-op on local dev (no KV).
-const STATE_POLL_MS = 15000;
 function startStatePolling() {
   if (IS_LOCAL || _pollTimer) return;
   _pollTimer = setInterval(() => {
