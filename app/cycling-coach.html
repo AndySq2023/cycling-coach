@@ -1097,6 +1097,21 @@
   .glance-temp { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:42px; line-height:1; letter-spacing:-0.03em; color:#1a1812; }
   .glance-wx-meta { display:flex; flex-direction:column; gap:3px; font-family:'DM Mono',monospace; font-size:12px; color:#7a6a3e; }
 
+  /* ── PERFORMANCE DASHBOARD (charts) ── */
+  .charts-view { flex:1; overflow-y:auto; padding:18px 16px 30px; }
+  .chart-grid { display:grid; grid-template-columns:1fr; gap:16px; max-width:860px; margin:0 auto; }
+  .chart-card svg { width:100%; height:auto; display:block; margin-top:6px; }
+  .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:10px; }
+  .chart-big { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:30px; line-height:1; letter-spacing:-0.03em; color:var(--text); }
+  .chart-big .u { font-family:'DM Mono',monospace; font-size:12px; color:var(--text-muted); font-weight:400; margin-left:4px; }
+  .chart-delta { font-family:'DM Mono',monospace; font-size:12px; padding:3px 8px; border-radius:7px; background:var(--surface2); color:var(--text-mid); }
+  .chart-delta.good { background:rgba(46,125,82,0.1); color:var(--good); }
+  .chart-delta.warn { background:rgba(224,137,43,0.12); color:var(--warn); }
+  .chart-delta.bad  { background:rgba(214,74,58,0.1); color:var(--danger); }
+  .chart-legend { display:flex; gap:14px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); }
+  .chart-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .chart-note { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:8px; }
+
   @media (max-width: 720px) {
     .dash-hero { grid-template-columns:1fr; }
     .glance-row { grid-template-columns:1fr; }
@@ -1245,6 +1260,7 @@
     <!-- TAB BAR -->
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-today" onclick="switchTab('today')">◎ Today</button>
+      <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">📊 Dashboard</button>
       <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
       <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
@@ -1255,6 +1271,17 @@
     <!-- TODAY DASHBOARD -->
     <div class="dashboard-view" id="dashboardView">
       <div id="dashboardContent"></div>
+    </div>
+
+    <!-- PERFORMANCE DASHBOARD (charts) -->
+    <div class="charts-view hidden" id="chartsView">
+      <div class="schedule-header">
+        <div class="schedule-header-left">
+          <h2>Performance Dashboard</h2>
+          <p id="chartsMeta">Trends from your last 90 days of riding — no power meter needed.</p>
+        </div>
+      </div>
+      <div id="chartsContent"></div>
     </div>
 
     <!-- CHAT MESSAGES -->
@@ -1735,11 +1762,12 @@ function togglePanel() {
 // ── TAB SWITCHING ──────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
-  ['today','chat','schedule','bands','team'].forEach(t => {
+  ['today','charts','chat','schedule','bands','team'].forEach(t => {
     const b = document.getElementById(`tab-${t}`);
     if (b) b.classList.toggle('active', t === tab);
   });
   document.getElementById('dashboardView').classList.toggle('hidden', tab !== 'today');
+  document.getElementById('chartsView').classList.toggle('hidden', tab !== 'charts');
   document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
   document.getElementById('scheduleView').classList.toggle('hidden', tab !== 'schedule');
   document.getElementById('bandsView').classList.toggle('hidden', tab !== 'bands');
@@ -1747,6 +1775,7 @@ function switchTab(tab) {
   document.getElementById('chatInputBar').style.display = tab === 'chat' ? '' : 'none';
 
   if (tab === 'today') renderDashboard();
+  if (tab === 'charts') renderCharts();
   if (tab === 'schedule' && trainingPlan.length) renderSchedule();
   if (tab === 'team') renderTeam();
 }
@@ -2097,6 +2126,266 @@ function renderDashboard() {
   el.innerHTML = greetHtml + `<div class="dash-hero">${recoveryHtml}${todayHtml}</div>` + agendaHtml + glanceHtml;
 }
 
+// ── PERFORMANCE DASHBOARD (three charts) ──────────────────
+// Reads athleteData.strava.history — the 90-day, chart-only ride series returned
+// by both Strava backends (all prompt-facing fields stay 7-day). No top-level
+// state here: everything lives inside functions (see the STATE_POLL_MS TDZ bug).
+
+function renderCharts() {
+  const el = document.getElementById('chartsContent');
+  if (!el) return;
+  const st = athleteData.strava;
+  if (!st || !Array.isArray(st.history) || !st.history.length) {
+    const msg = st
+      ? 'This Strava backend doesn&#39;t return ride history yet — restart the proxy (or redeploy), then sync again.'
+      : 'Sync Strava to build your performance charts from the last 90 days of riding.';
+    el.innerHTML = `
+      <div class="dash-card" style="text-align:center;padding:40px 20px;">
+        <div style="font-size:26px;margin-bottom:10px;">📊</div>
+        <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);max-width:420px;margin:0 auto;">${msg}</div>
+        <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava()">⚡ Sync Strava</button></div>
+      </div>`;
+    return;
+  }
+  const perRide = chartLoadModel(st.history, athleteData.whoop ? athleteData.whoop.rhr : null);
+  el.innerHTML = `<div class="chart-grid">${chartEfficiency(st.history)}${chartLoadCurve(perRide)}${chartWeekly(perRide)}</div>`;
+}
+
+function chartCardShell(label, headHtml, legendHtml, svg, note) {
+  return `<div class="dash-card chart-card">
+    <div class="dash-card-label">${label}</div>
+    ${headHtml ? `<div class="chart-head">${headHtml}</div>` : ''}
+    ${legendHtml ? `<div class="chart-legend" style="margin-top:8px;">${legendHtml}</div>` : ''}
+    ${svg}
+    ${note ? `<div class="chart-note">${note}</div>` : ''}
+  </div>`;
+}
+
+function chartMedian(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Per-ride training load. Strava's suffer_score (Relative Effort — an HR-based
+// TRIMP) when present; else a Banister TRIMP from avg HR (verified same ballpark:
+// 69 est vs 59 actual on a real ride); rides with no HR at all get the median
+// load-per-minute of the known rides.
+function chartLoadModel(history, rhr) {
+  const rest = rhr || 60;
+  const hrmax = Math.max(180, ...history.map(r => (r.max_hr || 0) + 5));
+  const out = history.map(r => {
+    let load = null, est = false;
+    if (r.suffer_score != null) load = r.suffer_score;
+    else if (r.avg_hr && r.moving_time_min) {
+      const x = Math.min(0.95, Math.max(0.05, (r.avg_hr - rest) / (hrmax - rest)));
+      load = Math.round(r.moving_time_min * x * 0.64 * Math.exp(1.92 * x));
+      est = true;
+    }
+    return { ...r, load, est };
+  });
+  const known = out.filter(r => r.load != null && r.moving_time_min);
+  const perMin = known.length ? chartMedian(known.map(r => r.load / r.moving_time_min)) : 0.8;
+  out.forEach(r => { if (r.load == null) { r.load = Math.round((r.moving_time_min || 0) * perMin); r.est = true; } });
+  return out;
+}
+
+// "Nice" y-axis ticks (1/2/2.5/5 × 10^k steps) between min and max.
+function chartTicks(min, max, n) {
+  const raw = (max - min) / n || 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(s => s >= raw);
+  const ticks = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + 1e-9; t += step) ticks.push(+t.toFixed(2));
+  return { ticks, step };
+}
+
+function chartYAxis(ticks, yOf, x0, x1, fmt) {
+  return ticks.map(t => `
+    <line x1="${x0}" y1="${yOf(t).toFixed(1)}" x2="${x1}" y2="${yOf(t).toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+    <text x="${x0 - 7}" y="${(yOf(t) + 3.5).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmt(t)}</text>`).join('');
+}
+
+// Dashed vertical line + month label at each month boundary in [t0, t1].
+function chartMonthMarks(t0, t1, xOf, yTop, yBottom) {
+  const marks = [];
+  const d = new Date(t0);
+  d.setUTCHours(0, 0, 0, 0); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
+  for (; d.getTime() <= t1; d.setUTCMonth(d.getUTCMonth() + 1)) {
+    const x = xOf(d.getTime());
+    marks.push(`<line x1="${x.toFixed(1)}" y1="${yTop}" x2="${x.toFixed(1)}" y2="${yBottom}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>
+      <text x="${(x + 4).toFixed(1)}" y="${yBottom + 16}" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`);
+  }
+  return marks.join('');
+}
+
+// Chart 1 — HR ÷ speed per ride, the no-power efficiency proxy. Lower = fitter.
+// Flat-ride filter (≥30 min, ≤10 m climb/km) keeps terrain noise out.
+function chartEfficiency(history) {
+  const label = 'HR efficiency trend · MVP';
+  const rows = history.filter(r =>
+    r.avg_hr && r.avg_speed_kph && r.distance_km > 3 && (r.moving_time_min || 0) >= 30 &&
+    ((r.elevation_m || 0) / r.distance_km) <= 10);
+  if (rows.length < 3) {
+    return chartCardShell(label, '', '',
+      '',
+      `Need 3+ steady rides with heart rate to draw a trend — ${rows.length} of ${history.length} synced rides qualify (≥30 min, ≤10 m climb/km).`);
+  }
+  const pts = rows.map(r => ({ t: Date.parse(r.date), v: r.avg_hr / (r.avg_speed_kph * 0.621371), r }));
+  const n = pts.length;
+  const xs = pts.map(p => (p.t - pts[0].t) / 86400000);
+  const ys = pts.map(p => p.v);
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  const denom = xs.reduce((s, x) => s + (x - mx) * (x - mx), 0) || 1;
+  const slope = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0) / denom;
+  const fit = x => my + slope * (x - mx);
+
+  const pct = fit(0) ? ((fit(xs[n - 1]) - fit(0)) / fit(0)) * 100 : 0;
+  const better = pct < -0.5, worse = pct > 0.5;
+  const head = `<div class="chart-big">${ys[n - 1].toFixed(1)}<span class="u">bpm/mph · latest</span></div>
+    <span class="chart-delta ${better ? 'good' : worse ? 'bad' : ''}">${better ? '▼' : worse ? '▲' : '◆'} ${Math.abs(pct).toFixed(1)}% over ${Math.round(xs[n - 1])} days ${better ? '· improving' : worse ? '· drifting up' : '· flat'}</span>`;
+
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
+  const t0 = pts[0].t, t1 = pts[n - 1].t || t0 + 1;
+  const vmin = Math.min(...ys), vmax = Math.max(...ys);
+  const vpad = (vmax - vmin) * 0.15 || 0.5;
+  const xOf = t => padL + ((t - t0) / (t1 - t0 || 1)) * (W - padL - padR);
+  const yOf = v => padT + (1 - (v - (vmin - vpad)) / ((vmax + vpad) - (vmin - vpad))) * (H - padT - padB);
+  const { ticks, step } = chartTicks(vmin - vpad, vmax + vpad, 4);
+
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.t).toFixed(1)} ${yOf(p.v).toFixed(1)}`).join(' ');
+  const dots = pts.map(p => `<circle cx="${xOf(p.t).toFixed(1)}" cy="${yOf(p.v).toFixed(1)}" r="3.5" fill="var(--accent)"><title>${p.r.date} · ${p.v.toFixed(2)} bpm/mph · ${Math.round(p.r.avg_hr)} bpm @ ${mi(p.r.avg_speed_kph)} mph</title></circle>`).join('');
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, t => step < 1 ? t.toFixed(1) : Math.round(t))}
+    ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
+    <line x1="${xOf(t0).toFixed(1)}" y1="${yOf(fit(0)).toFixed(1)}" x2="${xOf(t1).toFixed(1)}" y2="${yOf(fit(xs[n - 1])).toFixed(1)}" stroke="var(--text-mid)" stroke-width="2" stroke-dasharray="6 5"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.35"/>
+    ${dots}
+  </svg>`;
+  return chartCardShell(label, head, '', svg,
+    `Avg HR ÷ avg speed per steady ride (≥30 min, ≤10 m climb/km — ${rows.length} of ${history.length} rides). Dashed line = trend; lower = a stronger aerobic engine.`);
+}
+
+// Chart 2 — classic fitness (CTL, 42d) vs fatigue (ATL, 7d) exponentially-weighted
+// load curve. Seeded with the first 28 days then hidden, so the warm-up bias
+// doesn't show.
+function chartLoadCurve(perRide) {
+  const label = 'Fitness vs fatigue · ATL / CTL · MVP';
+  const byDay = new Map();
+  perRide.forEach(r => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.load || 0)));
+  const DAYS = 90, WARM = 28;
+  const days = [];
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    days.push({ date, t: Date.parse(date), load: byDay.get(date) || 0 });
+  }
+  let atl = days.slice(0, WARM).reduce((s, d) => s + d.load, 0) / WARM, ctl = atl;
+  days.forEach(d => {
+    atl += (d.load - atl) / 7;
+    ctl += (d.load - ctl) / 42;
+    d.atl = atl; d.ctl = ctl;
+  });
+  const view = days.slice(WARM);
+  const last = view[view.length - 1];
+  const tsb = last.ctl - last.atl;
+  let word = 'Neutral', cls = '';
+  if (tsb >= 5) { word = 'Fresh'; cls = 'good'; }
+  else if (tsb < -30) { word = 'Overreaching'; cls = 'bad'; }
+  else if (tsb < -10) { word = 'Productive fatigue'; cls = 'warn'; }
+  const head = `<div class="chart-big">${tsb >= 0 ? '+' : '−'}${Math.abs(Math.round(tsb))}<span class="u">form · CTL − ATL</span></div>
+    <span class="chart-delta ${cls}">${word} · fitness ${Math.round(last.ctl)} · fatigue ${Math.round(last.atl)}</span>`;
+  const legend = `<span><i style="background:var(--accent)"></i>CTL · fitness (42-day)</span><span><i style="background:var(--warn)"></i>ATL · fatigue (7-day)</span>`;
+
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
+  const t0 = view[0].t, t1 = last.t;
+  const ymax = Math.max(10, ...view.map(d => Math.max(d.atl, d.ctl))) * 1.2;
+  const xOf = t => padL + ((t - t0) / (t1 - t0 || 1)) * (W - padL - padR);
+  const yOf = v => padT + (1 - v / ymax) * (H - padT - padB);
+  const { ticks } = chartTicks(0, ymax, 4);
+  const pathOf = key => view.map((d, i) => `${i ? 'L' : 'M'}${xOf(d.t).toFixed(1)} ${yOf(d[key]).toFixed(1)}`).join(' ');
+  const ctlPath = pathOf('ctl');
+  const estCount = perRide.filter(r => r.est).length;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
+    ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
+    <path d="${ctlPath} L${xOf(t1).toFixed(1)} ${yOf(0).toFixed(1)} L${xOf(t0).toFixed(1)} ${yOf(0).toFixed(1)} Z" fill="var(--accent)" opacity="0.10"/>
+    <path d="${ctlPath}" fill="none" stroke="var(--accent)" stroke-width="2.5"><title>CTL — 42-day fitness</title></path>
+    <path d="${pathOf('atl')}" fill="none" stroke="var(--warn)" stroke-width="2"><title>ATL — 7-day fatigue</title></path>
+    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.ctl).toFixed(1)}" r="4" fill="var(--accent)"><title>CTL ${Math.round(last.ctl)}</title></circle>
+    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.atl).toFixed(1)}" r="4" fill="var(--warn)"><title>ATL ${Math.round(last.atl)}</title></circle>
+  </svg>`;
+  return chartCardShell(label, head, legend, svg,
+    `Daily load = Strava Relative Effort${estCount ? ` (TRIMP estimate for ${estCount} ride${estCount > 1 ? 's' : ''} without it)` : ''}. Form ≥ +5 fresh · −10 to −30 productive · below −30 overreaching.`);
+}
+
+// Chart 3 — weekly load bars with a 4-week rolling average. The often-cited ramp
+// guide is ≲ +10% week-on-week; the 4-week line stops one odd week reading as a trend.
+function chartWeekly(perRide) {
+  const label = 'Weekly volume &amp; TSS proxy · MVP';
+  const weekOf = ds => {
+    const d = new Date(ds + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const thisWeek = weekOf(new Date().toISOString().slice(0, 10));
+  const weeks = [];
+  for (let i = 11; i >= 0; i--) {
+    weeks.push({ start: new Date(Date.parse(thisWeek) - i * 7 * 86400000).toISOString().slice(0, 10), load: 0, min: 0, km: 0, rides: 0 });
+  }
+  const idx = new Map(weeks.map((w, i) => [w.start, i]));
+  perRide.forEach(r => {
+    const i = idx.get(weekOf(r.date));
+    if (i == null) return;
+    weeks[i].load += r.load || 0; weeks[i].min += r.moving_time_min || 0;
+    weeks[i].km += r.distance_km || 0; weeks[i].rides++;
+  });
+  weeks.forEach((w, i) => {
+    const s = weeks.slice(Math.max(0, i - 3), i + 1);
+    w.avg = s.reduce((a, x) => a + x.load, 0) / s.length;
+  });
+
+  const cur = weeks[weeks.length - 1];
+  const prev4 = weeks.slice(-5, -1);
+  const prevAvg = prev4.reduce((a, x) => a + x.load, 0) / (prev4.length || 1);
+  const pct = prevAvg ? ((cur.load - prevAvg) / prevAvg) * 100 : 0;
+  let cls = '', word = 'on trend';
+  if (pct > 25) { cls = 'bad'; word = 'big jump — watch the ramp'; }
+  else if (pct > 10) { cls = 'warn'; word = 'above the ~10% ramp guide'; }
+  else if (pct >= -15) { cls = 'good'; }
+  else { word = 'light week'; }
+  const head = `<div class="chart-big">${Math.round(cur.load)}<span class="u">load this week (so far)</span></div>
+    <span class="chart-delta ${cls}">${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(0)}% vs prior 4-week avg · ${word}</span>`;
+  const legend = `<span><i style="background:var(--accent)"></i>weekly load</span><span><i style="background:var(--text)"></i>4-week rolling avg</span>`;
+
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
+  const plotW = W - padL - padR;
+  const ymax = Math.max(10, ...weeks.map(w => Math.max(w.load, w.avg))) * 1.15;
+  const yOf = v => padT + (1 - v / ymax) * (H - padT - padB);
+  const slotW = plotW / weeks.length, barW = slotW * 0.58;
+  const xMid = i => padL + slotW * (i + 0.5);
+  const { ticks } = chartTicks(0, ymax, 4);
+  const fmtWk = ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+  const bars = weeks.map((w, i) => {
+    const partial = w.start === thisWeek;
+    const h = Math.max(0, yOf(0) - yOf(w.load));
+    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(w.load).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"
+      fill="var(--accent)" opacity="${partial ? '0.35' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}>
+      <title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · load ${Math.round(w.load)} · ${w.rides} ride${w.rides === 1 ? '' : 's'} · ${(w.min / 60).toFixed(1)}h · ${mi(w.km)}mi</title></rect>`;
+  }).join('');
+  const xLabels = weeks.map((w, i) => i % 2 === (weeks.length - 1) % 2
+    ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmtWk(w.start)}</text>` : '').join('');
+  const avgLine = weeks.map((w, i) => `${i ? 'L' : 'M'}${xMid(i).toFixed(1)} ${yOf(w.avg).toFixed(1)}`).join(' ');
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
+    ${bars}
+    <path d="${avgLine}" fill="none" stroke="var(--text)" stroke-width="2"><title>4-week rolling average</title></path>
+    ${xLabels}
+  </svg>`;
+  return chartCardShell(label, head, legend, svg,
+    'Weekly load score (same TRIMP-style series as the curve above) · hatched bar = current week in progress. Guide: grow ≲ 10% week-on-week.');
+}
+
 // ── WHOOP LIVE SYNC ────────────────────────────────────────
 async function syncWHOOP() {
   const btn = document.getElementById('whoopSyncBtn');
@@ -2186,6 +2475,7 @@ async function syncStrava() {
     status.style.color = 'var(--accent)';
     showToast('Strava synced ✓');
     renderDashboard();
+    renderCharts();
   } catch (err) {
     status.textContent = 'sync failed';
     status.style.color = 'var(--danger)';

@@ -136,44 +136,62 @@ async function getAccessToken(userId = 'master') {
   return tok.access_token;
 }
 
+// 90 days of history feeds the dashboard charts (HR efficiency, ATL/CTL, weekly
+// load — CTL alone needs 42 days to warm up). The prompt-facing fields below stay
+// 7-day so the system prompt doesn't grow with the wider fetch.
+const HISTORY_DAYS = 90;
+
 export async function getStravaSummary(userId = 'master') {
   const token = await getAccessToken(userId);
-  const after = Math.floor((Date.now() - 7 * 86400000) / 1000);
-  const res = await fetch(`${STRAVA_ACTIVITIES_URL}?after=${after}&per_page=50`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Strava API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
-  const activities = await res.json();
+  const after = Math.floor((Date.now() - HISTORY_DAYS * 86400000) / 1000);
+  let activities = [];
+  for (let page = 1; page <= 3; page++) {
+    const res = await fetch(`${STRAVA_ACTIVITIES_URL}?after=${after}&per_page=200&page=${page}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Strava API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    const batch = await res.json();
+    activities = activities.concat(batch);
+    if (batch.length < 200) break;
+  }
 
   const rides = activities
     .map(normalizeActivity)
     .filter(a => /ride/i.test(a.sport_type))
     .sort((x, y) => y.date.localeCompare(x.date));
 
-  const totalKm = rides.reduce((s, r) => s + (r.distance_km || 0), 0);
-  const totalElev = rides.reduce((s, r) => s + (r.elevation_m || 0), 0);
-  const totalH = rides.reduce((s, r) => s + (r.moving_time_s || 0), 0) / 3600;
+  const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const rides7 = rides.filter(r => r.date >= sevenAgo);
+
+  const totalKm = rides7.reduce((s, r) => s + (r.distance_km || 0), 0);
+  const totalElev = rides7.reduce((s, r) => s + (r.elevation_m || 0), 0);
+  const totalH = rides7.reduce((s, r) => s + (r.moving_time_s || 0), 0) / 3600;
 
   // Segment-level detail for the most recent ride only (one extra API call);
   // a failure here must not take down the whole summary.
   let last_ride_detail = null;
-  if (rides.length && rides[0].id != null) {
+  if (rides7.length && rides7[0].id != null) {
     try {
-      last_ride_detail = await getRideDetail(token, rides[0].id);
+      last_ride_detail = await getRideDetail(token, rides7[0].id);
     } catch (err) {
       console.error('Strava ride detail failed:', err.message);
     }
   }
 
   const strip = ({ id, moving_time_s, sport_type, ...keep }) => keep;
+  // Chart-only series, oldest → newest. Never inject this into a prompt.
+  const lean = ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score }) =>
+    ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score });
   return {
-    last_ride: rides.length ? strip(rides[0]) : null,
+    last_ride: rides7.length ? strip(rides7[0]) : null,
     last_ride_detail,
-    rides_7d: rides.length,
+    rides_7d: rides7.length,
     total_km_7d: +totalKm.toFixed(1),
     total_elevation_7d: Math.round(totalElev),
     total_moving_time_h_7d: +totalH.toFixed(1),
-    all_rides: rides.map(strip),
+    all_rides: rides7.map(strip),
+    history_days: HISTORY_DAYS,
+    history: [...rides].reverse().map(lean),
   };
 }
 
