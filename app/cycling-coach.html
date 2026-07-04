@@ -888,6 +888,30 @@
   }
   .modal-overlay.hidden { display: none; }
 
+  .edit-mode-toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .edit-mode-toggle .mode-btn {
+    flex: 1;
+    padding: 9px 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-mid);
+  }
+  .edit-mode-toggle .mode-btn.selected {
+    background: var(--accent, #ff5a1f);
+    color: #fff;
+  }
+
   .feedback-modal {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -2005,7 +2029,7 @@ function renderDashboard() {
         ${ts.description ? `<div class="today-desc">${escapeHtml(ts.description)}</div>` : ''}
         <div class="today-actions">
           ${done
-            ? `<span class="today-done">✓ Logged · RPE ${done.rpe}/10</span><button class="dash-btn ghost" onclick="openFeedbackModal('${ts.id}')">Edit</button>`
+            ? `<span class="today-done">✓ Logged${done.rpe ? ` · RPE ${done.rpe}/10` : ''}</span><button class="dash-btn ghost" onclick="openFeedbackModal('${ts.id}')">Edit</button>`
             : `<button class="dash-btn primary" onclick="openFeedbackModal('${ts.id}')">✓ Log session</button>`}
           <button class="dash-btn ghost" onclick="chatAboutSession('${ts.id}')">Ask coach</button>
         </div>
@@ -2394,7 +2418,14 @@ You are not just a chat box — you have direct write access to the in-app Train
       let line = `\n- ${s.day} ${s.date}${isToday ? ' [TODAY]' : ''}: ${s.type}`;
       if (s.duration > 0) line += `, ${s.duration}min`;
       if (s.targets) line += `, ${s.targets}`;
-      if (done) line += ` [COMPLETED — RPE ${done.rpe}/10, felt: ${done.feel.join(', ')}${done.notes ? `, "${done.notes}"` : ''}]`;
+      if (done) {
+        const bits = [];
+        if (done.rpe) bits.push(`RPE ${done.rpe}/10`);
+        if (done.feel?.length) bits.push(`felt: ${done.feel.join(', ')}`);
+        if (done.notes) bits.push(`"${done.notes}"`);
+        line += ` [COMPLETED${bits.length ? ' — ' + bits.join(', ') : ''}]`;
+        if (done.actual) line += ` [ACTUAL vs planned — ${describeActual(done.actual)}]`;
+      }
       prompt += line;
     });
     prompt += `\n\nTo CHANGE ONE existing session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
@@ -2443,8 +2474,14 @@ async function generateSchedule() {
   if (Object.keys(sessionFeedback).length > 0) {
     context += `\n\nRecent session feedback (use to calibrate difficulty):`;
     Object.entries(sessionFeedback).forEach(([id, fb]) => {
-      const s = trainingPlan.find(s => s.id === id);
-      if (s) context += `\n- ${s.type}: RPE ${fb.rpe}/10, Felt: ${fb.feel.join(', ')}. ${fb.notes}`;
+      const s = findSession(id);
+      if (!s) return;
+      const bits = [];
+      if (fb.rpe) bits.push(`RPE ${fb.rpe}/10`);
+      if (fb.feel?.length) bits.push(`Felt: ${fb.feel.join(', ')}`);
+      if (fb.notes) bits.push(fb.notes);
+      if (fb.actual) bits.push(`Actual: ${describeActual(fb.actual)}`);
+      if (bits.length) context += `\n- ${s.type}: ${bits.join(', ')}`;
     });
   }
 
@@ -2482,7 +2519,7 @@ Include exactly 7 elements covering the next 7 days in order.`;
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
     const plan = JSON.parse(raw);
-    trainingPlan = plan;
+    trainingPlan = plan.map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
     sessionFeedback = {};
     adaptationNotes = {};
     savePlan();
@@ -2507,8 +2544,14 @@ async function adaptPlan() {
   btn.innerHTML = '<span class="spinner"></span>';
 
   const feedbackSummary = Object.entries(sessionFeedback).map(([id, fb]) => {
-    const s = trainingPlan.find(s => s.id === id);
-    return s ? `${s.type} (${s.day}): RPE ${fb.rpe}/10, felt ${fb.feel.join(', ')}. "${fb.notes}"` : null;
+    const s = findSession(id);
+    if (!s) return null;
+    const bits = [];
+    if (fb.rpe) bits.push(`RPE ${fb.rpe}/10`);
+    if (fb.feel?.length) bits.push(`felt ${fb.feel.join(', ')}`);
+    if (fb.notes) bits.push(`"${fb.notes}"`);
+    if (fb.actual) bits.push(`actual: ${describeActual(fb.actual)}`);
+    return bits.length ? `${s.type} (${s.day}): ${bits.join(', ')}` : null;
   }).filter(Boolean).join('\n');
 
   // Build WHOOP recovery directive
@@ -2604,9 +2647,14 @@ function renderSchedule() {
     }
 
     if (fb) {
-      html += `<div class="session-feedback-preview">
-        <span class="feedback-rpe">RPE ${fb.rpe}/10</span> · ${fb.feel.join(', ')}${fb.notes ? ` · "${escapeHtml(fb.notes)}"` : ''}
-      </div>`;
+      const fbBits = [];
+      if (fb.rpe) fbBits.push(`<span class="feedback-rpe">RPE ${fb.rpe}/10</span>`);
+      if (fb.feel?.length) fbBits.push(escapeHtml(fb.feel.join(', ')));
+      if (fb.notes) fbBits.push(`"${escapeHtml(fb.notes)}"`);
+      if (fbBits.length) html += `<div class="session-feedback-preview">${fbBits.join(' · ')}</div>`;
+      if (fb.actual) {
+        html += `<div class="session-feedback-preview"><span class="feedback-rpe">Actual</span> · ${escapeHtml(describeActual(fb.actual))}</div>`;
+      }
     }
 
     if (!isRest) {
@@ -2647,8 +2695,25 @@ function savePlan() {
   pushState();
 }
 
+// Session ids may arrive as numbers (Claude-generated JSON) but inline onclick
+// handlers always pass strings — compare as strings so lookups never miss.
+function findSessionIdx(id) { return trainingPlan.findIndex(s => String(s.id) === String(id)); }
+function findSession(id) { const i = findSessionIdx(id); return i === -1 ? null : trainingPlan[i]; }
+
+// "82min · 15.3mi · avg HR 141 · max HR 157" from whatever actual fields exist.
+function describeActual(a) {
+  if (!a) return '';
+  const parts = [];
+  if (a.duration) parts.push(`${a.duration}min`);
+  if (a.distance_mi) parts.push(`${a.distance_mi}mi`);
+  if (a.avg_hr) parts.push(`avg HR ${a.avg_hr}`);
+  if (a.max_hr) parts.push(`max HR ${a.max_hr}`);
+  if (a.notes) parts.push(`"${a.notes}"`);
+  return parts.join(' · ');
+}
+
 function chatAboutSession(sessionId) {
-  const s = trainingPlan.find(s => s.id === sessionId);
+  const s = findSession(sessionId);
   if (!s) return;
   switchTab('chat');
   document.getElementById('messageInput').value = `Tell me more about ${s.day}'s ${s.type} session — what should I focus on?`;
@@ -2680,7 +2745,7 @@ function toggleFeel(el) { el.classList.toggle('selected'); }
 
 function openFeedbackModal(sessionId) {
   feedbackTargetId = sessionId;
-  const s = trainingPlan.find(s => s.id === sessionId);
+  const s = findSession(sessionId);
   document.getElementById('feedbackSessionTitle').textContent = s ? `${s.day} · ${s.type}` : '';
 
   // reset
@@ -2717,7 +2782,7 @@ async function submitFeedback() {
   const feel = [...document.querySelectorAll('.feel-chip.selected')].map(c => c.textContent.trim());
   const notes = document.getElementById('feedbackNotes').value.trim();
 
-  sessionFeedback[feedbackTargetId] = { rpe, feel, notes, timestamp: Date.now() };
+  sessionFeedback[feedbackTargetId] = { ...(sessionFeedback[feedbackTargetId] || {}), rpe, feel, notes, timestamp: Date.now() };
   savePlan();
 
   closeFeedbackModal();
@@ -2961,7 +3026,7 @@ async function syncAndReconcile() {
   const recentScheduled = trainingPlan.filter(s => s.date >= yesterday && s.date <= today);
   const scheduleContext = recentScheduled.map(s => {
     const done = sessionFeedback[s.id];
-    return `- ${s.day} ${s.date}: "${s.type}" ${s.duration}min — ${done ? `LOGGED (RPE ${done.rpe})` : 'NOT yet logged in app'}`;
+    return `- ${s.day} ${s.date}: "${s.type}" ${s.duration}min — ${done ? `LOGGED${done.rpe ? ` (RPE ${done.rpe})` : ''}` : 'NOT yet logged in app'}`;
   }).join('\n');
 
   // Strava recent rides
@@ -3035,7 +3100,7 @@ function extractScheduleUpdates(text) {
 function applyScheduleUpdates(updates) {
   let changed = false;
   updates.forEach(patch => {
-    const idx = trainingPlan.findIndex(s => s.id === patch.id);
+    const idx = findSessionIdx(patch.id);
     if (idx === -1) return;
     Object.assign(trainingPlan[idx], patch);
     changed = true;
@@ -3089,7 +3154,11 @@ function exportCalendar() {
     if (s.tips?.length) desc.push('Tips: ' + s.tips.join('; '));
     if (sessionFeedback[s.id]) {
       const fb = sessionFeedback[s.id];
-      desc.push(`✓ Logged — RPE ${fb.rpe}/10, felt ${fb.feel.join(', ')}`);
+      const bits = [];
+      if (fb.rpe) bits.push(`RPE ${fb.rpe}/10`);
+      if (fb.feel?.length) bits.push(`felt ${fb.feel.join(', ')}`);
+      if (fb.actual) bits.push(describeActual(fb.actual));
+      desc.push(`✓ Logged${bits.length ? ' — ' + bits.join(', ') : ''}`);
     }
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:cc-${s.id || i}-${ymd(s.date)}@cycling-coach`);
@@ -3117,7 +3186,7 @@ function exportCalendar() {
 function applyScheduleSet(plan) {
   // Normalise: guarantee ids and the fields the renderer/prompt expect.
   trainingPlan = plan.map((s, i) => ({
-    id: s.id || `s${i + 1}`,
+    id: String(s.id || `s${i + 1}`),
     day: s.day || '',
     date: s.date || '',
     type: s.type || 'Session',
@@ -3147,8 +3216,8 @@ let editTargetId = null;
 
 function openEditModal(sessionId) {
   editTargetId = sessionId;
-  const s = trainingPlan.find(s => s.id === sessionId);
-  if (!s) return;
+  const s = findSession(sessionId);
+  if (!s) { showToast('Could not find that session — try regenerating the schedule', true); return; }
 
   // Build or reuse modal
   let modal = document.getElementById('editSessionModal');
@@ -3162,32 +3231,65 @@ function openEditModal(sessionId) {
           <div class="modal-title">Edit Session</div>
           <div class="modal-subtitle" id="editModalDay"></div>
         </div>
-        <div>
-          <div class="rpe-label" style="margin-bottom:6px">Session Type</div>
-          <input class="data-input" id="editType" type="text" placeholder="e.g. Zone 2 Endurance">
+        <div class="edit-mode-toggle">
+          <button type="button" class="mode-btn selected" id="editModePlanned" onclick="setEditMode('planned')">Planned</button>
+          <button type="button" class="mode-btn" id="editModeActual" onclick="setEditMode('actual')">Actual</button>
         </div>
-        <div style="display:flex;gap:10px">
-          <div style="flex:1">
-            <div class="rpe-label" style="margin-bottom:6px">Duration (min)</div>
-            <input class="data-input" id="editDuration" type="number" min="0" max="480" placeholder="90">
+        <div id="editPlannedPane" style="display:flex;flex-direction:column;gap:18px">
+          <div>
+            <div class="rpe-label" style="margin-bottom:6px">Session Type</div>
+            <input class="data-input" id="editType" type="text" placeholder="e.g. Zone 2 Endurance">
           </div>
-          <div style="flex:1">
-            <div class="rpe-label" style="margin-bottom:6px">Intensity</div>
-            <select class="data-input" id="editIntensity">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="rest">Rest</option>
-            </select>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Duration (min)</div>
+              <input class="data-input" id="editDuration" type="number" min="0" max="480" placeholder="90">
+            </div>
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Intensity</div>
+              <select class="data-input" id="editIntensity">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="rest">Rest</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <div class="rpe-label" style="margin-bottom:6px">Targets</div>
+            <input class="data-input" id="editTargets" type="text" placeholder="e.g. HR 130-145bpm, Zone 2">
+          </div>
+          <div>
+            <div class="rpe-label" style="margin-bottom:6px">Description</div>
+            <textarea class="data-textarea" id="editDesc" rows="2"></textarea>
           </div>
         </div>
-        <div>
-          <div class="rpe-label" style="margin-bottom:6px">Targets</div>
-          <input class="data-input" id="editTargets" type="text" placeholder="e.g. HR 130-145bpm, Zone 2">
-        </div>
-        <div>
-          <div class="rpe-label" style="margin-bottom:6px">Description</div>
-          <textarea class="data-textarea" id="editDesc" rows="2"></textarea>
+        <div id="editActualPane" style="display:none;flex-direction:column;gap:18px">
+          <div class="modal-subtitle">What you actually did — leave blank anything you don't know. Clearing every field removes the actuals.</div>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Duration (min)</div>
+              <input class="data-input" id="actualDuration" type="number" min="0" max="480" placeholder="75">
+            </div>
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Distance (mi)</div>
+              <input class="data-input" id="actualDistance" type="number" min="0" step="0.1" placeholder="15.3">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px">
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Avg HR (bpm)</div>
+              <input class="data-input" id="actualAvgHr" type="number" min="0" max="230" placeholder="141">
+            </div>
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Max HR (bpm)</div>
+              <input class="data-input" id="actualMaxHr" type="number" min="0" max="230" placeholder="157">
+            </div>
+          </div>
+          <div>
+            <div class="rpe-label" style="margin-bottom:6px">Notes</div>
+            <textarea class="data-textarea" id="actualNotes" rows="2" placeholder="e.g. Cut short by rain, held 145bpm on blocks 1-2"></textarea>
+          </div>
         </div>
         <div class="modal-actions">
           <button class="gen-btn secondary" onclick="closeEditModal()">Cancel</button>
@@ -3203,7 +3305,23 @@ function openEditModal(sessionId) {
   document.getElementById('editIntensity').value = s.intensity || 'low';
   document.getElementById('editTargets').value = s.targets || '';
   document.getElementById('editDesc').value = s.description || '';
+
+  const a = sessionFeedback[s.id]?.actual || {};
+  document.getElementById('actualDuration').value = a.duration || '';
+  document.getElementById('actualDistance').value = a.distance_mi || '';
+  document.getElementById('actualAvgHr').value = a.avg_hr || '';
+  document.getElementById('actualMaxHr').value = a.max_hr || '';
+  document.getElementById('actualNotes').value = a.notes || '';
+
+  setEditMode('planned');
   modal.classList.remove('hidden');
+}
+
+function setEditMode(mode) {
+  document.getElementById('editModePlanned').classList.toggle('selected', mode === 'planned');
+  document.getElementById('editModeActual').classList.toggle('selected', mode === 'actual');
+  document.getElementById('editPlannedPane').style.display = mode === 'planned' ? 'flex' : 'none';
+  document.getElementById('editActualPane').style.display = mode === 'actual' ? 'flex' : 'none';
 }
 
 function closeEditModal() {
@@ -3212,13 +3330,32 @@ function closeEditModal() {
 }
 
 function saveEditModal() {
-  const idx = trainingPlan.findIndex(s => s.id === editTargetId);
+  const idx = findSessionIdx(editTargetId);
   if (idx === -1) return;
   trainingPlan[idx].type        = document.getElementById('editType').value.trim();
   trainingPlan[idx].duration    = parseInt(document.getElementById('editDuration').value) || 0;
   trainingPlan[idx].intensity   = document.getElementById('editIntensity').value;
   trainingPlan[idx].targets     = document.getElementById('editTargets').value.trim();
   trainingPlan[idx].description = document.getElementById('editDesc').value.trim();
+
+  // Both panes save together: the actuals live alongside RPE feedback so the
+  // coach sees planned vs actual on the same session.
+  const actual = {
+    duration:    parseInt(document.getElementById('actualDuration').value) || 0,
+    distance_mi: parseFloat(document.getElementById('actualDistance').value) || 0,
+    avg_hr:      parseInt(document.getElementById('actualAvgHr').value) || 0,
+    max_hr:      parseInt(document.getElementById('actualMaxHr').value) || 0,
+    notes:       document.getElementById('actualNotes').value.trim()
+  };
+  const id = trainingPlan[idx].id;
+  const hasActual = actual.duration || actual.distance_mi || actual.avg_hr || actual.max_hr || actual.notes;
+  if (hasActual) {
+    sessionFeedback[id] = { ...(sessionFeedback[id] || {}), actual, timestamp: sessionFeedback[id]?.timestamp || Date.now() };
+  } else if (sessionFeedback[id]?.actual) {
+    delete sessionFeedback[id].actual;
+    if (!sessionFeedback[id].rpe) delete sessionFeedback[id];
+  }
+
   savePlan();
   renderSchedule();
   closeEditModal();

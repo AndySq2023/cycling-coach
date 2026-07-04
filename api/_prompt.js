@@ -135,7 +135,22 @@ You are not just a chat box — you have direct write access to the athlete's Tr
       let line = `\n- ${s.day} ${s.date}${isToday ? ' [TODAY]' : ''}: ${s.type}`;
       if (s.duration > 0) line += `, ${s.duration}min`;
       if (s.targets) line += `, ${s.targets}`;
-      if (done) line += ` [COMPLETED — RPE ${done.rpe}/10, felt: ${done.feel.join(', ')}${done.notes ? `, "${done.notes}"` : ''}]`;
+      if (done) {
+        const bits = [];
+        if (done.rpe) bits.push(`RPE ${done.rpe}/10`);
+        if (done.feel?.length) bits.push(`felt: ${done.feel.join(', ')}`);
+        if (done.notes) bits.push(`"${done.notes}"`);
+        line += ` [COMPLETED${bits.length ? ' — ' + bits.join(', ') : ''}]`;
+        if (done.actual) {
+          const a = done.actual, ap = [];
+          if (a.duration) ap.push(`${a.duration}min`);
+          if (a.distance_mi) ap.push(`${a.distance_mi}mi`);
+          if (a.avg_hr) ap.push(`avg HR ${a.avg_hr}`);
+          if (a.max_hr) ap.push(`max HR ${a.max_hr}`);
+          if (a.notes) ap.push(`"${a.notes}"`);
+          if (ap.length) line += ` [ACTUAL vs planned — ${ap.join(' · ')}]`;
+        }
+      }
       prompt += line;
     });
     prompt += `\n\nTo CHANGE ONE existing session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
@@ -205,7 +220,7 @@ export function applyScheduleBlocks(state, { updates, planSet }) {
     // Full (re)build — normalise exactly like applyScheduleSet, and (because ids may be
     // reassigned) clear prior feedback/notes, mirroring the app.
     plan = planSet.map((s, i) => ({
-      id: s.id || `s${i + 1}`,
+      id: String(s.id || `s${i + 1}`),
       day: s.day || '',
       date: s.date || '',
       type: s.type || 'Session',
@@ -221,7 +236,7 @@ export function applyScheduleBlocks(state, { updates, planSet }) {
     changed = true;
   } else if (updates.length) {
     updates.forEach(patch => {
-      const idx = plan.findIndex(s => s.id === patch.id);
+      const idx = plan.findIndex(s => String(s.id) === String(patch.id));
       if (idx === -1) return;
       Object.assign(plan[idx], patch);
       changed = true;
