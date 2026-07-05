@@ -31,7 +31,13 @@ Write my morning briefing. Cover, briefly:
 1. Recovery read — today's WHOOP numbers and what they mean for training.
 2. Today's session — what's on the schedule. If recovery clearly warrants changing it, adapt it (you can emit a schedule_update) and say why. If there's no plan, suggest what today should be.
 3. Ride window — if you have the weather, the best time slot to ride and any kit notes.
-Keep it tight and phone-skimmable: this is a morning nudge, not an essay. Don't ask questions — the athlete may not reply.`;
+Keep it tight and phone-skimmable: this is a morning nudge, not an essay. Don't ask questions — the athlete may not reply.
+
+Hard rules for this briefing:
+- Ground every number and every claim in the data above. If WHOOP data is absent, open with "(No WHOOP data this morning)" and do NOT invent, estimate, or infer a recovery status. Same for missing Strava or weather — say it's unavailable rather than guessing.
+- The ACTIVE TRAINING SCHEDULE is authoritative. If today is a Rest Day, the briefing protects the rest day — do not prescribe a ride. Never describe a workout that contradicts today's scheduled session; if you believe it should change, change it via schedule_update and explain.
+- The most recent ride and its date come from the GROUND TRUTH block — restate them exactly, never from memory of the conversation.
+- The athlete has NO power meter: never give wattage targets or power zones. Use heart rate, RPE, and duration only.`;
 
 export default async function handler(req, res) {
   const cronSecret = process.env.CRON_SECRET;
@@ -48,6 +54,14 @@ export default async function handler(req, res) {
   try {
     const state = (await kvGet(STATE_KEY)) || {};
     const ctx = await gatherContext(state);
+    // Which sources made it into the prompt — shows up in Vercel logs, so a bad
+    // briefing can be traced to the data that was (or wasn't) behind it.
+    const sources = {
+      whoop: !!ctx.whoop, strava: !!ctx.strava, weather: !!ctx.weather,
+      planSessions: Array.isArray(state.plan) ? state.plan.length : 0,
+      historyTurns: Array.isArray(state.conversationHistory) ? state.conversationHistory.length : 0,
+    };
+    console.log('briefing sources:', JSON.stringify(sources));
     const system = buildSystemPrompt({
       whoop: ctx.whoop, strava: ctx.strava, weather: ctx.weather,
       goal: state.goal, plan: state.plan, feedback: state.feedback,
@@ -77,7 +91,7 @@ export default async function handler(req, res) {
     });
 
     await tgSend(chatId, outText);
-    res.status(200).json({ ok: true, sent: true, scheduleChanged: !!applied.changed });
+    res.status(200).json({ ok: true, sent: true, scheduleChanged: !!applied.changed, sources });
   } catch (err) {
     // Surface the failure in Telegram too — a silent missing briefing is invisible.
     await tgSend(chatId, `⚠️ Morning briefing failed: ${err?.message || String(err)}`);

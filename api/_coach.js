@@ -54,6 +54,22 @@ export function chunkText(text, max) {
   return out;
 }
 
+// Run a data fetch, retrying once after a short pause on failure. The morning briefing
+// has no human to hit "retry" — a single transient WHOOP/Strava hiccup otherwise means
+// the coach briefs blind and improvises.
+async function withRetry(fn) {
+  const attempt = async () => {
+    const v = await fn();
+    if (v && v.error) throw new Error(v.error);
+    return v;
+  };
+  try { return await attempt(); }
+  catch {
+    await new Promise(r => setTimeout(r, 1500));
+    return attempt(); // second failure propagates to allSettled
+  }
+}
+
 // Fetch live context the same way the app does, tolerating individual failures so one
 // dead data source never blocks the coach from replying.
 export async function gatherContext(state) {
@@ -61,9 +77,9 @@ export async function gatherContext(state) {
   const wantWeather = home && home.length === 2 && home.every(Number.isFinite);
 
   const [whoopR, stravaR, weatherR] = await Promise.allSettled([
-    getWhoopSummary(),
-    getStravaSummary(),
-    wantWeather ? getForecast(home[0], home[1]) : Promise.resolve(null),
+    withRetry(getWhoopSummary),
+    withRetry(getStravaSummary),
+    wantWeather ? withRetry(() => getForecast(home[0], home[1])) : Promise.resolve(null),
   ]);
   const ok = (r) => r.status === 'fulfilled' && r.value && !r.value.error ? r.value : null;
   return { whoop: ok(whoopR), strava: ok(stravaR), weather: ok(weatherR) };
