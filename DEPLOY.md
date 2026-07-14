@@ -61,6 +61,8 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
 | `TELEGRAM_CHAT_ID` | *(optional)* the **only** Telegram chat id allowed to use the bot (yours) |
+| `GRAPHHOPPER_URL` | *(optional)* base URL of your self-hosted GraphHopper instance (e.g. `https://your-graphhopper.fly.dev`) → enables route planning from chat |
+| `GRAPHHOPPER_API_KEY` | *(optional)* only if your GraphHopper instance requires one |
 
 > **WHOOP does not need `WHOOP_REDIRECT_URI`** (the refresh-token grant doesn't use it).
 > The `WHOOP_REFRESH_TOKEN` here is just a one-time seed — see step 4 for why it then
@@ -73,6 +75,13 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 > error (everything else works). Get a free key at **api.windy.com → sign in → API keys
 > → Point Forecast**. The app sends the ride location (set in the Weather panel, or 📍
 > from the device); the key itself never leaves the server.
+>
+> `GRAPHHOPPER_URL` is optional: leave it unset and route-planning requests from chat
+> will just fail with an error, everything else works unaffected. GraphHopper's
+> routing engine needs to hold the road-network graph in memory, which doesn't fit
+> Vercel's serverless model — so it needs to run as its own always-on process (Fly.io,
+> Railway, Render, or a small VPS all work), loaded with an OpenStreetMap extract for
+> whatever region you ride in. See `api/route.js` for the request shape it expects.
 
 ### 4. Add a KV store (required for WHOOP, recommended for Strava)
 The serverless filesystem is read-only, so rotated refresh tokens have to be persisted

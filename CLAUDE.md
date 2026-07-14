@@ -31,6 +31,7 @@ Two independent pieces that never import each other:
 | `/api/chat` | 3001 | Claude Desktop bridge |
 | `/api/whoop` | 3001 | Claude Desktop bridge → `~/whoop-mcp` |
 | `/api/strava` | 3002 | `proxy/server.js` |
+| `/api/route` | — | `api/route.js` → self-hosted GraphHopper (`GRAPHHOPPER_URL`), hosted-only, no local-dev equivalent |
 
 Claude Desktop must be running for chat and WHOOP. Strava is independent (launchd service).
 
@@ -43,6 +44,7 @@ Claude Desktop must be running for chat and WHOOP. Strava is independent (launch
 - **`adaptPlan()`** — reads `sessionFeedback` and `athleteData.whoop.recovery_score` to build a directive (red/yellow/green), then asks Claude to revise upcoming sessions. Called automatically every 2 logged sessions.
 - **`syncStrava()`** — `GET localhost:3002/api/strava`, populates `athleteData.strava` and the data panel.
 - **`syncWHOOP()`** — `GET localhost:3001/api/whoop`, populates `athleteData.whoop`.
+- **`handleRouteRequest()`** / **`extractRouteRequest()`** — the chat equivalent of the schedule_update mechanism, but for routes: the coach emits a `route_request` fenced block (never a route/distance itself — it has no map data), the app strips it, calls `/api/route` with the athlete's home location, and appends the real distance/ascent/duration to the conversation plus a GPX download (`pointsToGPX()`). Requires `GRAPHHOPPER_URL` to be set; see DEPLOY.md.
 
 ## Schedule update protocol
 

@@ -176,6 +176,23 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`
 Rules: start from today (${todayISO}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
+  // ── ROUTE PLANNING (mirrors app/cycling-coach.html) ──────────────────────
+  // NOTE: the Telegram bot side of this (api/telegram.js actually calling
+  // api/route.js's planRoute() and replying with the real result) is not wired up
+  // yet — this only keeps the prompt/parser in sync per this file's stated contract.
+  // Until telegram.js calls planRoute(), route_request blocks from the bot path will
+  // be parsed and stripped but never executed.
+  prompt += `\n\n=== YOU CAN PLAN REAL ROUTES ===
+You have a routing tool backed by real road/elevation data. Do NOT invent a route, distance, or elevation number yourself — emit this block instead and the app fills in real numbers:
+\`\`\`route_request
+{"mode":"loop","durationMin":60,"paceKph":24,"avoidHills":true}
+\`\`\`
+or, for a ride to a specific place and back:
+\`\`\`route_request
+{"mode":"out_and_back","destination":"box hill","avoidHills":false}
+\`\`\`
+Rules: mode is "loop" (round trip from home, sized by durationMin + paceKph) or "out_and_back" (home -> destination -> home, shortest distance). Estimate paceKph from the athlete's real recent Strava average speed, never a guess. destination is a known place name (box hill, richmond park, leith hill) or "lat,lon". Put the block at the very end of your reply, no text after it.`;
+
   return prompt;
 }
 
@@ -205,6 +222,20 @@ export function extractScheduleUpdates(text) {
     .replace(/```schedule_set[\s\S]*?```/gi, '')
     .trim();
   return { clean, updates, planSet };
+}
+
+// Parse a ```route_request ... ``` block out of a coach reply. Mirrors the app's
+// extractRouteRequest(). See the NOTE above buildSystemPrompt's route section: nothing
+// currently calls planRoute() from the Telegram path, so this is parse-only for now.
+export function extractRouteRequest(text) {
+  const re = /```route_request\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let routeRequest = null;
+  if (match) {
+    try { routeRequest = JSON.parse(match[1].trim()); } catch { /* skip bad block */ }
+  }
+  const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
+  return { clean, routeRequest };
 }
 
 // Apply parsed blocks to a state object's plan/feedback/adaptations, returning a new
