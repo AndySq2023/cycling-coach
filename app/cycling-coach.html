@@ -2753,6 +2753,15 @@ Rules: start from today (${todayISO2}); use real future dates in YYYY-MM-DD; ids
   // service and show the athlete the real result — never state a distance or
   // route yourself, you don't have real map data.
   const home = getHomeLocation();
+  prompt += `\n\n=== YOU CAN SET THE ATHLETE'S HOME LOCATION ===
+Routes and weather need a home location (lat/lon), stored locally in the app. The ONLY way it currently gets set through the UI is: the Weather panel field on the "My Data" tab, which accepts raw "lat, lon" decimal degrees ONLY — it does NOT accept postcodes or place names, and there's a 📍 button there for browser geolocation. Do not tell the athlete to type a postcode into it; it will silently fail.
+
+Instead, when the athlete tells you where they live/ride from (a postcode, place name, or address) in chat, resolve it to approximate coordinates yourself from your own knowledge of geography and set it directly with a block — don't send them hunting through settings:
+\`\`\`home_set
+{"lat":51.4713,"lon":-0.2317,"label":"SW13 (Barnes)"}
+\`\`\`
+Tell the athlete the resolved location in plain text so they can correct you if it's off (your geocoding is approximate, not exact). If they already have a home location set and ask for a route, just use it — don't ask again.`;
+
   prompt += `\n\n=== YOU CAN PLAN REAL ROUTES ===
 You have a routing tool backed by real road/elevation data. Do NOT invent a route, distance, or elevation number yourself — emit this block instead and the app fills in real numbers:
 \`\`\`route_request
@@ -2762,7 +2771,7 @@ or, for a ride to a specific place and back:
 \`\`\`route_request
 {"mode":"out_and_back","destination":"box hill","avoidHills":false}
 \`\`\`
-Rules: mode is "loop" (round trip from home, sized by durationMin + paceKph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, estimate paceKph from the athlete's real recent Strava average speed for rides at the relevant intensity — never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is a known place name (box hill, richmond park, leith hill) or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : '\nNo home location is set — tell the athlete to set their location in the data panel before asking for a route.'}`;
+Rules: mode is "loop" (round trip from home, sized by durationMin + paceKph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, estimate paceKph from the athlete's real recent Strava average speed for rides at the relevant intensity — never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is a known place name (box hill, richmond park, leith hill) or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : ' If no home location is set yet and the athlete hasn\'t mentioned where they live, ask them (city, postcode, or landmark) and set it with a home_set block first, in the same reply if you can.'}`;
 
   return prompt;
 }
@@ -3280,13 +3289,19 @@ async function sendMessage(text) {
     } else {
       const reply = data.content[0].text;
       const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
-      const { clean, routeRequest } = extractRouteRequest(schedClean);
+      const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
+      const { clean, routeRequest } = extractRouteRequest(homeClean);
       appendBubble('coach', clean);
       conversationHistory.push({ role: 'assistant', content: clean });
       if (planSet) {
         applyScheduleSet(planSet);
       } else if (updates.length) {
         applyScheduleUpdates(updates);
+      }
+      // Apply a resolved home location BEFORE acting on a route request in the same
+      // reply, so "I live in SW13, plan me a route" works in one turn.
+      if (homeSet) {
+        applyHomeSet(homeSet);
       }
       if (routeRequest) {
         await handleRouteRequest(routeRequest);
@@ -3428,6 +3443,31 @@ function extractRouteRequest(text) {
   return { clean, routeRequest };
 }
 
+// Parse a ```home_set ... ``` block — the coach resolving a place the athlete
+// mentioned in chat to approximate coordinates. Same fenced-block convention.
+function extractHomeSet(text) {
+  const re = /```home_set\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let homeSet = null;
+  if (match) {
+    try { homeSet = JSON.parse(match[1].trim()); }
+    catch (e) { console.warn('Bad home_set JSON:', e); }
+  }
+  const clean = text.replace(/```home_set[\s\S]*?```/gi, '').trim();
+  return { clean, homeSet };
+}
+
+// Apply a coach-resolved home location: write it the same way the Weather panel does
+// (setHomeLocation + mirror into the wxLocInput field), then let the athlete know.
+function applyHomeSet(homeSet) {
+  const lat = parseFloat(homeSet?.lat), lon = parseFloat(homeSet?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  setHomeLocation(lat, lon);
+  const input = document.getElementById('wxLocInput');
+  if (input) input.value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  showToast(`📍 Home location set${homeSet.label ? ` — ${homeSet.label}` : ''} (edit in the Weather panel if that's off) ✓`);
+}
+
 // Build a minimal GPX 1.1 track file from GraphHopper's [lon,lat,elevation][] points.
 function pointsToGPX(points, name) {
   const pts = (points || []).map(p => {
@@ -3457,7 +3497,7 @@ function downloadGPX(points, name) {
 async function handleRouteRequest(routeRequest) {
   const home = getHomeLocation();
   if (!home) {
-    appendBubble('coach', "I can't plan a route without a home location — set it in the data panel first.");
+    appendBubble('coach', "I don't have a home location yet — tell me where you live/ride from and I'll set it, or enter \"lat, lon\" in the Weather panel on the My Data tab (📍 there also grabs your current location).");
     return;
   }
   const typingEl = appendTyping();

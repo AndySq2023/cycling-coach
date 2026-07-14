@@ -176,12 +176,19 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`
 Rules: start from today (${todayISO}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
-  // ── ROUTE PLANNING (mirrors app/cycling-coach.html) ──────────────────────
+  // ── HOME LOCATION + ROUTE PLANNING (mirrors app/cycling-coach.html) ──────
   // NOTE: the Telegram bot side of this (api/telegram.js actually calling
-  // api/route.js's planRoute() and replying with the real result) is not wired up
-  // yet — this only keeps the prompt/parser in sync per this file's stated contract.
-  // Until telegram.js calls planRoute(), route_request blocks from the bot path will
-  // be parsed and stripped but never executed.
+  // api/route.js's planRoute() and applying a home_set block to state) is not wired
+  // up yet — this only keeps the prompt/parser in sync per this file's stated
+  // contract. Until telegram.js does that work, home_set/route_request blocks from
+  // the bot path will be parsed and stripped but never executed.
+  prompt += `\n\n=== YOU CAN SET THE ATHLETE'S HOME LOCATION ===
+Routes and weather need a home location (lat/lon). The web app's UI field only accepts raw "lat, lon" decimal degrees — never tell the athlete to type a postcode into it, it will silently fail. Instead, when they tell you where they live/ride from, resolve it to approximate coordinates yourself and set it directly:
+\`\`\`home_set
+{"lat":51.4713,"lon":-0.2317,"label":"SW13 (Barnes)"}
+\`\`\`
+Tell them the resolved location so they can correct you if it's off.`;
+
   prompt += `\n\n=== YOU CAN PLAN REAL ROUTES ===
 You have a routing tool backed by real road/elevation data. Do NOT invent a route, distance, or elevation number yourself — emit this block instead and the app fills in real numbers:
 \`\`\`route_request
@@ -191,7 +198,7 @@ or, for a ride to a specific place and back:
 \`\`\`route_request
 {"mode":"out_and_back","destination":"box hill","avoidHills":false}
 \`\`\`
-Rules: mode is "loop" (round trip from home, sized by durationMin + paceKph) or "out_and_back" (home -> destination -> home, shortest distance). Estimate paceKph from the athlete's real recent Strava average speed, never a guess. destination is a known place name (box hill, richmond park, leith hill) or "lat,lon". Put the block at the very end of your reply, no text after it.`;
+Rules: mode is "loop" (round trip from home, sized by durationMin + paceKph) or "out_and_back" (home -> destination -> home, shortest distance). Estimate paceKph from the athlete's real recent Strava average speed, never a guess. destination is a known place name (box hill, richmond park, leith hill) or "lat,lon". Put the block at the very end of your reply, no text after it. If no home location is set and the athlete hasn't mentioned where they live, ask them and set it with a home_set block first.`;
 
   return prompt;
 }
@@ -236,6 +243,19 @@ export function extractRouteRequest(text) {
   }
   const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
   return { clean, routeRequest };
+}
+
+// Parse a ```home_set ... ``` block. Mirrors the app's extractHomeSet(). See the NOTE
+// above: nothing currently applies this to state from the Telegram path.
+export function extractHomeSet(text) {
+  const re = /```home_set\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let homeSet = null;
+  if (match) {
+    try { homeSet = JSON.parse(match[1].trim()); } catch { /* skip bad block */ }
+  }
+  const clean = text.replace(/```home_set[\s\S]*?```/gi, '').trim();
+  return { clean, homeSet };
 }
 
 // Apply parsed blocks to a state object's plan/feedback/adaptations, returning a new
