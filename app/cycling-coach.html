@@ -3515,7 +3515,14 @@ async function handleRouteRequest(routeRequest) {
     }
     const r = data.mode === 'loop' ? data.best : data;
     const label = data.mode === 'loop' ? `Loop (target ${data.target_km}km, tried ${data.candidates_tried} options)` : 'Out and back';
-    appendBubble('coach', `📍 **${label}**\n${mi(r.distance_km)} mi, ${r.ascent_m ?? '?'}m ascent, ~${r.duration_min} min riding.`);
+    // GraphHopper's free/basic plan doesn't support the "flexible mode" needed for
+    // hill-avoidance / shortest-distance biasing — the app falls back to a plain
+    // route rather than failing, but the athlete should know it's not what they asked
+    // for (e.g. hills weren't actually avoided).
+    const degradedNote = data.degraded
+      ? '\n⚠️ Your GraphHopper plan doesn\'t support custom routing (hill-avoidance / shortest-distance) — this is the default route instead. Upgrade the plan to enable it.'
+      : '';
+    appendBubble('coach', `📍 **${label}**\n${mi(r.distance_km)} mi, ${r.ascent_m ?? '?'}m ascent, ~${r.duration_min} min riding.${degradedNote}`);
     if (r.points?.length) downloadGPX(r.points, `${label} ${new Date().toISOString().slice(0,10)}`);
   } catch (err) {
     typingEl.remove();

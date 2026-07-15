@@ -123,6 +123,34 @@ async function ghPost(body) {
   return data;
 }
 
+// "Flexible mode" (ch.disable + custom_model) is a paid-tier-only feature on
+// GraphHopper's hosted API — free/basic packages reject it outright with a message
+// like "Free packages cannot use flexible mode". Rather than hard-failing the whole
+// route (or requiring an upgrade), detect this specific rejection and retry once
+// without custom_model/ch.disable so the athlete still gets a route — just without
+// the hill-avoidance/shortest-distance biasing those enable.
+function isFlexibleModeError(err) {
+  return /flexible mode/i.test(err?.message || '');
+}
+function stripFlexible(body) {
+  const { custom_model, ['ch.disable']: _chDisable, ...rest } = body;
+  return rest;
+}
+// Returns { data, degraded }. degraded=true means the plan doesn't support flexible
+// mode and this came back from the plain-routing fallback instead of the requested
+// (hill-avoiding / shortest-distance) version.
+async function ghPostWithDegrade(body) {
+  const usesFlexible = body.custom_model !== undefined || body['ch.disable'] === true;
+  if (!usesFlexible) return { data: await ghPost(body), degraded: false };
+  try {
+    return { data: await ghPost(body), degraded: false };
+  } catch (err) {
+    if (!isFlexibleModeError(err)) throw err;
+    console.warn('GraphHopper plan does not support flexible mode — retrying without custom_model/ch.disable:', err.message);
+    return { data: await ghPost(stripFlexible(body)), degraded: true };
+  }
+}
+
 function summarize(path, mode) {
   const pts = path.points?.coordinates || path.points || [];
   return {
@@ -146,6 +174,11 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
 
   const candidates = [];
   const seedErrors = [];
+  // Once we learn the plan doesn't support flexible mode (from any seed), stop
+  // attempting it on subsequent seeds — no point re-spending a credit on a request
+  // we already know will be rejected the same way every time.
+  let flexibleSupported = true;
+  let degraded = false;
   for (let seed = 0; seed < seeds; seed++) {
     const body = {
       points: [[lon, lat]],
@@ -156,12 +189,15 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
       elevation: true,
       instructions: false,
       points_encoded: false,
-      'ch.disable': true,
     };
-    const cm = slopeCustomModel({ avoidHills });
-    if (cm) body.custom_model = cm;
+    if (flexibleSupported) {
+      body['ch.disable'] = true;
+      const cm = slopeCustomModel({ avoidHills });
+      if (cm) body.custom_model = cm;
+    }
     try {
-      const data = await ghPost(body);
+      const { data, degraded: wasDegraded } = await ghPostWithDegrade(body);
+      if (wasDegraded) { flexibleSupported = false; degraded = true; }
       const path = data.paths?.[0];
       if (path) candidates.push(summarize(path, 'loop'));
     } catch (err) {
@@ -183,6 +219,9 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
     target_km: Math.round(targetKm * 10) / 10,
     best: candidates[0],
     candidates_tried: candidates.length,
+    // true when the GraphHopper plan doesn't support flexible mode (custom_model),
+    // meaning this is a plain round-trip rather than one biased away from hills.
+    degraded,
   };
 }
 
@@ -203,10 +242,14 @@ async function planOutAndBack({ lat, lon, destination, avoidHills = false }) {
     // carriageways the default bike profile would otherwise avoid.
     custom_model: slopeCustomModel({ avoidHills, distanceInfluence: 200 }),
   };
-  const data = await ghPost(body);
+  const { data, degraded } = await ghPostWithDegrade(body);
   const path = data.paths?.[0];
   if (!path) throw new Error('GraphHopper returned no route to that destination.');
-  return summarize(path, 'out_and_back');
+  const result = summarize(path, 'out_and_back');
+  // true when the plan doesn't support flexible mode: this is the default-weighted
+  // route (fastest-ish), not the shortest-distance-biased one that was requested.
+  result.degraded = degraded;
+  return result;
 }
 
 export async function planRoute(params) {
