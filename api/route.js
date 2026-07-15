@@ -1,5 +1,6 @@
-// Vercel serverless function — cycling route planning via a self-hosted GraphHopper
-// instance (a hosted GraphHopper Directions API key works too — same request shape).
+// Vercel serverless function — cycling route planning via GraphHopper's hosted
+// Directions API (a self-hosted instance works too — same request shape, just point
+// GRAPHHOPPER_URL at it instead).
 //
 // Two modes:
 //   - "loop": round-trip from home. Target distance is derived from the workout's
@@ -10,8 +11,20 @@
 //     for shortest distance rather than fastest time. For "ride to X and back, the
 //     shortest way" style requests.
 //
-// Env: GRAPHHOPPER_URL (required — e.g. https://your-graphhopper.fly.dev),
-//      GRAPHHOPPER_API_KEY (optional — appended as ?key= if your instance needs one).
+// Env: GRAPHHOPPER_URL (required — hosted: "https://graphhopper.com/api/1",
+//        self-hosted: your instance's base URL, e.g. https://your-graphhopper.fly.dev),
+//      GRAPHHOPPER_API_KEY (your API key on the hosted service; optional/self-hosted
+//        instances may not need one),
+//      ROUTE_LOOP_SEEDS (optional, default 2 — see note below),
+//      ROUTE_CACHE_TTL_SECONDS (optional, default 86400 — see caching note below).
+//
+// COST NOTE: the hosted Directions API is credit-metered (500 credits/day on the
+// current plan — plenty for personal/family use, so no per-user rate limit is
+// enforced here). Loop mode used to try 4 round_trip seeds per request to pick the
+// flattest; that's 4x the billed requests for one "plan me a route" ask. Defaulted
+// down to 2 seeds (ROUTE_LOOP_SEEDS) since each is now a metered call rather than a
+// free self-hosted one. KV-backed caching below avoids re-spending credits on
+// identical repeat requests (same location/duration/pace/hills).
 //
 // NOTE ON GRAPHHOPPER API SHAPE: this was written against GraphHopper's documented
 // POST /route body (points as [lon,lat] pairs, custom_model for priority/speed/
@@ -19,13 +32,15 @@
 // round_trip params (algorithm, round_trip.distance, round_trip.seed). GraphHopper's
 // exact accepted keys for round_trip via a POST+custom_model body were not fully
 // confirmed against live docs (the reference page is client-rendered and didn't
-// return content during research) — verify this against your deployed GraphHopper
-// version with one real request before relying on it, and adjust the dot-keys below
-// if your instance rejects them.
+// return content during research) — verify this against your GraphHopper plan/version
+// with one real request before relying on it, and adjust the dot-keys below if
+// rejected.
 import { requireUser } from './_auth.js';
+import { kvGet, kvSet } from './_kv.js';
 
 const DEFAULT_PROFILE = 'bike'; // swap for a custom cycling profile if you define one server-side
-const LOOP_SEED_CANDIDATES = 4; // how many round_trip seeds to try, keep the flattest
+const DEFAULT_LOOP_SEEDS = 2; // how many round_trip seeds to try, keep the flattest — each is a billed request on a metered plan
+const DEFAULT_CACHE_TTL = 86400; // 1 day — identical route asks reuse the cached result instead of re-spending credits
 
 // Tiny named-place lookup for out_and_back destinations — geocoding isn't wired up
 // yet, so either extend this table or pass "lat,lon" directly as the destination.
@@ -105,7 +120,8 @@ function summarize(path, mode) {
 
 // mode "loop": round trip from [lat,lon]. Target distance = paceKph * (durationMin/60).
 // paceKph should come from the athlete's real Strava zone-2 average, not a guess.
-async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, seeds = LOOP_SEED_CANDIDATES }) {
+async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, seeds }) {
+  seeds = seeds || Math.max(1, parseInt(process.env.ROUTE_LOOP_SEEDS, 10) || DEFAULT_LOOP_SEEDS);
   if (!durationMin || !paceKph) throw new Error('Loop mode needs durationMin and paceKph to size the route.');
   const targetKm = paceKph * (durationMin / 60);
   const targetM = Math.max(1000, Math.round(targetKm * 1000));
@@ -174,6 +190,14 @@ export async function planRoute(params) {
   throw new Error(`Unknown route mode "${params.mode}" — expected "loop" or "out_and_back".`);
 }
 
+// Cache key covers only the inputs that change the physical route — shared across
+// users/devices asking for the same thing, not per-user. Coordinates rounded to 3dp
+// (~110m) since home location is otherwise a fixed value per request anyway.
+function cacheKey(p) {
+  const r3 = (n) => Number.isFinite(n) ? n.toFixed(3) : 'x';
+  return `route_cache:v1:${p.mode}:${r3(p.lat)}:${r3(p.lon)}:${p.durationMin ?? ''}:${p.paceKph ?? ''}:${!!p.avoidHills}:${(p.destination || '').toLowerCase().trim()}`;
+}
+
 export default async function handler(req, res) {
   if (!(await requireUser(req, res))) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -184,14 +208,26 @@ export default async function handler(req, res) {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       return res.status(200).json({ error: 'Missing or invalid lat/lon (home location).' });
     }
-    const result = await planRoute({
+    const params = {
       mode: q.mode,
       lat, lon,
       durationMin: q.durationMin != null ? parseFloat(q.durationMin) : undefined,
       paceKph: q.paceKph != null ? parseFloat(q.paceKph) : undefined,
       destination: q.destination,
       avoidHills: q.avoidHills === true || q.avoidHills === 'true',
-    });
+    };
+
+    const key = cacheKey(params);
+    const cached = await kvGet(key);
+    if (cached) {
+      res.status(200).json({ ...cached, cached: true });
+      return;
+    }
+
+    const result = await planRoute(params);
+    const ttl = Math.max(60, parseInt(process.env.ROUTE_CACHE_TTL_SECONDS, 10) || DEFAULT_CACHE_TTL);
+    await kvSet(key, result, { ex: ttl }); // no-ops silently if KV isn't configured
+
     res.status(200).json(result);
   } catch (err) {
     // { error } over HTTP 200, matching the other api/ endpoints' convention so the
