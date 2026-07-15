@@ -60,7 +60,15 @@ function resolvePlace(input) {
 function ghUrl(path) {
   const base = process.env.GRAPHHOPPER_URL;
   if (!base) throw new Error('Missing GRAPHHOPPER_URL — set it in the Vercel project env vars.');
-  const url = new URL(path, base);
+  // IMPORTANT: new URL(path, base) is NOT simple concatenation — a leading "/" on
+  // `path` makes it origin-relative per the URL spec, which silently discards the
+  // base's own path. new URL('/route', 'https://graphhopper.com/api/1') resolves to
+  // 'https://graphhopper.com/route', NOT '.../api/1/route' — this was hitting
+  // graphhopper.com's website instead of the API and getting an HTML page back
+  // (surfaced as "Unexpected token '<' ... is not valid JSON" once the real
+  // GraphHopper error was wired through). Build the full path manually instead.
+  const fullPath = base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
+  const url = new URL(fullPath);
   const key = process.env.GRAPHHOPPER_API_KEY;
   if (key) url.searchParams.set('key', key);
   return url;
