@@ -101,7 +101,17 @@ async function ghPost(body) {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.message || `GraphHopper error (${res.status})`);
+  if (!res.ok) {
+    // Surface as much of GraphHopper's own error detail as it gives us — its 400
+    // responses put the useful part in `message` and sometimes more specifics in
+    // `hints[].message` (e.g. point-not-found, invalid custom_model field). Swallowing
+    // this down to a generic "GraphHopper error (400)" is exactly what made the first
+    // real failure here hard to diagnose without digging through server logs.
+    const mainMsg = data?.message || '';
+    const hintMsgs = Array.isArray(data?.hints) ? data.hints.map(h => h.message).filter(m => m && m !== mainMsg) : [];
+    const hint = hintMsgs.length ? ` (${hintMsgs.join('; ')})` : '';
+    throw new Error(`${data?.message || `GraphHopper error (${res.status})`}${hint}`);
+  }
   return data;
 }
 
@@ -127,6 +137,7 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
   const targetM = Math.max(1000, Math.round(targetKm * 1000));
 
   const candidates = [];
+  const seedErrors = [];
   for (let seed = 0; seed < seeds; seed++) {
     const body = {
       points: [[lon, lat]],
@@ -146,11 +157,17 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
       const path = data.paths?.[0];
       if (path) candidates.push(summarize(path, 'loop'));
     } catch (err) {
-      // One bad seed shouldn't sink the whole request — just try the next.
+      // One bad seed shouldn't sink the whole request — just try the next. Still keep
+      // the real message so we can surface it if every seed fails, instead of a
+      // generic error that hides what GraphHopper actually said.
       console.warn(`round_trip seed ${seed} failed:`, err.message);
+      seedErrors.push(err.message);
     }
   }
-  if (!candidates.length) throw new Error('GraphHopper returned no viable loop for this area/distance — try a different seed count or target distance.');
+  if (!candidates.length) {
+    const detail = seedErrors.length ? ` GraphHopper said: "${seedErrors[seedErrors.length - 1]}"` : '';
+    throw new Error(`GraphHopper returned no viable loop for this area/distance.${detail}`);
+  }
 
   candidates.sort((a, b) => (a.ascent_m ?? Infinity) - (b.ascent_m ?? Infinity));
   return {
