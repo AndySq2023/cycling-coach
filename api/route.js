@@ -2,14 +2,22 @@
 // Directions API (a self-hosted instance works too — same request shape, just point
 // GRAPHHOPPER_URL at it instead).
 //
-// Two modes:
+// Three modes:
 //   - "loop": round-trip from home. Target distance is derived from the workout's
-//     duration + the athlete's real pace (pass paceKph from Strava zone history, not
-//     a guess), biased away from hills via a custom model. For "give me a flat
-//     45-minute zone 2 loop" style requests.
+//     duration + the athlete's real pace (pass paceMph from Strava history — the app
+//     surfaces all speeds in mph — not a guess), biased away from hills via a custom
+//     model. For "give me a flat 45-minute zone 2 loop" style requests.
 //   - "out_and_back": fixed via-point route (home -> destination -> home), optimized
 //     for shortest distance rather than fastest time. For "ride to X and back, the
-//     shortest way" style requests.
+//     shortest way" style requests. Destinations are geocoded via GraphHopper's
+//     Geocoding API (same key) when they're not coordinates or a KNOWN_PLACES hit.
+//   - "geocode": resolve a place name/postcode to { lat, lon, name } — used by the
+//     app to resolve a home_set block's "place" field server-side instead of trusting
+//     the LLM's approximate geography.
+//
+// UNITS: requests take paceMph; responses carry both metric (distance_km, ascent_m —
+// GraphHopper's native units) and the imperial fields the app displays (distance_mi,
+// target_mi, ascent_ft). Athlete-facing output is always miles/mph/feet.
 //
 // Env: GRAPHHOPPER_URL (required — hosted: "https://graphhopper.com/api/1",
 //        self-hosted: your instance's base URL, e.g. https://your-graphhopper.fly.dev),
@@ -42,19 +50,54 @@ const DEFAULT_PROFILE = 'bike'; // swap for a custom cycling profile if you defi
 const DEFAULT_LOOP_SEEDS = 2; // how many round_trip seeds to try, keep the flattest — each is a billed request on a metered plan
 const DEFAULT_CACHE_TTL = 86400; // 1 day — identical route asks reuse the cached result instead of re-spending credits
 
-// Tiny named-place lookup for out_and_back destinations — geocoding isn't wired up
-// yet, so either extend this table or pass "lat,lon" directly as the destination.
+// Fast-path lookup for common destinations — skips a geocoding call (and its credit)
+// for the places that actually get asked for. Anything else falls through to
+// GraphHopper's Geocoding API in geocodePlace().
 const KNOWN_PLACES = {
   'box hill': [51.2465, -0.3202],
   'richmond park': [51.4453, -0.2734],
   'leith hill': [51.1763, -0.3659],
 };
 
-function resolvePlace(input) {
+// Resolve a place name/postcode to { lat, lon, name } via GraphHopper's Geocoding API
+// (hosted service, same key as routing; NOT part of the self-hosted OSS engine — on a
+// self-hosted GRAPHHOPPER_URL this 404s and the caller's fallback handles it).
+// Results are KV-cached for 30 days: place names don't move, and geocode calls are
+// metered like everything else.
+export async function geocodePlace(q, near) {
+  q = String(q || '').trim();
+  if (!q) return null;
+  const cacheK = `route_geocode:v1:${q.toLowerCase()}`;
+  const cached = await kvGet(cacheK);
+  if (cached) return cached;
+
+  const url = ghUrl('geocode');
+  url.searchParams.set('q', q);
+  url.searchParams.set('limit', '1');
+  if (Array.isArray(near) && near.length === 2) url.searchParams.set('point', `${near[0]},${near[1]}`); // bias results toward home
+  const res = await fetch(url);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || `Geocoding failed (${res.status})`);
+  const hit = data?.hits?.[0];
+  if (!hit?.point) return null;
+  const out = {
+    lat: hit.point.lat,
+    lon: hit.point.lng,
+    name: [hit.name, hit.city || hit.state, hit.country].filter(Boolean).join(', '),
+  };
+  await kvSet(cacheK, out, { ex: 30 * 86400 });
+  return out;
+}
+
+// Destination resolution cascade: "lat,lon" string -> KNOWN_PLACES -> geocoding.
+// Always returns { lat, lon, name? } or null.
+async function resolvePlace(input, near) {
   if (!input) return null;
   const asCoords = String(input).split(',').map(s => parseFloat(s.trim()));
-  if (asCoords.length === 2 && asCoords.every(Number.isFinite)) return asCoords;
-  return KNOWN_PLACES[String(input).trim().toLowerCase()] || null;
+  if (asCoords.length === 2 && asCoords.every(Number.isFinite)) return { lat: asCoords[0], lon: asCoords[1] };
+  const known = KNOWN_PLACES[String(input).trim().toLowerCase()];
+  if (known) return { lat: known[0], lon: known[1], name: String(input).trim() };
+  return geocodePlace(input, near);
 }
 
 function ghUrl(path) {
@@ -151,25 +194,34 @@ async function ghPostWithDegrade(body) {
   }
 }
 
+const KM_PER_MI = 1.60934;
+const FT_PER_M = 3.28084;
+
 function summarize(path, mode) {
   const pts = path.points?.coordinates || path.points || [];
+  const km = Math.round((path.distance / 1000) * 10) / 10;
+  const ascentM = path.ascend != null ? Math.round(path.ascend) : totalAscent(pts);
   return {
     mode,
-    distance_km: Math.round((path.distance / 1000) * 10) / 10,
+    distance_km: km,
+    distance_mi: Math.round((km / KM_PER_MI) * 10) / 10,
     duration_min: Math.round(path.time / 60000),
-    ascent_m: path.ascend != null ? Math.round(path.ascend) : totalAscent(pts),
+    ascent_m: ascentM,
+    ascent_ft: ascentM != null ? Math.round(ascentM * FT_PER_M) : null,
     descent_m: path.descend != null ? Math.round(path.descend) : null,
     points: pts, // [lon, lat, elevation][] (points_encoded:false)
     bbox: path.bbox || null,
   };
 }
 
-// mode "loop": round trip from [lat,lon]. Target distance = paceKph * (durationMin/60).
-// paceKph should come from the athlete's real Strava zone-2 average, not a guess.
-async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, seeds }) {
+// mode "loop": round trip from [lat,lon]. Target distance = paceMph * (durationMin/60),
+// converted to metres for GraphHopper. paceMph should come from the athlete's real
+// Strava average (which the app already surfaces in mph), not a guess.
+async function planLoop({ lat, lon, durationMin, paceMph, avoidHills = true, seeds }) {
   seeds = seeds || Math.max(1, parseInt(process.env.ROUTE_LOOP_SEEDS, 10) || DEFAULT_LOOP_SEEDS);
-  if (!durationMin || !paceKph) throw new Error('Loop mode needs durationMin and paceKph to size the route.');
-  const targetKm = paceKph * (durationMin / 60);
+  if (!durationMin || !paceMph) throw new Error('Loop mode needs durationMin and paceMph to size the route.');
+  const targetMi = paceMph * (durationMin / 60);
+  const targetKm = targetMi * KM_PER_MI;
   const targetM = Math.max(1000, Math.round(targetKm * 1000));
 
   const candidates = [];
@@ -217,6 +269,7 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
   return {
     mode: 'loop',
     target_km: Math.round(targetKm * 10) / 10,
+    target_mi: Math.round(targetMi * 10) / 10,
     best: candidates[0],
     candidates_tried: candidates.length,
     // true when the GraphHopper plan doesn't support flexible mode (custom_model),
@@ -227,11 +280,11 @@ async function planLoop({ lat, lon, durationMin, paceKph, avoidHills = true, see
 
 // mode "out_and_back": home -> destination -> home, optimized for shortest distance.
 async function planOutAndBack({ lat, lon, destination, avoidHills = false }) {
-  const dest = resolvePlace(destination);
-  if (!dest) throw new Error(`Could not resolve destination "${destination}" — pass a known place name (see KNOWN_PLACES) or "lat,lon".`);
+  const dest = await resolvePlace(destination, [lat, lon]);
+  if (!dest) throw new Error(`Could not find "${destination}" — try a more specific place name, or pass "lat,lon" directly.`);
 
   const body = {
-    points: [[lon, lat], [dest[1], dest[0]], [lon, lat]],
+    points: [[lon, lat], [dest.lon, dest.lat], [lon, lat]],
     profile: DEFAULT_PROFILE,
     elevation: true,
     instructions: false,
@@ -246,6 +299,7 @@ async function planOutAndBack({ lat, lon, destination, avoidHills = false }) {
   const path = data.paths?.[0];
   if (!path) throw new Error('GraphHopper returned no route to that destination.');
   const result = summarize(path, 'out_and_back');
+  if (dest.name) result.destination_name = dest.name; // geocoder's idea of where it sent you — surface so the athlete can catch a bad match
   // true when the plan doesn't support flexible mode: this is the default-weighted
   // route (fastest-ish), not the shortest-distance-biased one that was requested.
   result.degraded = degraded;
@@ -258,12 +312,25 @@ export async function planRoute(params) {
   throw new Error(`Unknown route mode "${params.mode}" — expected "loop" or "out_and_back".`);
 }
 
+// planRoute with the KV cache in front — shared by the HTTP handler below and the
+// Telegram path (api/telegram.js), so both only spend GraphHopper credits on
+// genuinely new requests.
+export async function planRouteCached(params) {
+  const key = cacheKey(params);
+  const cached = await kvGet(key);
+  if (cached) return { ...cached, cached: true };
+  const result = await planRoute(params);
+  const ttl = Math.max(60, parseInt(process.env.ROUTE_CACHE_TTL_SECONDS, 10) || DEFAULT_CACHE_TTL);
+  await kvSet(key, result, { ex: ttl }); // no-ops silently if KV isn't configured
+  return result;
+}
+
 // Cache key covers only the inputs that change the physical route — shared across
 // users/devices asking for the same thing, not per-user. Coordinates rounded to 3dp
 // (~110m) since home location is otherwise a fixed value per request anyway.
 function cacheKey(p) {
   const r3 = (n) => Number.isFinite(n) ? n.toFixed(3) : 'x';
-  return `route_cache:v1:${p.mode}:${r3(p.lat)}:${r3(p.lon)}:${p.durationMin ?? ''}:${p.paceKph ?? ''}:${!!p.avoidHills}:${(p.destination || '').toLowerCase().trim()}`;
+  return `route_cache:v2:${p.mode}:${r3(p.lat)}:${r3(p.lon)}:${p.durationMin ?? ''}:${p.paceMph ?? ''}:${!!p.avoidHills}:${(p.destination || '').toLowerCase().trim()}`;
 }
 
 export default async function handler(req, res) {
@@ -273,6 +340,15 @@ export default async function handler(req, res) {
     const q = req.method === 'POST' ? (req.body || {}) : (req.query || {});
     const lat = parseFloat(q.lat);
     const lon = parseFloat(q.lon);
+
+    // Geocode mode has no home-location requirement — it's how the app resolves the
+    // home location in the first place (home_set blocks with a "place" field). lat/lon
+    // are only an optional result bias here. geocodePlace does its own KV caching.
+    if (q.mode === 'geocode') {
+      const hit = await geocodePlace(q.q, Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : undefined);
+      return res.status(200).json(hit || { error: `Could not find "${q.q}" — try a more specific place name.` });
+    }
+
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       return res.status(200).json({ error: 'Missing or invalid lat/lon (home location).' });
     }
@@ -280,23 +356,16 @@ export default async function handler(req, res) {
       mode: q.mode,
       lat, lon,
       durationMin: q.durationMin != null ? parseFloat(q.durationMin) : undefined,
-      paceKph: q.paceKph != null ? parseFloat(q.paceKph) : undefined,
+      // The protocol is mph (all athlete-facing speeds are), but accept a stray
+      // paceKph and convert rather than failing the request over units.
+      paceMph: q.paceMph != null ? parseFloat(q.paceMph)
+             : q.paceKph != null ? parseFloat(q.paceKph) / KM_PER_MI
+             : undefined,
       destination: q.destination,
       avoidHills: q.avoidHills === true || q.avoidHills === 'true',
     };
 
-    const key = cacheKey(params);
-    const cached = await kvGet(key);
-    if (cached) {
-      res.status(200).json({ ...cached, cached: true });
-      return;
-    }
-
-    const result = await planRoute(params);
-    const ttl = Math.max(60, parseInt(process.env.ROUTE_CACHE_TTL_SECONDS, 10) || DEFAULT_CACHE_TTL);
-    await kvSet(key, result, { ex: ttl }); // no-ops silently if KV isn't configured
-
-    res.status(200).json(result);
+    res.status(200).json(await planRouteCached(params));
   } catch (err) {
     // { error } over HTTP 200, matching the other api/ endpoints' convention so the
     // app's existing `if (d.error)` handling surfaces it cleanly.

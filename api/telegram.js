@@ -16,7 +16,8 @@
 //   ANTHROPIC_API_KEY, plus the WHOOP/STRAVA/WINDY creds the data functions need.
 import { getState, setState, appendTurns } from './_state.js';
 import { kvGet, kvSet } from './_kv.js';
-import { buildSystemPrompt, extractScheduleUpdates, applyScheduleBlocks } from './_prompt.js';
+import { buildSystemPrompt, extractScheduleUpdates, extractRouteRequest, extractHomeSet, applyScheduleBlocks } from './_prompt.js';
+import { planRouteCached, geocodePlace } from './route.js';
 import { getStravaSummary } from './strava.js';
 import { getWhoopSummary } from './whoop.js';
 import { getForecast } from './windy.js';
@@ -114,6 +115,29 @@ async function callClaude(system, messages) {
   return data?.content?.[0]?.text || '';
 }
 
+// Execute a route_request block server-side (same planner the web app's /api/route
+// calls, cache included) and return the athlete-facing lines for the Telegram message.
+// Never throws — a routing failure becomes a ⚠️ line rather than sinking the reply.
+async function runRouteRequest(routeRequest, state) {
+  const home = typeof state.home === 'string' ? state.home.split(',').map(Number) : null;
+  if (!home || home.length !== 2 || !home.every(Number.isFinite)) {
+    return "⚠️ I don't have a home location to route from yet — tell me where you live/ride from and I'll set it.";
+  }
+  try {
+    const data = await planRouteCached({ ...routeRequest, lat: home[0], lon: home[1] });
+    const r = data.mode === 'loop' ? data.best : data;
+    const label = data.mode === 'loop'
+      ? `Loop (target ${data.target_mi} mi, tried ${data.candidates_tried} options)`
+      : `Out and back${data.destination_name ? ` to ${data.destination_name}` : ''}`;
+    const degradedNote = data.degraded
+      ? '\n⚠️ The GraphHopper plan doesn’t support custom routing (hill-avoidance / shortest-distance), so this is the default route instead.'
+      : '';
+    return `📍 ${label}\n${r.distance_mi} mi, ${r.ascent_ft ?? '?'} ft ascent, ~${r.duration_min} min riding.${degradedNote}\n(Ask from the app if you want the GPX download.)`;
+  } catch (err) {
+    return `⚠️ Couldn't plan that route: ${err?.message || String(err)}`;
+  }
+}
+
 export default async function handler(req, res) {
   // Always 200 to Telegram unless auth fails — a non-200 makes Telegram retry the same
   // update, which would double-charge the API. Errors are reported to the user instead.
@@ -182,24 +206,52 @@ export default async function handler(req, res) {
     const system = buildSystemPrompt({
       whoop: ctx.whoop, strava: ctx.strava, weather: ctx.weather,
       goal: state.goal, plan: state.plan, feedback: state.feedback,
+      routes: true, // this path executes route_request/home_set blocks below
     });
     const messages = [...(state.conversationHistory || []), { role: 'user', content: text }];
 
     const reply = await callClaude(system, messages);
-    const { clean, updates, planSet } = extractScheduleUpdates(reply);
+    const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
+    const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
+    const { clean, routeRequest } = extractRouteRequest(homeClean);
 
     // Apply any schedule writes to the shared state.
     const applied = applyScheduleBlocks(state, { updates, planSet });
+    let finalState = { ...applied.state, updatedBy: 'telegram' };
 
     // What the athlete actually sees (and what we store as the assistant turn). Guard
     // against an empty string: a reply that was ONLY a schedule block leaves `clean` blank,
     // and an empty assistant turn would make the NEXT Claude call 400.
     let outText = clean;
     if (applied.changed) outText += (outText ? '\n\n' : '') + (planSet ? '🗓 I’ve rebuilt your schedule — check the app.' : '🗓 Schedule updated — check the app.');
+
+    // Home location: geocode the coach's "place" server-side when possible, falling
+    // back to its own approximate coordinates. Stored in the same "lat,lon" string
+    // form the app writes (gatherContext parses it back).
+    if (homeSet) {
+      let hLat = parseFloat(homeSet.lat), hLon = parseFloat(homeSet.lon), hLabel = homeSet.label;
+      if (homeSet.place) {
+        try {
+          const hit = await geocodePlace(homeSet.place);
+          if (hit) { hLat = hit.lat; hLon = hit.lon; hLabel = hit.name || hLabel; }
+        } catch (err) { console.warn('home_set geocoding failed, using coach coords:', err.message); }
+      }
+      if (Number.isFinite(hLat) && Number.isFinite(hLon)) {
+        finalState = { ...finalState, home: `${hLat.toFixed(4)},${hLon.toFixed(4)}` };
+        outText += (outText ? '\n\n' : '') + `📍 Home location set${hLabel ? ` — ${hLabel}` : ''}.`;
+      }
+    }
+
+    // Route planning. The prompt only allows route_request when the athlete explicitly
+    // asked; home is read from finalState so a home_set in the same reply counts.
+    if (routeRequest) {
+      outText += (outText ? '\n\n' : '') + await runRouteRequest(routeRequest, finalState);
+    }
+
     if (!outText) outText = 'Done.';
 
-    // Append this exchange to the shared history so it shows up in the web app on sync.
-    const finalState = { ...applied.state, updatedBy: 'telegram' };
+    // Append this exchange to the shared history so it shows up in the web app on sync
+    // (route results included — the coach keeps its memory of what it planned).
     await appendTurns('master', finalState, text, outText);
 
     await tgSend(chatId, outText);

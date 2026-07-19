@@ -61,7 +61,7 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
 | `TELEGRAM_CHAT_ID` | *(optional)* the **only** Telegram chat id allowed to use the bot (yours) |
-| `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat |
+| `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat (web + Telegram). The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
 | `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
 | `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
 | `ROUTE_CACHE_TTL_SECONDS` | *(optional)* how long identical route requests are cached in KV before re-querying GraphHopper, default 86400 (1 day) |
