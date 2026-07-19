@@ -1119,7 +1119,26 @@
   }
 
   @media (max-width: 600px) {
-    .data-panel { display: none; }
+    .data-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 85vw;
+      max-width: 320px;
+      height: 100dvh;
+      z-index: 50;
+      box-shadow: 2px 0 16px rgba(0,0,0,0.25);
+      transform: translateX(-100%);
+    }
+    .data-panel.collapsed { width: 85vw; max-width: 320px; transform: translateX(0); }
+    .data-panel-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 49;
+    }
+    .data-panel-backdrop.show { display: block; }
   }
 </style>
 </head>
@@ -1142,6 +1161,7 @@
 
 <div class="main">
   <!-- DATA PANEL -->
+  <div class="data-panel-backdrop" id="dataPanelBackdrop" onclick="togglePanel()"></div>
   <div class="data-panel" id="dataPanel">
     <div class="data-panel-inner">
 
@@ -1757,7 +1777,8 @@ function restoreBubble(role, text, time) {
 // ── PANEL TOGGLE ───────────────────────────────────────────
 function togglePanel() {
   panelOpen = !panelOpen;
-  document.getElementById('dataPanel').classList.toggle('collapsed', !panelOpen);
+  const collapsed = document.getElementById('dataPanel').classList.toggle('collapsed', !panelOpen);
+  document.getElementById('dataPanelBackdrop').classList.toggle('show', collapsed);
 }
 
 // ── TAB SWITCHING ──────────────────────────────────────────
