@@ -3576,15 +3576,22 @@ async function handleRouteRequest(routeRequest) {
       : `Out and back${data.destination_name ? ` to ${data.destination_name}` : ''}`;
     const distMi = r.distance_mi ?? mi(r.distance_km);
     const ascFt = r.ascent_ft ?? (r.ascent_m != null ? Math.round(r.ascent_m * 3.28084) : '?');
-    // GraphHopper's free/basic plan doesn't support the "flexible mode" needed for
-    // hill-avoidance / shortest-distance biasing — the app falls back to a plain
-    // route rather than failing, but the athlete should know it's not what they asked
-    // for (e.g. hills weren't actually avoided).
-    const degradedNote = data.degraded
-      ? '\n⚠️ Your GraphHopper plan doesn\'t support custom routing (hill-avoidance / shortest-distance) — this is the default route instead. Upgrade the plan to enable it.'
-      : '';
+    // GraphHopper's free plan doesn't support the "flexible mode" needed for true
+    // hill-avoidance / shortest-distance biasing, so the server emulates it there:
+    // `fallback` says which workaround produced this route ('sampled' = flattest of
+    // several loop options, 'alternatives' = shortest of several road alternatives
+    // per leg). Only when no emulation applied either (fallback null but degraded
+    // true) is this genuinely just the default route — say so.
+    const degradedNote = data.fallback === 'sampled'
+      ? `\nℹ️ True hill-avoidance isn't available on the free GraphHopper plan, so I compared ${data.candidates_tried} loop options and picked the flattest.`
+      : data.fallback === 'alternatives'
+        ? `\nℹ️ Shortest-distance routing isn't available on the free GraphHopper plan, so I compared ${data.alternatives_tried} road alternatives and picked the best.`
+        : data.degraded
+          ? '\n⚠️ Custom routing (hill-avoidance / shortest-distance) isn\'t available on the free GraphHopper plan and no workaround applied — this is the default route.'
+          : '';
     const row = appendBubble('coach', `📍 **${label}**\n${distMi} mi, ${ascFt} ft ascent, ~${r.duration_min} min riding.${degradedNote}`);
-    conversationHistory.push({ role: 'assistant', content: `[Route planned: ${label} — ${distMi} mi, ${ascFt} ft ascent, ~${r.duration_min} min riding.${data.degraded ? ' Degraded: no hill-avoidance on the current GraphHopper plan.' : ''}]` });
+    const historyNote = data.fallback ? ' (free-plan workaround: best of several sampled options)' : data.degraded ? ' Degraded: default route, no hill-avoidance applied.' : '';
+    conversationHistory.push({ role: 'assistant', content: `[Route planned: ${label} — ${distMi} mi, ${ascFt} ft ascent, ~${r.duration_min} min riding.${historyNote}]` });
     if (r.points?.length) {
       const btn = document.createElement('button');
       btn.className = 'gpx-btn';

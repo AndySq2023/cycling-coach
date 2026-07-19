@@ -129,9 +129,13 @@ async function runRouteRequest(routeRequest, state) {
     const label = data.mode === 'loop'
       ? `Loop (target ${data.target_mi} mi, tried ${data.candidates_tried} options)`
       : `Out and back${data.destination_name ? ` to ${data.destination_name}` : ''}`;
-    const degradedNote = data.degraded
-      ? '\n⚠️ The GraphHopper plan doesn’t support custom routing (hill-avoidance / shortest-distance), so this is the default route instead.'
-      : '';
+    const degradedNote = data.fallback === 'sampled'
+      ? `\nℹ️ True hill-avoidance isn’t available on the free GraphHopper plan, so I compared ${data.candidates_tried} loop options and picked the flattest.`
+      : data.fallback === 'alternatives'
+        ? `\nℹ️ Shortest-distance routing isn’t available on the free GraphHopper plan, so I compared ${data.alternatives_tried} road alternatives and picked the best.`
+        : data.degraded
+          ? '\n⚠️ Custom routing (hill-avoidance / shortest-distance) isn’t available on the free GraphHopper plan and no workaround applied — this is the default route.'
+          : '';
     return `📍 ${label}\n${r.distance_mi} mi, ${r.ascent_ft ?? '?'} ft ascent, ~${r.duration_min} min riding.${degradedNote}\n(Ask from the app if you want the GPX download.)`;
   } catch (err) {
     return `⚠️ Couldn't plan that route: ${err?.message || String(err)}`;

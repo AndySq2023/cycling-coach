@@ -34,6 +34,21 @@
 // free self-hosted one. KV-backed caching below avoids re-spending credits on
 // identical repeat requests (same location/duration/pace/hills).
 //
+// FREE-PLAN EMULATION: the free package rejects flexible mode (ch.disable +
+// custom_model) outright, which is what real hill-avoidance and shortest-distance
+// biasing need. But it DOES allow algorithm=round_trip and algorithm=alternative_route
+// (proven live), so when flexible mode is rejected this module emulates instead of
+// just serving the default route:
+//   - loop + avoidHills: widen the seed pool to EMULATED_LOOP_SEEDS and keep the
+//     flattest candidate (~4 credits per uncached ask);
+//   - out_and_back: fetch up to ALT_MAX_PATHS alternatives per leg and keep the
+//     shortest (2 credits per uncached ask — alternative_route only takes 2 points,
+//     hence one call per leg).
+// Results carry `degraded` (flexible mode unavailable) plus `fallback` describing
+// which emulation applied ('sampled' | 'alternatives' | null), so the app/Telegram
+// can word the caveat honestly. Road-level slope avoidance still needs a paid or
+// self-hosted GraphHopper.
+//
 // NOTE ON GRAPHHOPPER API SHAPE: this was written against GraphHopper's documented
 // POST /route body (points as [lon,lat] pairs, custom_model for priority/speed/
 // distance_influence, ch.disable required alongside custom_model) and the GET-only
@@ -48,6 +63,8 @@ import { kvGet, kvSet } from './_kv.js';
 
 const DEFAULT_PROFILE = 'bike'; // swap for a custom cycling profile if you define one server-side
 const DEFAULT_LOOP_SEEDS = 2; // how many round_trip seeds to try, keep the flattest — each is a billed request on a metered plan
+const EMULATED_LOOP_SEEDS = 4; // seed pool when emulating hill-avoidance on the free plan — flattest-of-N is the only lever there, so give the ranking a real choice
+const ALT_MAX_PATHS = 3; // alternatives per leg when emulating shortest-distance via algorithm=alternative_route
 const DEFAULT_CACHE_TTL = 86400; // 1 day — identical route asks reuse the cached result instead of re-spending credits
 
 // Fast-path lookup for common destinations — skips a geocoding call (and its credit)
@@ -169,9 +186,9 @@ async function ghPost(body) {
 // "Flexible mode" (ch.disable + custom_model) is a paid-tier-only feature on
 // GraphHopper's hosted API — free/basic packages reject it outright with a message
 // like "Free packages cannot use flexible mode". Rather than hard-failing the whole
-// route (or requiring an upgrade), detect this specific rejection and retry once
-// without custom_model/ch.disable so the athlete still gets a route — just without
-// the hill-avoidance/shortest-distance biasing those enable.
+// route (or requiring an upgrade), detect this specific rejection and fall back to
+// the free-plan emulation paths (seed sampling / alternative_route) so the athlete
+// still gets something close to what they asked for.
 function isFlexibleModeError(err) {
   return /flexible mode/i.test(err?.message || '');
 }
@@ -179,17 +196,27 @@ function stripFlexible(body) {
   const { custom_model, ['ch.disable']: _chDisable, ...rest } = body;
   return rest;
 }
+// Whether the GraphHopper host accepts flexible mode. null = not yet known; learned
+// from the first flexible request's outcome. Module-level so a warm lambda stops
+// re-spending a doomed request per route ask once the plan's answer is known (resets
+// on cold start, which is also how an upgraded plan gets picked up again).
+let hostSupportsFlexible = null;
+
 // Returns { data, degraded }. degraded=true means the plan doesn't support flexible
 // mode and this came back from the plain-routing fallback instead of the requested
 // (hill-avoiding / shortest-distance) version.
 async function ghPostWithDegrade(body) {
   const usesFlexible = body.custom_model !== undefined || body['ch.disable'] === true;
   if (!usesFlexible) return { data: await ghPost(body), degraded: false };
+  if (hostSupportsFlexible === false) return { data: await ghPost(stripFlexible(body)), degraded: true };
   try {
-    return { data: await ghPost(body), degraded: false };
+    const data = await ghPost(body);
+    hostSupportsFlexible = true;
+    return { data, degraded: false };
   } catch (err) {
     if (!isFlexibleModeError(err)) throw err;
-    console.warn('GraphHopper plan does not support flexible mode — retrying without custom_model/ch.disable:', err.message);
+    hostSupportsFlexible = false;
+    console.warn('GraphHopper plan does not support flexible mode — falling back to free-plan emulation:', err.message);
     return { data: await ghPost(stripFlexible(body)), degraded: true };
   }
 }
@@ -226,10 +253,6 @@ async function planLoop({ lat, lon, durationMin, paceMph, avoidHills = true, see
 
   const candidates = [];
   const seedErrors = [];
-  // Once we learn the plan doesn't support flexible mode (from any seed), stop
-  // attempting it on subsequent seeds — no point re-spending a credit on a request
-  // we already know will be rejected the same way every time.
-  let flexibleSupported = true;
   let degraded = false;
   for (let seed = 0; seed < seeds; seed++) {
     const body = {
@@ -242,14 +265,20 @@ async function planLoop({ lat, lon, durationMin, paceMph, avoidHills = true, see
       instructions: false,
       points_encoded: false,
     };
-    if (flexibleSupported) {
-      body['ch.disable'] = true;
-      const cm = slopeCustomModel({ avoidHills });
-      if (cm) body.custom_model = cm;
-    }
+    // ch.disable exists only to carry the custom_model — sending it bare would flag
+    // the request as flexible mode (and get a no-hills loop needlessly "degraded"
+    // on the free plan) for zero routing benefit.
+    const cm = slopeCustomModel({ avoidHills });
+    if (cm) { body['ch.disable'] = true; body.custom_model = cm; }
     try {
       const { data, degraded: wasDegraded } = await ghPostWithDegrade(body);
-      if (wasDegraded) { flexibleSupported = false; degraded = true; }
+      if (wasDegraded && !degraded) {
+        degraded = true;
+        // Free-plan emulation: custom_model is off the table, so flattest-of-N
+        // sampling is the only hill-avoidance we have — widen the pool mid-loop
+        // (the for-condition re-reads `seeds`) to give the ranking a real choice.
+        if (avoidHills) seeds = Math.max(seeds, EMULATED_LOOP_SEEDS);
+      }
       const path = data.paths?.[0];
       if (path) candidates.push(summarize(path, 'loop'));
     } catch (err) {
@@ -272,9 +301,54 @@ async function planLoop({ lat, lon, durationMin, paceMph, avoidHills = true, see
     target_mi: Math.round(targetMi * 10) / 10,
     best: candidates[0],
     candidates_tried: candidates.length,
-    // true when the GraphHopper plan doesn't support flexible mode (custom_model),
-    // meaning this is a plain round-trip rather than one biased away from hills.
+    // degraded: the plan doesn't support flexible mode (custom_model), so no
+    // road-level slope biasing was applied. fallback says what was done about it:
+    // 'sampled' = flattest of a widened seed pool (only claimable with >1 candidate
+    // to actually choose between); null = nothing, this is just the default loop.
     degraded,
+    fallback: degraded && avoidHills && candidates.length > 1 ? 'sampled' : null,
+  };
+}
+
+// One leg of the free-plan shortest-distance emulation: algorithm=alternative_route
+// works without flexible mode but only accepts exactly 2 points, so out-and-back
+// becomes one call per leg. Returns the best of up to ALT_MAX_PATHS paths — shortest
+// by default, flattest when avoidHills.
+async function bestAlternativeLeg(from, to, avoidHills) {
+  const data = await ghPost({
+    points: [from, to],
+    profile: DEFAULT_PROFILE,
+    algorithm: 'alternative_route',
+    'alternative_route.max_paths': ALT_MAX_PATHS,
+    elevation: true,
+    instructions: false,
+    points_encoded: false,
+  });
+  const paths = data.paths || [];
+  if (!paths.length) throw new Error('GraphHopper returned no alternative paths for a leg.');
+  const score = p => avoidHills ? (p.ascend ?? totalAscent(p.points?.coordinates) ?? Infinity) : p.distance;
+  paths.sort((a, b) => score(a) - score(b));
+  return { best: paths[0], tried: paths.length };
+}
+
+function unionBbox(a, b) {
+  if (!Array.isArray(a) || a.length !== 4) return Array.isArray(b) && b.length === 4 ? b : null;
+  if (!Array.isArray(b) || b.length !== 4) return a;
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+}
+
+// Join two leg paths into one pseudo-path shaped like GraphHopper's own, so
+// summarize() works on it unchanged. Drops the second leg's first point — it
+// duplicates the first leg's last (the shared turnaround).
+function stitchLegs(a, b) {
+  const ptsA = a.points?.coordinates || [], ptsB = b.points?.coordinates || [];
+  return {
+    distance: a.distance + b.distance,
+    time: a.time + b.time,
+    ascend: (a.ascend ?? totalAscent(ptsA) ?? 0) + (b.ascend ?? totalAscent(ptsB) ?? 0),
+    descend: (a.descend ?? 0) + (b.descend ?? 0),
+    points: { coordinates: ptsA.concat(ptsB.slice(1)) },
+    bbox: unionBbox(a.bbox, b.bbox),
   };
 }
 
@@ -282,9 +356,10 @@ async function planLoop({ lat, lon, durationMin, paceMph, avoidHills = true, see
 async function planOutAndBack({ lat, lon, destination, avoidHills = false }) {
   const dest = await resolvePlace(destination, [lat, lon]);
   if (!dest) throw new Error(`Could not find "${destination}" — try a more specific place name, or pass "lat,lon" directly.`);
+  const home = [lon, lat], turnaround = [dest.lon, dest.lat];
 
-  const body = {
-    points: [[lon, lat], [dest.lon, dest.lat], [lon, lat]],
+  const flexBody = {
+    points: [home, turnaround, home],
     profile: DEFAULT_PROFILE,
     elevation: true,
     instructions: false,
@@ -295,14 +370,42 @@ async function planOutAndBack({ lat, lon, destination, avoidHills = false }) {
     // carriageways the default bike profile would otherwise avoid.
     custom_model: slopeCustomModel({ avoidHills, distanceInfluence: 200 }),
   };
-  const { data, degraded } = await ghPostWithDegrade(body);
-  const path = data.paths?.[0];
+
+  let path = null, degraded = false, fallback = null, alternativesTried = 0;
+  if (hostSupportsFlexible !== false) {
+    try {
+      path = (await ghPost(flexBody)).paths?.[0];
+      hostSupportsFlexible = true;
+    } catch (err) {
+      if (!isFlexibleModeError(err)) throw err;
+      hostSupportsFlexible = false;
+      console.warn('GraphHopper plan does not support flexible mode — emulating shortest-distance via alternative_route:', err.message);
+    }
+  }
+  if (!path) {
+    degraded = true;
+    try {
+      const out = await bestAlternativeLeg(home, turnaround, avoidHills);
+      const back = await bestAlternativeLeg(turnaround, home, avoidHills);
+      path = stitchLegs(out.best, back.best);
+      fallback = 'alternatives';
+      alternativesTried = out.tried + back.tried;
+    } catch (err) {
+      // alternative_route not available either (or no alternatives here) — last
+      // resort is the plain default-weighted route, honestly labelled as such.
+      console.warn('alternative_route emulation failed — serving the default route:', err.message);
+      path = (await ghPost(stripFlexible(flexBody))).paths?.[0];
+    }
+  }
   if (!path) throw new Error('GraphHopper returned no route to that destination.');
   const result = summarize(path, 'out_and_back');
   if (dest.name) result.destination_name = dest.name; // geocoder's idea of where it sent you — surface so the athlete can catch a bad match
-  // true when the plan doesn't support flexible mode: this is the default-weighted
-  // route (fastest-ish), not the shortest-distance-biased one that was requested.
+  // degraded: the plan doesn't support flexible mode, so no distance_influence /
+  // slope biasing was applied. fallback 'alternatives' = shortest (or flattest) of
+  // the sampled road alternatives each way; null = plain default route.
   result.degraded = degraded;
+  result.fallback = fallback;
+  if (alternativesTried) result.alternatives_tried = alternativesTried;
   return result;
 }
 
@@ -330,7 +433,9 @@ export async function planRouteCached(params) {
 // (~110m) since home location is otherwise a fixed value per request anyway.
 function cacheKey(p) {
   const r3 = (n) => Number.isFinite(n) ? n.toFixed(3) : 'x';
-  return `route_cache:v2:${p.mode}:${r3(p.lat)}:${r3(p.lon)}:${p.durationMin ?? ''}:${p.paceMph ?? ''}:${!!p.avoidHills}:${(p.destination || '').toLowerCase().trim()}`;
+  // v3: free-plan emulation added (sampled/alternatives fallbacks) — don't serve v2
+  // results cached from before it existed.
+  return `route_cache:v3:${p.mode}:${r3(p.lat)}:${r3(p.lon)}:${p.durationMin ?? ''}:${p.paceMph ?? ''}:${!!p.avoidHills}:${(p.destination || '').toLowerCase().trim()}`;
 }
 
 export default async function handler(req, res) {
