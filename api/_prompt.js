@@ -12,7 +12,7 @@ const degF = c   => c   == null ? null : Math.round(c * 9 / 5 + 32);           /
 // Build the coach system prompt. `data` mirrors the app's athleteData + plan/feedback:
 //   { whoop, strava, weather, goal, plan, feedback }
 // Any field may be null/empty — the prompt degrades exactly like the app's does.
-export function buildSystemPrompt({ whoop, strava, weather, goal, plan, feedback } = {}) {
+export function buildSystemPrompt({ whoop, strava, weather, goal, plan, feedback, routes = false } = {}) {
   plan = Array.isArray(plan) ? plan : [];
   feedback = feedback && typeof feedback === 'object' ? feedback : {};
 
@@ -176,6 +176,32 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`
 Rules: start from today (${todayISO}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
+  // ── HOME LOCATION + ROUTE PLANNING (mirrors app/cycling-coach.html) ──────
+  // Only included when the caller can actually execute the blocks: the app and
+  // api/telegram.js pass routes:true. The morning briefing (api/briefing.js)
+  // deliberately does NOT — routes are athlete-initiated only, never volunteered by
+  // an automated message, and a path that advertises a capability it can't execute
+  // leaks raw fenced JSON to the athlete.
+  if (routes) {
+    prompt += `\n\n=== YOU CAN SET THE ATHLETE'S HOME LOCATION ===
+Routes and weather need a home location (lat/lon). The web app's UI field only accepts raw "lat, lon" decimal degrees — never tell the athlete to type a postcode into it, it will silently fail. Instead, when they tell you where they live/ride from, set it directly with a block. Include the place as they said it (it gets geocoded properly server-side) plus your own best-guess coordinates as a fallback:
+\`\`\`home_set
+{"place":"SW13, London","lat":51.4713,"lon":-0.2317,"label":"SW13 (Barnes)"}
+\`\`\`
+Tell them the resolved location so they can correct you if it's off.`;
+
+    prompt += `\n\n=== YOU CAN PLAN REAL ROUTES ===
+You have a routing tool backed by real road/elevation data. Do NOT invent a route, distance, or elevation number yourself — emit this block instead and the real numbers get filled in:
+\`\`\`route_request
+{"mode":"loop","durationMin":60,"paceMph":15,"avoidHills":true}
+\`\`\`
+or, for a ride to a specific place and back:
+\`\`\`route_request
+{"mode":"out_and_back","destination":"box hill","avoidHills":false}
+\`\`\`
+Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). paceMph comes from the athlete's real recent Strava average speed — the speeds in your data above are already mph, use them directly, never guess. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it. If no home location is set and the athlete hasn't mentioned where they live, ask them and set it with a home_set block first.`;
+  }
+
   return prompt;
 }
 
@@ -205,6 +231,32 @@ export function extractScheduleUpdates(text) {
     .replace(/```schedule_set[\s\S]*?```/gi, '')
     .trim();
   return { clean, updates, planSet };
+}
+
+// Parse a ```route_request ... ``` block out of a coach reply. Mirrors the app's
+// extractRouteRequest(). api/telegram.js executes these via planRoute().
+export function extractRouteRequest(text) {
+  const re = /```route_request\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let routeRequest = null;
+  if (match) {
+    try { routeRequest = JSON.parse(match[1].trim()); } catch { /* skip bad block */ }
+  }
+  const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
+  return { clean, routeRequest };
+}
+
+// Parse a ```home_set ... ``` block. Mirrors the app's extractHomeSet().
+// api/telegram.js applies these to state (geocoding the "place" field when possible).
+export function extractHomeSet(text) {
+  const re = /```home_set\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let homeSet = null;
+  if (match) {
+    try { homeSet = JSON.parse(match[1].trim()); } catch { /* skip bad block */ }
+  }
+  const clean = text.replace(/```home_set[\s\S]*?```/gi, '').trim();
+  return { clean, homeSet };
 }
 
 // Apply parsed blocks to a state object's plan/feedback/adaptations, returning a new

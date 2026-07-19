@@ -472,6 +472,21 @@
   }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* GPX download button inside a route-result bubble */
+  .gpx-btn {
+    display: block;
+    margin-top: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--text-mid);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .gpx-btn:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ── SCHEDULE VIEW ─────────────────────────────────────── */
   .schedule-view {
     flex: 1;
@@ -1319,6 +1334,7 @@
           <div class="chip" onclick="sendChip(this)">I took a rest day — what's next?</div>
           <div class="chip" onclick="sendChip(this)">I skipped today's session</div>
           <div class="chip" onclick="sendChip(this)">What workout today?</div>
+          <div class="chip" onclick="sendChip(this)">Plan a route for today's ride</div>
           <div class="chip" onclick="sendChip(this)">Am I overtraining?</div>
           <div class="chip" onclick="sendChip(this)">How's my recovery trend?</div>
         </div>
@@ -1745,6 +1761,7 @@ function clearChatHistory() {
       <div class="chip" onclick="sendChip(this)">I took a rest day — what's next?</div>
       <div class="chip" onclick="sendChip(this)">I skipped today's session</div>
       <div class="chip" onclick="sendChip(this)">What workout today?</div>
+          <div class="chip" onclick="sendChip(this)">Plan a route for today's ride</div>
       <div class="chip" onclick="sendChip(this)">Am I overtraining?</div>
       <div class="chip" onclick="sendChip(this)">How's my recovery trend?</div>
     </div>
@@ -2764,6 +2781,34 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`
 Rules: start from today (${todayISO2}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
+  // ── YOU CAN PLAN REAL ROUTES ────────────────────────────
+  // Ground truth for route generation: real roads via a self-hosted GraphHopper
+  // instance, not something you invent. When the athlete asks for a ride route
+  // ("plan me a 1hr zone 2 loop, minimal hills", "route to Box Hill and back,
+  // shortest way"), emit a route_request block and the app will call the routing
+  // service and show the athlete the real result — never state a distance or
+  // route yourself, you don't have real map data.
+  const home = getHomeLocation();
+  prompt += `\n\n=== YOU CAN SET THE ATHLETE'S HOME LOCATION ===
+Routes and weather need a home location (lat/lon), stored locally in the app. The ONLY way it currently gets set through the UI is: the Weather panel field on the "My Data" tab, which accepts raw "lat, lon" decimal degrees ONLY — it does NOT accept postcodes or place names, and there's a 📍 button there for browser geolocation. Do not tell the athlete to type a postcode into it; it will silently fail.
+
+Instead, when the athlete tells you where they live/ride from (a postcode, place name, or address) in chat, set it directly with a block — don't send them hunting through settings. Include the place exactly as they said it (the app geocodes it properly server-side) plus your own best-guess coordinates as a fallback:
+\`\`\`home_set
+{"place":"SW13, London","lat":51.4713,"lon":-0.2317,"label":"SW13 (Barnes)"}
+\`\`\`
+Tell the athlete the resolved location in plain text so they can correct you if it's off. If they already have a home location set and ask for a route, just use it — don't ask again.`;
+
+  prompt += `\n\n=== YOU CAN PLAN REAL ROUTES ===
+You have a routing tool backed by real road/elevation data. Do NOT invent a route, distance, or elevation number yourself — emit this block instead and the app fills in real numbers:
+\`\`\`route_request
+{"mode":"loop","durationMin":60,"paceMph":15,"avoidHills":true}
+\`\`\`
+or, for a ride to a specific place and back:
+\`\`\`route_request
+{"mode":"out_and_back","destination":"box hill","avoidHills":false}
+\`\`\`
+Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, take paceMph from the athlete's real recent Strava average speed for rides at the relevant intensity — the speeds in their data above are already mph, use them directly; never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : ' If no home location is set yet and the athlete hasn\'t mentioned where they live, ask them (city, postcode, or landmark) and set it with a home_set block first, in the same reply if you can.'}`;
+
   return prompt;
 }
 
@@ -3279,13 +3324,24 @@ async function sendMessage(text) {
       conversationHistory.pop();
     } else {
       const reply = data.content[0].text;
-      const { clean, updates, planSet } = extractScheduleUpdates(reply);
+      const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
+      const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
+      const { clean, routeRequest } = extractRouteRequest(homeClean);
       appendBubble('coach', clean);
       conversationHistory.push({ role: 'assistant', content: clean });
       if (planSet) {
         applyScheduleSet(planSet);
       } else if (updates.length) {
         applyScheduleUpdates(updates);
+      }
+      // Apply a resolved home location BEFORE acting on a route request in the same
+      // reply, so "I live in SW13, plan me a route" works in one turn (awaited — the
+      // geocoding round-trip has to land before the route uses it).
+      if (homeSet) {
+        await applyHomeSet(homeSet);
+      }
+      if (routeRequest) {
+        await handleRouteRequest(routeRequest);
       }
       saveChat();
     }
@@ -3407,6 +3463,141 @@ function extractScheduleUpdates(text) {
     .replace(/```schedule_set[\s\S]*?```/gi, '')
     .trim();
   return { clean, updates, planSet };
+}
+
+// Parse a single ```route_request ... ``` block out of a coach reply. Mirrors
+// extractScheduleUpdates() above — same fenced-block convention, own tag so it can be
+// stripped/applied independently of the schedule blocks.
+function extractRouteRequest(text) {
+  const re = /```route_request\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let routeRequest = null;
+  if (match) {
+    try { routeRequest = JSON.parse(match[1].trim()); }
+    catch (e) { console.warn('Bad route_request JSON:', e); }
+  }
+  const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
+  return { clean, routeRequest };
+}
+
+// Parse a ```home_set ... ``` block — the coach resolving a place the athlete
+// mentioned in chat to approximate coordinates. Same fenced-block convention.
+function extractHomeSet(text) {
+  const re = /```home_set\s*([\s\S]*?)```/i;
+  const match = re.exec(text);
+  let homeSet = null;
+  if (match) {
+    try { homeSet = JSON.parse(match[1].trim()); }
+    catch (e) { console.warn('Bad home_set JSON:', e); }
+  }
+  const clean = text.replace(/```home_set[\s\S]*?```/gi, '').trim();
+  return { clean, homeSet };
+}
+
+// Apply a coach-resolved home location: geocode the "place" the athlete actually said
+// via the backend (real geocoder, not the LLM's approximate geography), falling back
+// to the coach's own lat/lon guess if geocoding is unavailable or misses. Then write
+// it the same way the Weather panel does (setHomeLocation + mirror into wxLocInput).
+async function applyHomeSet(homeSet) {
+  let lat = parseFloat(homeSet?.lat), lon = parseFloat(homeSet?.lon), label = homeSet?.label;
+  if (homeSet?.place) {
+    try {
+      const res = await coachFetch(`${API.weather}/api/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'geocode', q: homeSet.place }),
+      });
+      const d = await res.json();
+      if (!d.error && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
+        lat = d.lat; lon = d.lon;
+        if (d.name) label = d.name;
+      }
+    } catch (e) { console.warn('home_set geocoding failed, using coach coords:', e); }
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  setHomeLocation(lat, lon);
+  const input = document.getElementById('wxLocInput');
+  if (input) input.value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+  showToast(`📍 Home location set${label ? ` — ${label}` : ''} (edit in the Weather panel if that's off) ✓`);
+}
+
+// Build a minimal GPX 1.1 track file from GraphHopper's [lon,lat,elevation][] points.
+function pointsToGPX(points, name) {
+  const pts = (points || []).map(p => {
+    const [lon, lat, ele] = p;
+    return `<trkpt lat="${lat}" lon="${lon}">${ele != null ? `<ele>${ele}</ele>` : ''}</trkpt>`;
+  }).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="cycling-coach" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>${escapeHtml(name || 'Route')}</name><trkseg>${pts}</trkseg></trk>
+</gpx>`;
+}
+
+function downloadGPX(points, name) {
+  const gpx = pointsToGPX(points, name);
+  const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${(name || 'route').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.gpx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+// Call /api/route for a parsed route_request block, render the real result into the
+// chat with a GPX download button, and record the result in conversationHistory so
+// the coach remembers what it planned on later turns (the bubble alone is display-only
+// — without the history entry the model would re-request or invent numbers next turn).
+// Never lets a routing failure break the conversation — the coach's text reply has
+// already been shown by the time this runs.
+async function handleRouteRequest(routeRequest) {
+  const home = getHomeLocation();
+  if (!home) {
+    appendBubble('coach', "I don't have a home location yet — tell me where you live/ride from and I'll set it, or enter \"lat, lon\" in the Weather panel on the My Data tab (📍 there also grabs your current location).");
+    return;
+  }
+  const typingEl = appendTyping();
+  try {
+    const res = await coachFetch(`${API.weather}/api/route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...routeRequest, lat: home.lat, lon: home.lon }),
+    });
+    const data = await res.json();
+    typingEl.remove();
+    if (data.error) {
+      appendBubble('coach', `⚠️ Couldn't plan that route: ${data.error}`);
+      conversationHistory.push({ role: 'assistant', content: `[Route planning failed: ${data.error}]` });
+      return;
+    }
+    const r = data.mode === 'loop' ? data.best : data;
+    const label = data.mode === 'loop'
+      ? `Loop (target ${data.target_mi ?? mi(data.target_km)} mi, tried ${data.candidates_tried} options)`
+      : `Out and back${data.destination_name ? ` to ${data.destination_name}` : ''}`;
+    const distMi = r.distance_mi ?? mi(r.distance_km);
+    const ascFt = r.ascent_ft ?? (r.ascent_m != null ? Math.round(r.ascent_m * 3.28084) : '?');
+    // GraphHopper's free/basic plan doesn't support the "flexible mode" needed for
+    // hill-avoidance / shortest-distance biasing — the app falls back to a plain
+    // route rather than failing, but the athlete should know it's not what they asked
+    // for (e.g. hills weren't actually avoided).
+    const degradedNote = data.degraded
+      ? '\n⚠️ Your GraphHopper plan doesn\'t support custom routing (hill-avoidance / shortest-distance) — this is the default route instead. Upgrade the plan to enable it.'
+      : '';
+    const row = appendBubble('coach', `📍 **${label}**\n${distMi} mi, ${ascFt} ft ascent, ~${r.duration_min} min riding.${degradedNote}`);
+    conversationHistory.push({ role: 'assistant', content: `[Route planned: ${label} — ${distMi} mi, ${ascFt} ft ascent, ~${r.duration_min} min riding.${data.degraded ? ' Degraded: no hill-avoidance on the current GraphHopper plan.' : ''}]` });
+    if (r.points?.length) {
+      const btn = document.createElement('button');
+      btn.className = 'gpx-btn';
+      btn.textContent = '⬇ Download GPX';
+      const gpxName = `${label} ${new Date().toISOString().slice(0, 10)}`;
+      btn.onclick = () => downloadGPX(r.points, gpxName);
+      row.querySelector('.bubble')?.appendChild(btn);
+    }
+  } catch (err) {
+    typingEl.remove();
+    appendBubble('coach', `⚠️ Route planning failed: ${err.message || err}`);
+    conversationHistory.push({ role: 'assistant', content: `[Route planning failed: ${err.message || err}]` });
+  }
 }
 
 function applyScheduleUpdates(updates) {

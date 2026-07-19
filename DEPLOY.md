@@ -61,6 +61,10 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
 | `TELEGRAM_CHAT_ID` | *(optional)* the **only** Telegram chat id allowed to use the bot (yours) |
+| `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat (web + Telegram). The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
+| `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
+| `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
+| `ROUTE_CACHE_TTL_SECONDS` | *(optional)* how long identical route requests are cached in KV before re-querying GraphHopper, default 86400 (1 day) |
 
 > **WHOOP does not need `WHOOP_REDIRECT_URI`** (the refresh-token grant doesn't use it).
 > The `WHOOP_REFRESH_TOKEN` here is just a one-time seed — see step 4 for why it then
@@ -73,6 +77,18 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 > error (everything else works). Get a free key at **api.windy.com → sign in → API keys
 > → Point Forecast**. The app sends the ride location (set in the Weather panel, or 📍
 > from the device); the key itself never leaves the server.
+>
+> `GRAPHHOPPER_URL` is optional: leave it unset and route-planning requests from chat
+> will just fail with an error, everything else works unaffected. Using GraphHopper's
+> **hosted** Directions API is the simplest path — sign up at graphhopper.com, set
+> `GRAPHHOPPER_URL=https://graphhopper.com/api/1` and `GRAPHHOPPER_API_KEY=<your key>`,
+> no infrastructure of your own to run. Self-hosting the open-source engine is the
+> alternative if you outgrow the hosted plan's credits — it needs to hold the
+> road-network graph in memory, which doesn't fit Vercel's serverless model, so it'd
+> run as its own always-on process (Fly.io/Railway/Render/a VPS) loaded with an
+> OpenStreetMap extract. See `api/route.js` for the request shape either expects, and
+> for the credit-saving measures (fewer round_trip seeds, KV response caching) built
+> in for the metered hosted plan.
 
 ### 4. Add a KV store (required for WHOOP, recommended for Strava)
 The serverless filesystem is read-only, so rotated refresh tokens have to be persisted
