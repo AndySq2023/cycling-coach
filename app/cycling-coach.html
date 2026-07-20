@@ -1695,11 +1695,13 @@ async function pullState() {
   // Record what we're about to adopt as the baseline so our own follow-up saves (which
   // re-stamp updatedAt) don't bounce back as a foreign change on the next poll.
   _lastServerUpdatedAt = s.updatedAt || _lastServerUpdatedAt;
+  let healedPlan = false;
   _suppressPush = true;
   try {
     // Adopt the server plan/feedback if present — Telegram may have changed the schedule.
     if (Array.isArray(s.plan)) {
-      trainingPlan = s.plan;
+      trainingPlan = repairPlanDates(s.plan);
+      healedPlan = trainingPlan !== s.plan;
       if (s.feedback && typeof s.feedback === 'object') sessionFeedback = s.feedback;
       if (s.adaptations && typeof s.adaptations === 'object') adaptationNotes = s.adaptations;
       savePlan();
@@ -1724,6 +1726,8 @@ async function pullState() {
   } finally {
     _suppressPush = false;
   }
+  // A healed plan must flow back so the server (and other devices) stop serving it.
+  if (healedPlan) pushState();
 }
 
 // Wraps fetch for backend calls. On a hosted build it attaches the app password and
@@ -1761,9 +1765,12 @@ async function coachFetch(url, options = {}) {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      trainingPlan = parsed.plan || [];
+      const rawPlan = parsed.plan || [];
+      trainingPlan = repairPlanDates(rawPlan);
       sessionFeedback = parsed.feedback || {};
       adaptationNotes = parsed.adaptations || {};
+      // Persist a healed plan straight away so it also reaches the server.
+      if (trainingPlan !== rawPlan) savePlan();
       if (trainingPlan.length) {
         document.getElementById('generateBtn').textContent = '↺ Regenerate';
         document.getElementById('adaptBtn').style.display = '';
@@ -4036,6 +4043,20 @@ function normalizePlanDates(plan) {
     return { ...s, date: isoPlanDate(d), day: weekdayName(d) };
   });
 }
+// Heal a plan that already carries wrong-year dates (written by an older code path
+// that predates the write-time guard). >60 days off is never a real training week —
+// plans roll weekly — only model-calendar corruption, so a stale-but-real past week
+// is left untouched. Returns the same array reference when nothing needed fixing,
+// and never touches ids, so logged session feedback survives the repair.
+function repairPlanDates(plan) {
+  if (!Array.isArray(plan) || !plan.length) return plan;
+  const bad = plan.some(s => {
+    const d = parsePlanDate(s.date);
+    return !d || Math.abs(Math.round((d - Date.now()) / 86400000)) > 60;
+  });
+  return bad ? normalizePlanDates(plan) : plan;
+}
+
 // "Mon 2026-07-20, Tue 2026-07-21, …" — injected into every coach prompt so the
 // model copies real dates instead of computing them.
 function calendarTable(days) {

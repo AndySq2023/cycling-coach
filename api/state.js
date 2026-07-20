@@ -10,6 +10,7 @@
 // PUT is a silent no-op.
 import { requireUser } from './_auth.js';
 import { getState, setState } from './_state.js';
+import { repairPlanDates } from './_prompt.js';
 
 export default async function handler(req, res) {
   const user = await requireUser(req, res);
@@ -25,7 +26,9 @@ export default async function handler(req, res) {
     if (req.method === 'PUT' || req.method === 'POST') {
       const b = req.body || {};
       const saved = await setState(user.id, {
-        plan: Array.isArray(b.plan) ? b.plan : [],
+        // repairPlanDates: an old app bundle can still push a wrong-year plan —
+        // heal it at the door so every device pulls corrected dates.
+        plan: repairPlanDates(Array.isArray(b.plan) ? b.plan : []),
         feedback: b.feedback && typeof b.feedback === 'object' ? b.feedback : {},
         adaptations: b.adaptations && typeof b.adaptations === 'object' ? b.adaptations : {},
         goal: b.goal || null,

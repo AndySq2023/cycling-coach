@@ -46,6 +46,19 @@ function normalizePlanDates(plan) {
     return { ...s, date: isoPlanDate(d), day: weekdayName(d) };
   });
 }
+// Heal a plan that already carries wrong-year dates (written by an older code path
+// that predates the write-time guard). >60 days off is never a real training week —
+// plans roll weekly — only model-calendar corruption, so a stale-but-real past week
+// is left untouched. Returns the same array reference when nothing needed fixing.
+export function repairPlanDates(plan) {
+  if (!Array.isArray(plan) || !plan.length) return plan;
+  const bad = plan.some(s => {
+    const d = parsePlanDate(s.date);
+    return !d || Math.abs(Math.round((d - Date.now()) / 86400000)) > 60;
+  });
+  return bad ? normalizePlanDates(plan) : plan;
+}
+
 // A schedule_update patch may carry a date too — same distrust, per-field: keep a
 // plausible date (and re-derive its day name), silently drop a bad one.
 function sanitizePatchDate(patch) {
