@@ -218,6 +218,9 @@
     color: var(--band-easy);
   }
   .load-btn.blue:hover { background: rgba(74,158,255,0.25); opacity: 1; }
+  /* Icon-sized variant for buttons that sit beside a full-width one in a flex row —
+     without this the inherited width:100% becomes the flex-basis and overflows the column. */
+  .load-btn.icon { width: auto; flex: 0 0 auto; padding: 8px 12px; }
 
   /* TAB BAR */
   .tab-bar {
@@ -486,6 +489,63 @@
     transition: all 0.15s;
   }
   .gpx-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── ROUTES VIEW ───────────────────────────────────────── */
+  .routes-view {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .routes-view.hidden { display: none; }
+  .routes-view::-webkit-scrollbar { width: 4px; }
+  .routes-view::-webkit-scrollbar-track { background: transparent; }
+  .routes-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  #routeMap {
+    height: 320px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    display: none;
+    /* Leaflet sets its own z-indexes up to ~700 — keep the whole map below the app's modals */
+    position: relative;
+    z-index: 0;
+  }
+  #routesList { display: flex; flex-direction: column; gap: 8px; }
+  .route-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .route-card:hover { border-color: var(--text-muted); }
+  .route-card.selected { border-color: var(--accent); }
+  .route-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .route-name {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .route-date { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .route-stats { font-size: 11px; color: var(--text-mid); margin-top: 6px; }
+  .route-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+  .route-actions .gpx-btn { display: inline-block; margin-top: 0; }
+  .routes-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 40px 12px;
+    text-align: center;
+  }
 
   /* ── SCHEDULE VIEW ─────────────────────────────────────── */
   .schedule-view {
@@ -1275,7 +1335,7 @@
           placeholder="lat, lon  e.g. 51.45, -2.59" />
         <div style="display:flex;gap:8px;">
           <button class="load-btn" id="weatherSyncBtn" style="flex:1;" onclick="syncWeather()">⚡ Sync weather</button>
-          <button class="load-btn" style="flex:0 0 auto;" onclick="useMyLocation()" title="Use this device's location">📍</button>
+          <button class="load-btn icon" onclick="useMyLocation()" title="Use this device's location">📍</button>
         </div>
       </div>
 
@@ -1299,6 +1359,7 @@
       <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">📊 Dashboard</button>
       <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
+      <button class="tab-btn" id="tab-routes" onclick="switchTab('routes')">🗺 Routes</button>
       <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
       <button class="tab-btn" id="tab-team" onclick="switchTab('team')" style="display:none">👥 Team</button>
       <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;" title="Clear chat history">✕ Clear</button>
@@ -1382,6 +1443,18 @@
           <p>Select a focus area above to generate a resistance band workout tailored to your cycling goals.</p>
         </div>
       </div>
+    </div>
+
+    <!-- ROUTES VIEW -->
+    <div class="routes-view hidden" id="routesView">
+      <div class="schedule-header">
+        <div class="schedule-header-left">
+          <h2>Planned Routes</h2>
+          <p>Every route the coach plans is saved here — tap one to see it on the map, grab the GPX to ride it again.</p>
+        </div>
+      </div>
+      <div id="routeMap"></div>
+      <div id="routesList"></div>
     </div>
 
     <!-- TEAM VIEW (master user only) -->
@@ -1470,6 +1543,15 @@ let adaptationNotes = {};    // sessionId → adaptation string
 
 let currentBandCategory = null;
 let currentBandWorkout = null;
+
+// Planned-route history, newest first. Per-device only (localStorage, not coach_state) —
+// track points would bloat every KV state sync, so Telegram-planned routes don't appear here.
+// The consts live here (not with the Routes-tab functions) because the init IIFE calls
+// loadRoutes() before the interpreter reaches that section — a later const would still be
+// in its temporal dead zone and the lookup would throw.
+let savedRoutes = [];
+const ROUTES_KEY = 'cyclingCoachRoutes';
+const ROUTES_MAX = 30;
 
 let feedbackTargetId = null; // which session we're logging
 
@@ -1566,6 +1648,9 @@ function renderChatFromHistory() {
   divider.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   msgs.appendChild(divider);
   conversationHistory.forEach(t => restoreBubble(t.role === 'assistant' ? 'coach' : 'user', t.content, ''));
+  // A background pull can re-render while the chat is open (e.g. new Telegram messages) —
+  // land on the newest message instead of stranding the reader mid-history.
+  scrollChatToLatest();
 }
 
 async function pullState() {
@@ -1673,6 +1758,9 @@ async function coachFetch(url, options = {}) {
     document.getElementById('goalInput').value = savedGoal;
     athleteData.goal = savedGoal;
   }
+
+  // Restore saved route history (Routes tab)
+  loadRoutes();
 
   // Restore chat history
   const savedChat = localStorage.getItem('cyclingCoachChat');
@@ -1801,7 +1889,7 @@ function togglePanel() {
 // ── TAB SWITCHING ──────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
-  ['today','charts','chat','schedule','bands','team'].forEach(t => {
+  ['today','charts','chat','schedule','routes','bands','team'].forEach(t => {
     const b = document.getElementById(`tab-${t}`);
     if (b) b.classList.toggle('active', t === tab);
   });
@@ -1809,13 +1897,16 @@ function switchTab(tab) {
   document.getElementById('chartsView').classList.toggle('hidden', tab !== 'charts');
   document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
   document.getElementById('scheduleView').classList.toggle('hidden', tab !== 'schedule');
+  document.getElementById('routesView').classList.toggle('hidden', tab !== 'routes');
   document.getElementById('bandsView').classList.toggle('hidden', tab !== 'bands');
   document.getElementById('teamView').classList.toggle('hidden', tab !== 'team');
   document.getElementById('chatInputBar').style.display = tab === 'chat' ? '' : 'none';
 
   if (tab === 'today') renderDashboard();
   if (tab === 'charts') renderCharts();
+  if (tab === 'chat') scrollChatToLatest();
   if (tab === 'schedule' && trainingPlan.length) renderSchedule();
+  if (tab === 'routes') renderRoutes();
   if (tab === 'team') renderTeam();
 }
 
@@ -3544,6 +3635,148 @@ function downloadGPX(points, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+// ── ROUTE HISTORY (Routes tab) ────────────────────────────
+// Successful route_requests are kept so the athlete can re-ride one later: list +
+// Leaflet map + GPX re-download. Capped and coordinate-rounded to stay well inside
+// the localStorage budget (a raw GraphHopper track is ~50-100KB otherwise).
+let _selectedRouteId = null;
+
+function loadRoutes() {
+  try { savedRoutes = JSON.parse(localStorage.getItem(ROUTES_KEY)) || []; }
+  catch (e) { savedRoutes = []; }
+}
+
+function persistRoutes() {
+  try { localStorage.setItem(ROUTES_KEY, JSON.stringify(savedRoutes)); }
+  catch (e) { console.warn('Could not persist routes:', e); }
+}
+
+function saveRoute(route) {
+  // 5dp ≈ 1m precision — plenty for a road route, a third of the storage.
+  const points = (route.points || []).map(p => [
+    Math.round(p[0] * 1e5) / 1e5,
+    Math.round(p[1] * 1e5) / 1e5,
+    p[2] != null ? Math.round(p[2]) : null,
+  ]);
+  savedRoutes.unshift({ ...route, points, id: 'r' + Date.now(), date: new Date().toISOString() });
+  savedRoutes = savedRoutes.slice(0, ROUTES_MAX);
+  persistRoutes();
+}
+
+function renderRoutes() {
+  const list = document.getElementById('routesList');
+  if (!savedRoutes.length) {
+    document.getElementById('routeMap').style.display = 'none';
+    list.innerHTML = `<div class="routes-empty">No routes saved yet — ask the coach for one in the chat<br>(e.g. "plan me a 90-minute loop") and it'll appear here.</div>`;
+    return;
+  }
+  list.innerHTML = savedRoutes.map(rt => `
+    <div class="route-card" data-id="${rt.id}" onclick="selectRoute('${rt.id}')">
+      <div class="route-card-top">
+        <div>
+          <div class="route-name">${escapeHtml(rt.label)}</div>
+          <div class="route-date">${new Date(rt.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</div>
+        </div>
+        <div class="route-actions">
+          <button class="gpx-btn" onclick="event.stopPropagation(); downloadSavedRoute('${rt.id}')">⬇ GPX</button>
+          <button class="gpx-btn" onclick="event.stopPropagation(); deleteRoute('${rt.id}')" title="Remove from history">🗑</button>
+        </div>
+      </div>
+      <div class="route-stats">${rt.distance_mi} mi · ${rt.ascent_ft} ft ascent · ~${rt.duration_min} min riding</div>
+    </div>`).join('');
+  // Show the previously viewed route if it still exists, else the newest.
+  selectRoute(savedRoutes.some(rt => rt.id === _selectedRouteId) ? _selectedRouteId : savedRoutes[0].id);
+}
+
+function downloadSavedRoute(id) {
+  const rt = savedRoutes.find(x => x.id === id);
+  if (rt?.points?.length) downloadGPX(rt.points, `${rt.label} ${rt.date.slice(0, 10)}`);
+}
+
+function deleteRoute(id) {
+  if (!confirm('Remove this route from your history?')) return;
+  savedRoutes = savedRoutes.filter(x => x.id !== id);
+  if (_selectedRouteId === id) _selectedRouteId = null;
+  persistRoutes();
+  renderRoutes();
+}
+
+// Leaflet is the app's only third-party dependency, so it's fetched from the CDN
+// the first time the map is actually shown rather than on every page load.
+let _leafletLoading = null;
+function ensureLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (!_leafletLoading) {
+    _leafletLoading = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(css);
+      const s = document.createElement('script');
+      s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      s.onload = resolve;
+      s.onerror = () => { _leafletLoading = null; reject(new Error('Leaflet failed to load')); };
+      document.head.appendChild(s);
+    });
+  }
+  return _leafletLoading;
+}
+
+let _routeMap = null;
+let _routeTrack = null;
+let _routeFitObserver = null;
+
+async function selectRoute(id) {
+  _selectedRouteId = id;
+  document.querySelectorAll('.route-card').forEach(c =>
+    c.classList.toggle('selected', c.dataset.id === id));
+  const rt = savedRoutes.find(x => x.id === id);
+  if (!rt?.points?.length) return;
+  const mapEl = document.getElementById('routeMap');
+  mapEl.style.display = 'block';
+  try { await ensureLeaflet(); }
+  catch (e) {
+    mapEl.style.display = 'none';
+    showToast('Map unavailable (offline?) — GPX download still works', true);
+    return;
+  }
+  if (!_routeMap) {
+    _routeMap = L.map('routeMap');
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(_routeMap);
+  }
+  if (_routeTrack) _routeTrack.remove();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#FF5A1F';
+  const latlngs = rt.points.map(p => [p[1], p[0]]); // stored as GraphHopper [lon,lat,ele]
+  const line = L.polyline(latlngs, { color: accent, weight: 4 });
+  _routeTrack = L.layerGroup([
+    line,
+    L.circleMarker(latlngs[0], { radius: 6, color: '#fff', weight: 2, fillColor: accent, fillOpacity: 1 }),
+  ]).addTo(_routeMap);
+  // Fitting against an unmeasured container (display:none tab, backgrounded window —
+  // layout can settle frames later) computes a wildly wrong zoom. Fit immediately if the
+  // div has real dimensions, otherwise the moment it first gets them.
+  const bounds = line.getBounds();
+  const fitNow = () => {
+    _routeMap.invalidateSize();
+    _routeMap.fitBounds(bounds, { padding: [24, 24] });
+  };
+  if (_routeFitObserver) { _routeFitObserver.disconnect(); _routeFitObserver = null; }
+  if (mapEl.clientWidth > 50 && mapEl.clientHeight > 50) {
+    fitNow();
+  } else {
+    _routeFitObserver = new ResizeObserver(() => {
+      if (mapEl.clientWidth > 50 && mapEl.clientHeight > 50) {
+        _routeFitObserver.disconnect();
+        _routeFitObserver = null;
+        fitNow();
+      }
+    });
+    _routeFitObserver.observe(mapEl);
+  }
+}
+
 // Call /api/route for a parsed route_request block, render the real result into the
 // chat with a GPX download button, and record the result in conversationHistory so
 // the coach remembers what it planned on later turns (the bubble alone is display-only
@@ -3599,6 +3832,13 @@ async function handleRouteRequest(routeRequest) {
       const gpxName = `${label} ${new Date().toISOString().slice(0, 10)}`;
       btn.onclick = () => downloadGPX(r.points, gpxName);
       row.querySelector('.bubble')?.appendChild(btn);
+      // Keep it for the Routes tab — the chat bubble's button doesn't survive a reload.
+      saveRoute({ label, distance_mi: distMi, ascent_ft: ascFt, duration_min: r.duration_min, points: r.points });
+      if (currentTab === 'routes') renderRoutes();
+      // Flash the Routes tab — same attention cue the schedule tab uses.
+      const routesTab = document.getElementById('tab-routes');
+      routesTab.style.background = 'rgba(255,90,31,0.25)';
+      setTimeout(() => { routesTab.style.background = ''; }, 1500);
     }
   } catch (err) {
     typingEl.remove();
@@ -3930,6 +4170,15 @@ function escapeHtml(t) {
 function scrollToBottom() {
   const m = document.getElementById('messages');
   m.scrollTop = m.scrollHeight;
+}
+
+// Jump straight to the newest message. Needed when the chat becomes visible: while the
+// container was display:none its scrollHeight was 0, so every scrollToBottom() during
+// restore was a no-op. rAF waits for layout after unhiding, and behavior:'instant'
+// bypasses the container's scroll-behavior:smooth so the whole history doesn't animate past.
+function scrollChatToLatest() {
+  const m = document.getElementById('messages');
+  requestAnimationFrame(() => m.scrollTo({ top: m.scrollHeight, behavior: 'instant' }));
 }
 
 // ── INPUT HELPERS ──────────────────────────────────────────
