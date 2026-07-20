@@ -230,7 +230,14 @@
     border-bottom: 1px solid var(--border);
     background: var(--surface);
     flex-shrink: 0;
+    /* The row is wider than a phone viewport — scroll it instead of clipping the
+       right-hand tabs (Routes / Resistance / Team) off screen. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-bar > .tab-btn { flex: 0 0 auto; }
   .tab-btn {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 11px;
@@ -1203,9 +1210,12 @@
       height: 100dvh;
       z-index: 50;
       box-shadow: 2px 0 16px rgba(0,0,0,0.25);
-      transform: translateX(-100%);
+      /* Open is the un-suffixed state, same as desktop — `.collapsed` hides.
+         Animate transform here, not width, since width stays fixed. */
+      transform: translateX(0);
+      transition: transform 0.25s ease;
     }
-    .data-panel.collapsed { width: 85vw; max-width: 320px; transform: translateX(0); }
+    .data-panel.collapsed { width: 85vw; max-width: 320px; transform: translateX(-100%); }
     .data-panel-backdrop {
       display: none;
       position: fixed;
@@ -1214,6 +1224,9 @@
       z-index: 49;
     }
     .data-panel-backdrop.show { display: block; }
+    /* Tighter tabs so most of them fit before the bar needs scrolling. */
+    .tab-bar { padding: 8px 10px; gap: 2px; }
+    .tab-btn { padding: 6px 10px; letter-spacing: 0.02em; }
   }
 </style>
 </head>
@@ -1739,6 +1752,10 @@ async function coachFetch(url, options = {}) {
   }
   if (TEAM_DEMO) applyUserRole(); // unhide the Team tab for the canned-data preview
 
+  // On phones the panel is an overlay drawer — start it closed so it isn't
+  // covering the chat on load. Desktop keeps it docked open.
+  if (window.matchMedia('(max-width: 600px)').matches) togglePanel();
+
   buildRpeScale();
   const saved = localStorage.getItem('cyclingCoachPlan');
   if (saved) {
@@ -1886,7 +1903,8 @@ function restoreBubble(role, text, time) {
 function togglePanel() {
   panelOpen = !panelOpen;
   const collapsed = document.getElementById('dataPanel').classList.toggle('collapsed', !panelOpen);
-  document.getElementById('dataPanelBackdrop').classList.toggle('show', collapsed);
+  // Backdrop belongs to the open drawer (mobile only — it's display:none elsewhere).
+  document.getElementById('dataPanelBackdrop').classList.toggle('show', !collapsed);
 }
 
 // ── TAB SWITCHING ──────────────────────────────────────────
