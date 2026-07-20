@@ -16,7 +16,7 @@
 //   ANTHROPIC_API_KEY, plus the WHOOP/STRAVA/WINDY creds the data functions need.
 import { getState, setState, appendTurns } from './_state.js';
 import { kvGet, kvSet } from './_kv.js';
-import { buildSystemPrompt, extractScheduleUpdates, extractRouteRequest, extractHomeSet, applyScheduleBlocks, stripFakeRouteMarkers } from './_prompt.js';
+import { buildSystemPrompt, extractScheduleUpdates, extractRouteRequest, extractHomeSet, applyScheduleBlocks, stripFakeRouteMarkers, autoLogStravaRides } from './_prompt.js';
 import { planRouteCached, geocodePlace } from './route.js';
 import { getStravaSummary } from './strava.js';
 import { getWhoopSummary } from './whoop.js';
@@ -190,7 +190,7 @@ export default async function handler(req, res) {
     // The Telegram bot is master-only (locked to TELEGRAM_CHAT_ID), so it always
     // reads/writes the master's state blob. Per-member Telegram would map chat ids
     // to roster user ids here.
-    const state = await getState('master');
+    let state = await getState('master');
 
     if (cmd === '/plan' || cmd === '/schedule') {
       await tgSend(chatId, renderPlanText(state.plan, state.feedback));
@@ -207,6 +207,15 @@ export default async function handler(req, res) {
     await tgTyping(chatId);
 
     const ctx = await gatherContext(state);
+
+    // Completed rides fill in the schedule's actuals themselves, BEFORE the prompt is
+    // built — otherwise the coach would discuss today's ride as still-unlogged and could
+    // ask the athlete for numbers Strava already has. The updated state flows through
+    // applyScheduleBlocks into finalState, so appendTurns() persists it.
+    const autoLog = autoLogStravaRides(state, ctx.strava);
+    state = autoLog.state;
+    if (autoLog.logged) console.log(`telegram: auto-logged ${autoLog.logged} session(s) from Strava`);
+
     const system = buildSystemPrompt({
       whoop: ctx.whoop, strava: ctx.strava, weather: ctx.weather,
       goal: state.goal, plan: state.plan, feedback: state.feedback,

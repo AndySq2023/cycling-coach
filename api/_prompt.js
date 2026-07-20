@@ -65,6 +65,94 @@ function calendarTable(days) {
   }).join(', ');
 }
 
+// ── STRAVA AUTO-LOGGING ────────────────────────────────────
+// Server-side mirror of autoLogRidesFromStrava()/aggregateRidesByDate() in
+// app/cycling-coach.html — KEEP IN SYNC. Same rules, but pure over a state blob
+// instead of mutating the app's globals, so the Telegram bot and the morning
+// briefing log rides too rather than waiting for the web app to sync.
+
+const KM_TO_MI = 0.621371;
+
+// Roll a day's Strava rides into one set of actuals. Several rides on one day are
+// one day's work: sum the volume, take the hardest max HR, and weight avg HR by
+// duration so a 10min spin doesn't drag down a 2h ride.
+export function aggregateRidesByDate(rides) {
+  const byDate = {};
+  (rides || []).forEach(r => {
+    if (!r || !r.date) return;
+    const d = byDate[r.date] || (byDate[r.date] = {
+      date: r.date, mins: 0, km: 0, hrSum: 0, hrMins: 0, max_hr: 0, count: 0
+    });
+    const mins = r.moving_time_min || 0;
+    d.mins += mins;
+    d.km += r.distance_km || 0;
+    if (r.avg_hr && mins) { d.hrSum += r.avg_hr * mins; d.hrMins += mins; }
+    if (r.max_hr) d.max_hr = Math.max(d.max_hr, r.max_hr);
+    d.count++;
+  });
+  return byDate;
+}
+
+// Write Strava numbers into the matching session's "actual" fields.
+//
+// Manual entries win. A previous auto-log (source:'strava') is refreshed wholesale
+// on every run; a hand-typed actual only has its BLANK numeric fields filled and
+// keeps manual status — the app's saveEditModal() rebuilds the object without
+// `source`, so the moment the athlete edits a session we stop rewriting it.
+//
+// RPE, feel and notes are never touched: Strava can't say how the ride felt, and
+// the app's adaptPlan() keys off exactly those.
+export function autoLogStravaRides(state, strava) {
+  const plan = Array.isArray(state?.plan) ? state.plan : [];
+  const rides = strava?.all_rides;
+  if (!plan.length || !Array.isArray(rides) || !rides.length) {
+    return { state, logged: 0, unplanned: [] };
+  }
+
+  const feedback = { ...(state.feedback || {}) };
+  const planDates = plan.map(s => s.date).filter(Boolean).sort();
+  const first = planDates[0], last = planDates[planDates.length - 1];
+  const byDate = aggregateRidesByDate(rides);
+  let logged = 0;
+  const unplanned = [];
+
+  Object.keys(byDate).forEach(date => {
+    const d = byDate[date];
+    const s = plan.find(x => x.date === date && x.intensity !== 'rest');
+
+    if (!s) {
+      // A ride on a rest day, or outside the plan entirely. Surface it rather than
+      // silently inventing a session — the athlete decides what it was.
+      if (date >= first && date <= last) unplanned.push(d);
+      return;
+    }
+
+    const existing = feedback[s.id]?.actual;
+    const auto = !existing || existing.source === 'strava';
+    const take = (field, value) => (auto || !existing[field]) ? value : existing[field];
+
+    const actual = {
+      duration:    take('duration', Math.round(d.mins)) || 0,
+      distance_mi: take('distance_mi', Math.round(d.km * KM_TO_MI * 10) / 10) || 0,
+      avg_hr:      take('avg_hr', d.hrMins ? Math.round(d.hrSum / d.hrMins) : 0) || 0,
+      max_hr:      take('max_hr', d.max_hr) || 0,
+      notes:       existing?.notes || ''
+    };
+    if (auto) actual.source = 'strava';
+
+    if (existing && JSON.stringify(existing) === JSON.stringify(actual)) return;
+
+    feedback[s.id] = {
+      ...(feedback[s.id] || {}),
+      actual,
+      timestamp: feedback[s.id]?.timestamp || Date.now()
+    };
+    logged++;
+  });
+
+  return { state: logged ? { ...state, feedback } : state, logged, unplanned };
+}
+
 // Build the coach system prompt. `data` mirrors the app's athleteData + plan/feedback:
 //   { whoop, strava, weather, goal, plan, feedback }
 // Any field may be null/empty — the prompt degrades exactly like the app's does.

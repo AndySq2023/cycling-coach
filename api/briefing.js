@@ -18,7 +18,7 @@
 // spends API credits and messages you, so it must not be publicly triggerable.
 // Manual test: curl -H "Authorization: Bearer <CRON_SECRET>" https://<app>/api/briefing
 import { kvGet, kvSet } from './_kv.js';
-import { buildSystemPrompt, extractScheduleUpdates, applyScheduleBlocks } from './_prompt.js';
+import { buildSystemPrompt, extractScheduleUpdates, applyScheduleBlocks, autoLogStravaRides } from './_prompt.js';
 import { tgSend, gatherContext, callClaude } from './_coach.js';
 
 const STATE_KEY = 'coach_state'; // the master athlete's blob — same key _state.js uses
@@ -52,14 +52,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const state = (await kvGet(STATE_KEY)) || {};
+    let state = (await kvGet(STATE_KEY)) || {};
     const ctx = await gatherContext(state);
+
+    // Log completed rides before the prompt is built. The briefing runs in the
+    // morning, so this is usually yesterday's ride landing in the schedule just in
+    // time for the coach to talk about it. applied.state carries it into the kvSet.
+    const autoLog = autoLogStravaRides(state, ctx.strava);
+    state = autoLog.state;
+
     // Which sources made it into the prompt — shows up in Vercel logs, so a bad
     // briefing can be traced to the data that was (or wasn't) behind it.
     const sources = {
       whoop: !!ctx.whoop, strava: !!ctx.strava, weather: !!ctx.weather,
       planSessions: Array.isArray(state.plan) ? state.plan.length : 0,
       historyTurns: Array.isArray(state.conversationHistory) ? state.conversationHistory.length : 0,
+      autoLogged: autoLog.logged,
     };
     console.log('briefing sources:', JSON.stringify(sources));
     const system = buildSystemPrompt({
