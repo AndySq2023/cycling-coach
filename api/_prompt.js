@@ -9,6 +9,62 @@ const mi   = km  => km  == null ? null : Math.round(km  * 0.621371 * 10) / 10; /
 const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);           // kph → mph
 const degF = c   => c   == null ? null : Math.round(c * 9 / 5 + 32);           // °C → °F
 
+// ── MODEL-WRITTEN DATES ARE NEVER TRUSTED (mirror of the app's helpers) ─────────
+// The coach LLM's day-of-week arithmetic is anchored to its training-era calendar —
+// it once wrote an entire week dated 2025 while the ground-truth prompt said 2026.
+// Every date arriving in a schedule block passes through here: implausible dates are
+// re-derived from the day name, and the day name is always recomputed from the final
+// date so the pair can never disagree.
+function parsePlanDate(ds) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ds || '')) return null;
+  const d = new Date(ds + 'T12:00:00');
+  return isNaN(d) ? null : d;
+}
+function isoPlanDate(d) { return d.toISOString().slice(0, 10); }
+function weekdayName(d) { return d.toLocaleDateString('en-GB', { weekday: 'long' }); }
+// Yesterday..today+13: wide enough to log yesterday's ride or lay out two weeks,
+// narrow enough to reject a wrong-year date outright.
+function plausiblePlanDate(d) {
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  const diff = Math.round((d - noon) / 86400000);
+  return diff >= -1 && diff <= 13;
+}
+function normalizePlanDates(plan) {
+  const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  let prev = null;
+  return plan.map(s => {
+    let d = parsePlanDate(s.date);
+    if (!d || !plausiblePlanDate(d)) {
+      // Re-derive from the day name: the next occurrence of that weekday after the
+      // previous session (or from yesterday for the first session).
+      const target = WEEKDAYS.indexOf(String(s.day || '').trim());
+      d = prev ? new Date(prev.getTime() + 86400000) : new Date(noon.getTime() - 86400000);
+      if (target >= 0) while (d.getDay() !== target) d = new Date(d.getTime() + 86400000);
+    }
+    prev = d;
+    return { ...s, date: isoPlanDate(d), day: weekdayName(d) };
+  });
+}
+// A schedule_update patch may carry a date too — same distrust, per-field: keep a
+// plausible date (and re-derive its day name), silently drop a bad one.
+function sanitizePatchDate(patch) {
+  if (!('date' in patch) && !('day' in patch)) return patch;
+  const p = { ...patch };
+  const d = parsePlanDate(p.date);
+  if (d && plausiblePlanDate(d)) { p.date = isoPlanDate(d); p.day = weekdayName(d); }
+  else { delete p.date; delete p.day; }
+  return p;
+}
+// "Mon 2026-07-20, Tue 2026-07-21, …" — injected into every coach prompt so the
+// model copies real dates instead of computing them.
+function calendarTable(days) {
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + i);
+    return `${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${isoPlanDate(d)}`;
+  }).join(', ');
+}
+
 // Build the coach system prompt. `data` mirrors the app's athleteData + plan/feedback:
 //   { whoop, strava, weather, goal, plan, feedback }
 // Any field may be null/empty — the prompt degrades exactly like the app's does.
@@ -103,6 +159,7 @@ You are talking to the athlete over Telegram, so keep replies tight and skimmabl
   const todayLong = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   prompt += `\n\n=== GROUND TRUTH (authoritative — trust this over anything earlier in the conversation) ===`;
   prompt += `\nToday is ${todayLong} (${todayISO}).`;
+  prompt += `\nCALENDAR for the next 14 days — copy dates from this list whenever you mention or schedule a day; NEVER compute day-of-week yourself (your internal calendar is a year out of date): ${calendarTable(14)}.`;
   if (strava) {
     const ridesToday = (strava.all_rides || []).filter(r => r.date === todayISO);
     if (ridesToday.length) {
@@ -174,7 +231,7 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`schedule_set
 [{"id":"s1","day":"Monday","date":"YYYY-MM-DD","type":"Zone 2 Endurance","duration":90,"intensity":"low","description":"One concise sentence.","targets":"e.g. HR 130-145bpm","tips":["short tip"],"bands":false}]
 \`\`\`
-Rules: start from today (${todayISO}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
+Rules: start from today (${todayISO}); every date MUST be copied from the CALENDAR list in the ground-truth section — never calculate a date or a day name yourself, and make each "day" match the calendar entry for its date; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
   // ── HOME LOCATION + ROUTE PLANNING (mirrors app/cycling-coach.html) ──────
   // Only included when the caller can actually execute the blocks: the app and
@@ -271,7 +328,8 @@ export function applyScheduleBlocks(state, { updates, planSet }) {
   if (planSet) {
     // Full (re)build — normalise exactly like applyScheduleSet, and (because ids may be
     // reassigned) clear prior feedback/notes, mirroring the app.
-    plan = planSet.map((s, i) => ({
+    // Never trust the model's calendar — validate dates before anything else.
+    plan = normalizePlanDates(planSet).map((s, i) => ({
       id: String(s.id || `s${i + 1}`),
       day: s.day || '',
       date: s.date || '',
@@ -290,7 +348,7 @@ export function applyScheduleBlocks(state, { updates, planSet }) {
     updates.forEach(patch => {
       const idx = plan.findIndex(s => String(s.id) === String(patch.id));
       if (idx === -1) return;
-      Object.assign(plan[idx], patch);
+      Object.assign(plan[idx], sanitizePatchDate(patch));
       changed = true;
     });
   }
