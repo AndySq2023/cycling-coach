@@ -16,7 +16,7 @@
 //   ANTHROPIC_API_KEY, plus the WHOOP/STRAVA/WINDY creds the data functions need.
 import { getState, setState, appendTurns } from './_state.js';
 import { kvGet, kvSet } from './_kv.js';
-import { buildSystemPrompt, extractScheduleUpdates, extractRouteRequest, extractHomeSet, applyScheduleBlocks } from './_prompt.js';
+import { buildSystemPrompt, extractScheduleUpdates, extractRouteRequest, extractHomeSet, applyScheduleBlocks, stripFakeRouteMarkers } from './_prompt.js';
 import { planRouteCached, geocodePlace } from './route.js';
 import { getStravaSummary } from './strava.js';
 import { getWhoopSummary } from './whoop.js';
@@ -217,7 +217,8 @@ export default async function handler(req, res) {
     const reply = await callClaude(system, messages);
     const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
     const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
-    const { clean, routeRequest } = extractRouteRequest(homeClean);
+    const { clean: routeClean, routeRequest } = extractRouteRequest(homeClean);
+    const { clean, faked } = stripFakeRouteMarkers(routeClean);
 
     // Apply any schedule writes to the shared state.
     const applied = applyScheduleBlocks(state, { updates, planSet });
@@ -250,13 +251,25 @@ export default async function handler(req, res) {
     // asked; home is read from finalState so a home_set in the same reply counts.
     if (routeRequest) {
       outText += (outText ? '\n\n' : '') + await runRouteRequest(routeRequest, finalState);
+    } else if (faked) {
+      outText += (outText ? '\n\n' : '') + '⚠️ I described a route without actually running the planner — those numbers aren\'t real. Ask again and I\'ll plan it properly.';
     }
 
     if (!outText) outText = 'Done.';
 
     // Append this exchange to the shared history so it shows up in the web app on sync
-    // (route results included — the coach keeps its memory of what it planned).
-    await appendTurns('master', finalState, text, outText);
+    // (route results included — the coach keeps its memory of what it planned). The
+    // stored turn keeps the route_request block (the app strips it at display time) so
+    // replayed history shows the model how routes get triggered — without it the model
+    // imitates the visible result text and fakes routes; a faked claim is recorded as
+    // a failure so the model doesn't re-learn the fake from its own history.
+    let storedText = outText;
+    if (routeRequest) {
+      storedText += '\n```route_request\n' + JSON.stringify(routeRequest) + '\n```';
+    } else if (faked) {
+      storedText += '\n\n[Route planning failed: I wrote a result marker without emitting a route_request block — I must emit the fenced block to actually plan a route.]';
+    }
+    await appendTurns('master', finalState, text, storedText);
 
     await tgSend(chatId, outText);
 

@@ -256,7 +256,7 @@ or, for a ride to a specific place and back:
 \`\`\`route_request
 {"mode":"out_and_back","destination":"box hill","avoidHills":false}
 \`\`\`
-Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). paceMph comes from the athlete's real recent Strava average speed — the speeds in your data above are already mph, use them directly, never guess. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it. If no home location is set and the athlete hasn't mentioned where they live, ask them and set it with a home_set block first.`;
+Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. NEVER write a "[Route planned: ...]" line or state route numbers yourself — the routing tool runs and reports the real result only AFTER your route_request block is found; a claimed result without the block means no route exists and the athlete gets no GPX. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). paceMph comes from the athlete's real recent Strava average speed — the speeds in your data above are already mph, use them directly, never guess. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it. If no home location is set and the athlete hasn't mentioned where they live, ask them and set it with a home_set block first.`;
   }
 
   return prompt;
@@ -301,6 +301,18 @@ export function extractRouteRequest(text) {
   }
   const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
   return { clean, routeRequest };
+}
+
+// Mirrors the app's stripFakeRouteMarkers(). The model sometimes imitates the
+// "[Route planned: ...]" result markers it sees in replayed history instead of
+// emitting a route_request block. Strip route-result-shaped markers from a fresh
+// reply so a claim can never pass as a real result; `faked` = it claimed an outcome.
+export function stripFakeRouteMarkers(text) {
+  const faked = /\[\s*route plan(?:ned|ning)[^\]]*\]/i.test(text);
+  const clean = faked
+    ? text.replace(/\[\s*route plan(?:ned|ning)[^\]]*\]/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+    : text;
+  return { clean, faked };
 }
 
 // Parse a ```home_set ... ``` block. Mirrors the app's extractHomeSet().

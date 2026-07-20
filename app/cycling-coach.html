@@ -1896,6 +1896,12 @@ function switchTab(tab) {
     const b = document.getElementById(`tab-${t}`);
     if (b) b.classList.toggle('active', t === tab);
   });
+  // The tab bar scrolls horizontally on narrow screens — keep the active tab visible
+  // when the switch came from code rather than a tap.
+  const activeBtn = document.getElementById(`tab-${tab}`);
+  if (activeBtn && activeBtn.scrollIntoView) {
+    activeBtn.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }
   document.getElementById('dashboardView').classList.toggle('hidden', tab !== 'today');
   document.getElementById('chartsView').classList.toggle('hidden', tab !== 'charts');
   document.getElementById('messages').classList.toggle('hidden', tab !== 'chat');
@@ -2902,7 +2908,7 @@ or, for a ride to a specific place and back:
 \`\`\`route_request
 {"mode":"out_and_back","destination":"box hill","avoidHills":false}
 \`\`\`
-Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, take paceMph from the athlete's real recent Strava average speed for rides at the relevant intensity — the speeds in their data above are already mph, use them directly; never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : ' If no home location is set yet and the athlete hasn\'t mentioned where they live, ask them (city, postcode, or landmark) and set it with a home_set block first, in the same reply if you can.'}`;
+Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. NEVER write a "[Route planned: ...]" line or state route numbers yourself — the app runs the routing tool and posts the real result (with the GPX download) only AFTER it finds your route_request block; a claimed result without the block means no route exists and the athlete gets no GPX. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, take paceMph from the athlete's real recent Strava average speed for rides at the relevant intensity — the speeds in their data above are already mph, use them directly; never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : ' If no home location is set yet and the athlete hasn\'t mentioned where they live, ask them (city, postcode, or landmark) and set it with a home_set block first, in the same reply if you can.'}`;
 
   return prompt;
 }
@@ -3422,9 +3428,17 @@ async function sendMessage(text) {
       const reply = data.content[0].text;
       const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
       const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
-      const { clean, routeRequest } = extractRouteRequest(homeClean);
+      const { clean: routeClean, routeRequest } = extractRouteRequest(homeClean);
+      const { clean, faked } = stripFakeRouteMarkers(routeClean);
       appendBubble('coach', clean);
-      conversationHistory.push({ role: 'assistant', content: clean });
+      // Store the reply WITH its route_request block (display strips it): replayed
+      // history must show the model how past routes were actually triggered, or it
+      // learns to imitate the visible "[Route planned: ...]" result markers instead
+      // of emitting the block — faking a route with invented numbers and no GPX.
+      const stored = routeRequest
+        ? clean + '\n```route_request\n' + JSON.stringify(routeRequest) + '\n```'
+        : clean;
+      if (stored) conversationHistory.push({ role: 'assistant', content: stored });
       if (planSet) {
         applyScheduleSet(planSet);
       } else if (updates.length) {
@@ -3438,6 +3452,9 @@ async function sendMessage(text) {
       }
       if (routeRequest) {
         await handleRouteRequest(routeRequest);
+      } else if (faked) {
+        appendBubble('coach', '⚠️ That route was described, not planned — the planner never ran, so those numbers are invented and there\'s no GPX. Ask me to plan it again.');
+        conversationHistory.push({ role: 'assistant', content: '[Route planning failed: I wrote a result marker without emitting a route_request block. No route exists — I must emit the fenced route_request block to actually plan one.]' });
       }
       saveChat();
     }
@@ -3574,6 +3591,19 @@ function extractRouteRequest(text) {
   }
   const clean = text.replace(/```route_request[\s\S]*?```/gi, '').trim();
   return { clean, routeRequest };
+}
+
+// The model sometimes imitates the "[Route planned: ...]" result markers it sees in
+// replayed history instead of emitting a route_request block — a convincing fake,
+// since formatMessage renders any [bracketed] text as a result-style chip with the
+// brackets stripped. Remove route-result-shaped markers from a fresh reply so a claim
+// can never masquerade as a real result; `faked` = the model claimed an outcome.
+function stripFakeRouteMarkers(text) {
+  const faked = /\[\s*route plan(?:ned|ning)[^\]]*\]/i.test(text);
+  const clean = faked
+    ? text.replace(/\[\s*route plan(?:ned|ning)[^\]]*\]/gi, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+    : text;
+  return { clean, faked };
 }
 
 // Parse a ```home_set ... ``` block — the coach resolving a place the athlete
@@ -4214,7 +4244,9 @@ function appendTyping() {
 }
 
 function formatMessage(text) {
-  let t = escapeHtml(text);
+  // History turns can carry a raw ```route_request``` block (kept in storage so the
+  // model remembers how routes get triggered) — never show it to the athlete.
+  let t = escapeHtml(String(text ?? '').replace(/```route_request[\s\S]*?```/gi, '').trim());
   t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/\[(.*?⚠️.*?)\]/g, '<span class="tag warn">$1</span>');
   t = t.replace(/\[(.*?🔴.*?)\]/g, '<span class="tag bad">$1</span>');
