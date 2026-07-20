@@ -1746,16 +1746,19 @@ async function coachFetch(url, options = {}) {
   const savedChat = localStorage.getItem('cyclingCoachChat');
   if (savedChat) {
     try {
-      const { history, bubbles } = JSON.parse(savedChat);
+      const { history, bubbles, savedAt } = JSON.parse(savedChat);
       conversationHistory = history || [];
       if (bubbles?.length) {
         document.getElementById('emptyState')?.remove();
-        // Restore a date divider for the last session
-        const lastDate = new Date(bubbles[0].ts).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
-        const divider = document.createElement('div');
-        divider.className = 'date-divider';
-        divider.textContent = lastDate;
-        document.getElementById('messages').appendChild(divider);
+        // Restore a date divider for the last session. Older saves carried no
+        // timestamp — skip the divider then, rather than render "Invalid Date".
+        const lastDate = new Date(savedAt || NaN);
+        if (!isNaN(lastDate)) {
+          const divider = document.createElement('div');
+          divider.className = 'date-divider';
+          divider.textContent = lastDate.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+          document.getElementById('messages').appendChild(divider);
+        }
         // Replay each bubble
         bubbles.forEach(b => restoreBubble(b.role, b.text, b.time));
       }
@@ -1802,7 +1805,7 @@ function saveChat() {
     text: row.querySelector('.bubble')?.innerText || '',
     time: row.querySelector('.bubble-meta')?.textContent?.trim() || ''
   }));
-  localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles }));
+  localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles, savedAt: Date.now() }));
   pushState();
 }
 
@@ -2781,6 +2784,7 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   const todayLong = new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
   prompt += `\n\n=== GROUND TRUTH (authoritative — trust this over anything earlier in the conversation) ===`;
   prompt += `\nToday is ${todayLong} (${todayISO}).`;
+  prompt += `\nCALENDAR for the next 14 days — copy dates from this list whenever you mention or schedule a day; NEVER compute day-of-week yourself (your internal calendar is a year out of date): ${calendarTable(14)}.`;
   if (athleteData.strava) {
     const ridesToday = (athleteData.strava.all_rides || []).filter(r => r.date === todayISO);
     if (ridesToday.length) {
@@ -2849,7 +2853,7 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`schedule_set
 [{"id":"s1","day":"Monday","date":"YYYY-MM-DD","type":"Zone 2 Endurance","duration":90,"intensity":"low","description":"One concise sentence.","targets":"e.g. HR 130-145bpm","tips":["short tip"],"bands":false}]
 \`\`\`
-Rules: start from today (${todayISO2}); use real future dates in YYYY-MM-DD; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
+Rules: start from today (${todayISO2}); every date MUST be copied from the CALENDAR list in the ground-truth section — never calculate a date or a day name yourself, and make each "day" match the calendar entry for its date; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
   // ── YOU CAN PLAN REAL ROUTES ────────────────────────────
   // Ground truth for route generation: real roads via a self-hosted GraphHopper
@@ -2892,7 +2896,8 @@ async function generateSchedule() {
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const startDay = days[today.getDay()];
 
-  let context = `You are an expert cycling coach. Generate a 7-day training plan starting from today (${today.toLocaleDateString('en-GB', {weekday:'long',day:'numeric',month:'long'})}).`;
+  let context = `You are an expert cycling coach. Generate a 7-day training plan starting from today (${today.toLocaleDateString('en-GB', {weekday:'long',day:'numeric',month:'long',year:'numeric'})}).
+Use these EXACT day/date pairs in order — copy them, never compute dates or day names yourself: ${calendarTable(7)}.`;
 
   if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
   if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
@@ -2946,7 +2951,7 @@ Include exactly 7 elements covering the next 7 days in order.`;
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
     const plan = JSON.parse(raw);
-    trainingPlan = plan.map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
+    trainingPlan = normalizePlanDates(plan).map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
     sessionFeedback = {};
     adaptationNotes = {};
     savePlan();
@@ -3826,12 +3831,68 @@ async function handleRouteRequest(routeRequest) {
   }
 }
 
+// ── MODEL-WRITTEN DATES ARE NEVER TRUSTED ─────────────────
+// The coach LLM's day-of-week arithmetic is anchored to its training-era calendar —
+// it once wrote an entire week dated 2025 while the ground-truth prompt said 2026.
+// Every date arriving in a schedule block passes through here: implausible dates are
+// re-derived from the day name, and the day name is always recomputed from the final
+// date so the pair can never disagree.
+function parsePlanDate(ds) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ds || '')) return null;
+  const d = new Date(ds + 'T12:00:00');
+  return isNaN(d) ? null : d;
+}
+function isoPlanDate(d) { return d.toISOString().slice(0, 10); }
+function weekdayName(d) { return d.toLocaleDateString('en-GB', { weekday: 'long' }); }
+// Yesterday..today+13: wide enough to log yesterday's ride or lay out two weeks,
+// narrow enough to reject a wrong-year date outright.
+function plausiblePlanDate(d) {
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  const diff = Math.round((d - noon) / 86400000);
+  return diff >= -1 && diff <= 13;
+}
+function normalizePlanDates(plan) {
+  const WEEKDAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  let prev = null;
+  return plan.map(s => {
+    let d = parsePlanDate(s.date);
+    if (!d || !plausiblePlanDate(d)) {
+      // Re-derive from the day name: the next occurrence of that weekday after the
+      // previous session (or from yesterday for the first session).
+      const target = WEEKDAYS.indexOf(String(s.day || '').trim());
+      d = prev ? new Date(prev.getTime() + 86400000) : new Date(noon.getTime() - 86400000);
+      if (target >= 0) while (d.getDay() !== target) d = new Date(d.getTime() + 86400000);
+    }
+    prev = d;
+    return { ...s, date: isoPlanDate(d), day: weekdayName(d) };
+  });
+}
+// "Mon 2026-07-20, Tue 2026-07-21, …" — injected into every coach prompt so the
+// model copies real dates instead of computing them.
+function calendarTable(days) {
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + i);
+    return `${d.toLocaleDateString('en-GB', { weekday: 'short' })} ${isoPlanDate(d)}`;
+  }).join(', ');
+}
+// A schedule_update patch may carry a date too — same distrust, per-field: keep a
+// plausible date (and re-derive its day name), silently drop a bad one.
+function sanitizePatchDate(patch) {
+  if (!('date' in patch) && !('day' in patch)) return patch;
+  const p = { ...patch };
+  const d = parsePlanDate(p.date);
+  if (d && plausiblePlanDate(d)) { p.date = isoPlanDate(d); p.day = weekdayName(d); }
+  else { delete p.date; delete p.day; }
+  return p;
+}
+
 function applyScheduleUpdates(updates) {
   let changed = false;
   updates.forEach(patch => {
     const idx = findSessionIdx(patch.id);
     if (idx === -1) return;
-    Object.assign(trainingPlan[idx], patch);
+    Object.assign(trainingPlan[idx], sanitizePatchDate(patch));
     changed = true;
   });
   if (changed) {
@@ -3913,6 +3974,8 @@ function exportCalendar() {
 
 // Coach created/replaced the whole week from chat (schedule_set block).
 function applyScheduleSet(plan) {
+  // Never trust the model's calendar — validate dates before anything else.
+  plan = normalizePlanDates(plan);
   // Normalise: guarantee ids and the fields the renderer/prompt expect.
   trainingPlan = plan.map((s, i) => ({
     id: String(s.id || `s${i + 1}`),
