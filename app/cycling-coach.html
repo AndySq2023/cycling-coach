@@ -2630,7 +2630,19 @@ async function syncStrava() {
     const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     status.textContent = `synced ${now}`;
     status.style.color = 'var(--accent)';
-    showToast('Strava synced ✓');
+
+    // Completed rides fill in the schedule's actuals by themselves. Toasts are
+    // fixed-position and would stack on top of each other, so this is one message.
+    const auto = autoLogRidesFromStrava(d.all_rides);
+    if (auto.logged) {
+      savePlan();
+      renderSchedule();
+    }
+    const bits = ['Strava synced ✓'];
+    if (auto.logged) bits.push(`${auto.logged} session${auto.logged > 1 ? 's' : ''} logged`);
+    if (auto.unplanned.length) bits.push(`${auto.unplanned.length} unplanned ride${auto.unplanned.length > 1 ? 's' : ''}`);
+    showToast(bits.join(' · '));
+
     renderDashboard();
     renderCharts();
   } catch (err) {
@@ -3186,7 +3198,83 @@ function describeActual(a) {
   if (a.avg_hr) parts.push(`avg HR ${a.avg_hr}`);
   if (a.max_hr) parts.push(`max HR ${a.max_hr}`);
   if (a.notes) parts.push(`"${a.notes}"`);
+  if (a.source === 'strava') parts.push('via Strava');
   return parts.join(' · ');
+}
+
+// Roll a day's Strava rides into one set of actuals. Several rides on one day
+// are one day's work: sum the volume, take the hardest max HR, and weight avg
+// HR by duration so a 10min spin doesn't drag down a 2h ride.
+function aggregateRidesByDate(rides) {
+  const byDate = {};
+  (rides || []).forEach(r => {
+    if (!r || !r.date) return;
+    const d = byDate[r.date] || (byDate[r.date] = {
+      date: r.date, mins: 0, km: 0, hrSum: 0, hrMins: 0, max_hr: 0, count: 0
+    });
+    const mins = r.moving_time_min || 0;
+    d.mins += mins;
+    d.km += r.distance_km || 0;
+    if (r.avg_hr && mins) { d.hrSum += r.avg_hr * mins; d.hrMins += mins; }
+    if (r.max_hr) d.max_hr = Math.max(d.max_hr, r.max_hr);
+    d.count++;
+  });
+  return byDate;
+}
+
+// Write Strava numbers into the matching session's "actual" fields.
+//
+// Manual entries win. A previous auto-log (source:'strava') is refreshed wholesale
+// on every sync; a hand-typed actual only has its BLANK numeric fields filled and
+// keeps its manual status, because saveEditModal() rebuilds the object without
+// `source` — so the moment the athlete edits a session, we stop rewriting it.
+//
+// RPE, feel and notes are never touched: Strava can't say how the ride felt, and
+// adaptPlan() keys off exactly those.
+function autoLogRidesFromStrava(rides) {
+  const result = { logged: 0, unplanned: [] };
+  if (!Array.isArray(rides) || !rides.length || !trainingPlan.length) return result;
+
+  const planDates = trainingPlan.map(s => s.date).filter(Boolean).sort();
+  const first = planDates[0], last = planDates[planDates.length - 1];
+
+  const byDate = aggregateRidesByDate(rides);
+
+  Object.keys(byDate).forEach(date => {
+    const d = byDate[date];
+    const s = trainingPlan.find(x => x.date === date && x.intensity !== 'rest');
+
+    if (!s) {
+      // A ride on a rest day, or outside the plan entirely. Surface it rather
+      // than silently inventing a session — the athlete decides what it was.
+      if (date >= first && date <= last) result.unplanned.push(d);
+      return;
+    }
+
+    const existing = sessionFeedback[s.id]?.actual;
+    const auto = !existing || existing.source === 'strava';
+    const take = (field, value) => (auto || !existing[field]) ? value : existing[field];
+
+    const actual = {
+      duration:    take('duration', Math.round(d.mins)) || 0,
+      distance_mi: take('distance_mi', mi(d.km)) || 0,
+      avg_hr:      take('avg_hr', d.hrMins ? Math.round(d.hrSum / d.hrMins) : 0) || 0,
+      max_hr:      take('max_hr', d.max_hr) || 0,
+      notes:       existing?.notes || ''
+    };
+    if (auto) actual.source = 'strava';
+
+    if (existing && JSON.stringify(existing) === JSON.stringify(actual)) return;
+
+    sessionFeedback[s.id] = {
+      ...(sessionFeedback[s.id] || {}),
+      actual,
+      timestamp: sessionFeedback[s.id]?.timestamp || Date.now()
+    };
+    result.logged++;
+  });
+
+  return result;
 }
 
 function chatAboutSession(sessionId) {
@@ -3267,8 +3355,10 @@ async function submitFeedback() {
   showToast('Session logged ✓');
   renderDashboard();
 
-  // auto-adapt after feedback
-  const loggedCount = Object.keys(sessionFeedback).length;
+  // Auto-adapt after feedback. Count only sessions with an RPE: Strava auto-logs
+  // create feedback entries with actuals but no RPE, and they must not drive the
+  // every-2-sessions cadence — adaptPlan() is reacting to how rides FELT.
+  const loggedCount = Object.values(sessionFeedback).filter(f => f?.rpe).length;
   if (loggedCount >= 2 && loggedCount % 2 === 0) {
     showToast('Adapting plan based on your feedback…');
     setTimeout(adaptPlan, 800);

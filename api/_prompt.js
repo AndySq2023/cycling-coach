@@ -205,6 +205,7 @@ You are not just a chat box — you have direct write access to the athlete's Tr
           if (a.avg_hr) ap.push(`avg HR ${a.avg_hr}`);
           if (a.max_hr) ap.push(`max HR ${a.max_hr}`);
           if (a.notes) ap.push(`"${a.notes}"`);
+          if (a.source === 'strava') ap.push('via Strava');
           if (ap.length) line += ` [ACTUAL vs planned — ${ap.join(' · ')}]`;
         }
       }
