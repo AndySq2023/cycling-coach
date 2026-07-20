@@ -3077,8 +3077,12 @@ Return the full 7-day plan as the same JSON array format, with "adaptation_note"
     let raw = data.content[0].text.trim();
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
-    const updated = JSON.parse(raw);
-    // preserve feedback state
+    // Never trust the model's calendar — the adapt path re-emits the whole week, so it
+    // can invent day/date pairs exactly like generateSchedule and schedule_set can.
+    // Ids are normalised to strings here too (numeric ids silently break every lookup).
+    const updated = normalizePlanDates(JSON.parse(raw))
+      .map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
+    // preserve feedback state — keyed off the normalised ids, not the raw ones
     updated.forEach(s => {
       if (s.adaptation_note) adaptationNotes[s.id] = s.adaptation_note;
     });
@@ -3237,6 +3241,11 @@ function autoLogRidesFromStrava(rides) {
 
   const planDates = trainingPlan.map(s => s.date).filter(Boolean).sort();
   const first = planDates[0], last = planDates[planDates.length - 1];
+  // Today's and yesterday's rides are always worth surfacing even when they fall
+  // outside the plan window — a week that starts tomorrow would otherwise swallow
+  // the ride you did this morning without a word.
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  const recentFrom = new Date(noon.getTime() - 86400000).toISOString().slice(0, 10);
 
   const byDate = aggregateRidesByDate(rides);
 
@@ -3247,7 +3256,7 @@ function autoLogRidesFromStrava(rides) {
     if (!s) {
       // A ride on a rest day, or outside the plan entirely. Surface it rather
       // than silently inventing a session — the athlete decides what it was.
-      if (date >= first && date <= last) result.unplanned.push(d);
+      if ((date >= first && date <= last) || date >= recentFrom) result.unplanned.push(d);
       return;
     }
 

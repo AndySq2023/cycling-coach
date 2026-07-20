@@ -112,6 +112,11 @@ export function autoLogStravaRides(state, strava) {
   const feedback = { ...(state.feedback || {}) };
   const planDates = plan.map(s => s.date).filter(Boolean).sort();
   const first = planDates[0], last = planDates[planDates.length - 1];
+  // Today's and yesterday's rides are always worth surfacing even when they fall
+  // outside the plan window — a week that starts tomorrow would otherwise swallow
+  // the ride you did this morning without a word.
+  const noon = new Date(); noon.setHours(12, 0, 0, 0);
+  const recentFrom = new Date(noon.getTime() - 86400000).toISOString().slice(0, 10);
   const byDate = aggregateRidesByDate(rides);
   let logged = 0;
   const unplanned = [];
@@ -123,7 +128,7 @@ export function autoLogStravaRides(state, strava) {
     if (!s) {
       // A ride on a rest day, or outside the plan entirely. Surface it rather than
       // silently inventing a session — the athlete decides what it was.
-      if (date >= first && date <= last) unplanned.push(d);
+      if ((date >= first && date <= last) || date >= recentFrom) unplanned.push(d);
       return;
     }
 
