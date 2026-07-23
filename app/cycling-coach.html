@@ -1110,6 +1110,16 @@
   .dash-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
   .dash-card-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
 
+  /* Morning briefing — generated once on the first open of each day. Replaces the
+     old Telegram cron briefing; same content, delivered in-app. */
+  .briefing-card { border-color:rgba(255,255,255,0.14); background:linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0)); }
+  .briefing-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  .briefing-text { font-size:14px; line-height:1.62; color:var(--text-mid); }
+  .briefing-text strong { color:var(--text); }
+  .briefing-dismiss { background:none; border:none; color:var(--text-muted); font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; cursor:pointer; padding:4px; flex-shrink:0; }
+  .briefing-dismiss:hover { color:var(--accent); }
+  .briefing-loading { display:flex; align-items:center; gap:10px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); }
+
   .dash-hero { display:grid; grid-template-columns:248px minmax(0,1fr); gap:16px; }
 
   .recovery-card { display:flex; flex-direction:column; align-items:center; }
@@ -1558,7 +1568,7 @@ let currentBandCategory = null;
 let currentBandWorkout = null;
 
 // Planned-route history, newest first. Per-device only (localStorage, not coach_state) —
-// track points would bloat every KV state sync, so Telegram-planned routes don't appear here.
+// track points would bloat every KV state sync, so routes stay per-device for now.
 // The consts live here (not with the Routes-tab functions) because the init IIFE calls
 // loadRoutes() before the interpreter reaches that section — a later const would still be
 // in its temporal dead zone and the lookup would throw.
@@ -1567,6 +1577,15 @@ const ROUTES_KEY = 'cyclingCoachRoutes';
 const ROUTES_MAX = 30;
 
 let feedbackTargetId = null; // which session we're logging
+
+// Today's morning briefing text (null = none yet today). Generated once on the first
+// open of each day and cached in localStorage under cyclingCoachBriefing so reopening
+// the app doesn't re-spend a Claude call. `_briefingRunning` guards against a second
+// generation racing in while the first is still in flight.
+let todayBriefing = null;
+let _briefingRunning = false;
+const BRIEFING_KEY = 'cyclingCoachBriefing';
+const BRIEFING_DISMISS_KEY = 'cyclingCoachBriefingDismissed';
 
 // ── Units: backend data is metric; distance/speed shown imperial, temp stays °C ──
 const mi   = km  => km  == null ? null : Math.round(km  * 0.621371 * 10) / 10; // km → miles (1dp)
@@ -1607,11 +1626,11 @@ function getAppPassword() {
 }
 function clearAppPassword() { localStorage.removeItem('cyclingCoachPw'); }
 
-// ── SERVER STATE SYNC (hosted only) — the bridge to the Telegram bot ──────────────
+// ── SERVER STATE SYNC (hosted only) — cross-device continuity ─────────────────────
 // On a hosted build the app mirrors its localStorage (plan, feedback, goal, home, chat)
-// to the server (api/state.js → KV), and pulls the server copy on load/focus. This is
-// what lets the Telegram coach see the same schedule, training plan and recent
-// conversation — and lets Telegram-originated messages / schedule edits show up here.
+// to the server (api/state.js → KV), and pulls the server copy on load/focus, so your
+// schedule, plan and conversation follow you between phone and desktop.
+// (This also used to feed the Telegram bot, which has since been removed.)
 // Local dev has no KV, so all of this is a no-op (guarded by IS_LOCAL).
 let _pushTimer = null;
 let _pollTimer = null;
@@ -1652,7 +1671,7 @@ function serverHistoryDiffers(serverHist) {
 }
 
 // Re-render the chat thread from conversationHistory (used after adopting server history
-// that contains new Telegram turns). assistant→coach to match the bubble roles.
+// adopted from another device). assistant→coach to match the bubble roles.
 function renderChatFromHistory() {
   const msgs = document.getElementById('messages');
   msgs.innerHTML = '';
@@ -1661,7 +1680,7 @@ function renderChatFromHistory() {
   divider.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   msgs.appendChild(divider);
   conversationHistory.forEach(t => restoreBubble(t.role === 'assistant' ? 'coach' : 'user', t.content, ''));
-  // A background pull can re-render while the chat is open (e.g. new Telegram messages) —
+  // A background pull can re-render while the chat is open (e.g. new turns from another device) —
   // land on the newest message instead of stranding the reader mid-history.
   scrollChatToLatest();
 }
@@ -1681,11 +1700,11 @@ async function pullState() {
 
   // Poll guard: if the shared state hasn't changed since we last synced, there's nothing
   // to adopt. This is what makes 15s polling cheap — no re-render of chat/schedule unless
-  // another device or Telegram actually changed something.
+  // another device actually changed something.
   if (s.updatedAt && s.updatedAt === _lastServerUpdatedAt) return;
 
   // First hosted load for an existing user: the server is empty but localStorage has a
-  // plan/chat. Seed the server from local so Telegram sees it (rather than adopting blank).
+  // plan/chat. Seed the server from local (rather than adopting blank).
   const serverEmpty = !(s.plan?.length) && !(s.conversationHistory?.length);
   if (serverEmpty && (trainingPlan.length || conversationHistory.length)) {
     pushState();
@@ -1698,7 +1717,7 @@ async function pullState() {
   let healedPlan = false;
   _suppressPush = true;
   try {
-    // Adopt the server plan/feedback if present — Telegram may have changed the schedule.
+    // Adopt the server plan/feedback if present — another device may have changed the schedule.
     if (Array.isArray(s.plan)) {
       trainingPlan = repairPlanDates(s.plan);
       healedPlan = trainingPlan !== s.plan;
@@ -1717,7 +1736,7 @@ async function pullState() {
       localStorage.setItem('cyclingCoachGoal', s.goal);
       const gi = document.getElementById('goalInput'); if (gi) gi.value = s.goal;
     }
-    // Adopt the shared conversation if the server's differs (e.g. new Telegram messages).
+    // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
     if (serverHistoryDiffers(s.conversationHistory)) {
       conversationHistory = s.conversationHistory;
       renderChatFromHistory();
@@ -1810,14 +1829,18 @@ async function coachFetch(url, options = {}) {
   }
 
   // Pull live WHOOP + Strava on load so the coach never runs on stale/empty data
-  syncWHOOP();
-  syncStrava();
+  const whoopReady = syncWHOOP();
+  const stravaReady = syncStrava();
   // Weather: prefill saved home location and sync it (no-op if no location is set yet)
   const home = getHomeLocation();
   if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
-  syncWeather();
-  // Pull the server copy (hosted only) so Telegram-originated messages and schedule
-  // edits made while the app was closed show up. No-op on local dev.
+  const weatherReady = syncWeather();
+  // Morning briefing (replaces the old Telegram cron): only once the live data it has to
+  // be grounded in has landed, so it never briefs blind. Failures are non-fatal — the
+  // day stays unmarked and the next open retries.
+  Promise.allSettled([whoopReady, stravaReady, weatherReady]).then(maybeMorningBriefing);
+  // Pull the server copy (hosted only) so schedule edits made on another device while
+  // this one was closed show up. No-op on local dev.
   pullState();
   startStatePolling();
   switchTab('today');
@@ -1826,7 +1849,7 @@ async function coachFetch(url, options = {}) {
 // Keep every surface (chat, schedule, resistance) mirrored across devices in near-real-time:
 // poll the shared state every 15s while the tab is visible. pullState() is a cheap no-op when
 // the server's updatedAt is unchanged, so this only re-renders when another device or the
-// Telegram bot actually changed something. No-op on local dev (no KV).
+// another device actually changed something. No-op on local dev (no KV).
 function startStatePolling() {
   if (IS_LOCAL || _pollTimer) return;
   _pollTimer = setInterval(() => {
@@ -1835,7 +1858,7 @@ function startStatePolling() {
 }
 
 // Also re-pull immediately when the tab regains focus, rather than waiting up to 15s —
-// catches anything done on another device or over Telegram while backgrounded.
+// catches anything done on another device while backgrounded.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') pullState();
 });
@@ -2287,7 +2310,7 @@ function renderDashboard() {
   }
   const glanceHtml = glances ? `<div class="glance-row">${glances}</div>` : '';
 
-  el.innerHTML = greetHtml + `<div class="dash-hero">${recoveryHtml}${todayHtml}</div>` + agendaHtml + glanceHtml;
+  el.innerHTML = greetHtml + briefingCardHtml() + `<div class="dash-hero">${recoveryHtml}${todayHtml}</div>` + agendaHtml + glanceHtml;
 }
 
 // ── PERFORMANCE DASHBOARD (three charts) ──────────────────
@@ -2762,6 +2785,134 @@ function saveGoal() {
 
 
 // ── SYSTEM PROMPT ──────────────────────────────────────────
+// ── MORNING BRIEFING ───────────────────────────────────────
+// Was a Vercel cron (api/briefing.js) that pushed a Telegram message at 07:20 UTC.
+// Telegram is gone, so the briefing now runs client-side on the first open of each
+// day: same ask, same coaching guardrails, same schedule-write capability, but it
+// reuses the app's own buildSystemPrompt() instead of a server-side mirror of it —
+// which is what let the whole api/_prompt.js copy be deleted.
+//
+// What we "say" to the coach on the athlete's behalf. Only a short marker is stored in
+// the conversation history (not this whole block), so the chat stays readable.
+const BRIEFING_ASK = `(Automated daily briefing — the athlete did not type this.)
+Write my morning briefing. Cover, briefly:
+1. Recovery read — today's WHOOP numbers and what they mean for training.
+2. Today's session — what's on the schedule. If recovery clearly warrants changing it, adapt it (you can emit a schedule_update) and say why. If there's no plan, suggest what today should be.
+3. Ride window — if you have the weather, the best time slot to ride and any kit notes.
+Keep it tight and skimmable: this is a morning nudge, not an essay. Don't ask questions — the athlete may not reply.
+Formatting: this renders in a small card, so write flowing prose with short **bold** lead-ins. Do NOT use markdown headings (#, ##), horizontal rules (---), or a restatement of today's date (the card already shows it).
+
+Hard rules for this briefing:
+- Ground every number and every claim in the data above. If WHOOP data is absent, open with "(No WHOOP data this morning)" and do NOT invent, estimate, or infer a recovery status. Same for missing Strava or weather — say it's unavailable rather than guessing.
+- The ACTIVE TRAINING SCHEDULE is authoritative. If today is a Rest Day, the briefing protects the rest day — do not prescribe a ride. Never describe a workout that contradicts today's scheduled session; if you believe it should change, change it via schedule_update and explain.
+- The most recent ride and its date come from the GROUND TRUTH block — restate them exactly, never from memory of the conversation.
+- The athlete has NO power meter: never give wattage targets or power zones. Use heart rate, RPE, and duration only.
+- Do NOT plan a route in a briefing. Never emit a route_request or home_set block here.`;
+
+// Show today's cached briefing if we already have one, otherwise generate it.
+// Called from init() once the live data it depends on has landed.
+async function maybeMorningBriefing() {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  try {
+    const saved = JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null');
+    if (saved && saved.date === todayISO && saved.text) {
+      todayBriefing = saved.text;
+      renderDashboard();
+      return;
+    }
+  } catch (e) { /* corrupt cache — just regenerate */ }
+  await generateMorningBriefing();
+}
+
+async function generateMorningBriefing() {
+  if (_briefingRunning) return;
+  _briefingRunning = true;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  // Render the skeleton immediately so the card doesn't pop in late.
+  todayBriefing = null;
+  renderDashboard();
+  try {
+    const res = await coachFetch(API.chat + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: buildSystemPrompt(),
+        messages: [...conversationHistory, { role: 'user', content: BRIEFING_ASK }],
+      }),
+    });
+    const data = await res.json();
+    if (data.error || !data.content?.[0]?.text) return; // leave today unmarked so the next open retries
+
+    // Same block handling as a chat reply, minus route execution: a briefing may adapt
+    // today's session, but must never plan a route or move home (the ask forbids both —
+    // strip them defensively so a stray block can't leak raw JSON into the card).
+    const reply = data.content[0].text;
+    const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
+    const { clean: homeClean } = extractHomeSet(schedClean);
+    const { clean: routeClean } = extractRouteRequest(homeClean);
+    const { clean } = stripFakeRouteMarkers(routeClean);
+
+    if (planSet) applyScheduleSet(planSet);
+    else if (updates.length) applyScheduleUpdates(updates);
+
+    let text = clean || 'Morning! No briefing today — data sources were quiet.';
+    if (planSet || updates.length) text += '\n\n🗓 I\'ve updated your schedule — check the Schedule tab.';
+    text = '☀️ ' + text;
+
+    todayBriefing = text;
+    localStorage.setItem(BRIEFING_KEY, JSON.stringify({ date: todayISO, text }));
+    localStorage.removeItem(BRIEFING_DISMISS_KEY); // a new day's briefing starts undismissed
+
+    // Record it in the conversation the same way the Telegram briefing did, so the coach
+    // remembers what it told you this morning when you open the chat.
+    conversationHistory.push({ role: 'user', content: '(automated) ☀️ Morning briefing' });
+    conversationHistory.push({ role: 'assistant', content: text });
+    saveChat();
+  } catch (err) {
+    console.warn('Morning briefing failed:', err);
+  } finally {
+    _briefingRunning = false;
+    renderDashboard();
+  }
+}
+
+function dismissBriefing() {
+  localStorage.setItem(BRIEFING_DISMISS_KEY, new Date().toISOString().slice(0, 10));
+  document.getElementById('briefingCard')?.remove();
+}
+
+// formatMessage() handles **bold** but not headings or rules, so a coach reply that
+// reaches for "## Today's Session" would render the hashes literally in the card. The
+// ask discourages them; this makes it not matter (and tidies briefings already cached
+// from before that instruction existed).
+function tidyBriefingMarkdown(t) {
+  return String(t || '')
+    // Headings → bold lead-in. The optional prefix group keeps the "☀️ " we prepend to
+    // the first line (and any similar emoji lead) outside the bold rather than eaten by it.
+    .replace(/^(\s{0,3}(?:[^\w\s#]+\s*)?)#{1,6}\s+(.+?)\s*#*\s*$/gm, '$1**$2**')
+    .replace(/^\s{0,3}([-*_])\s*\1\s*\1[\s\1]*$/gm, '')      // horizontal rules → gone
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function briefingCardHtml() {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem(BRIEFING_DISMISS_KEY) === todayISO) return '';
+  if (_briefingRunning) {
+    return `<div class="dash-card briefing-card" id="briefingCard">
+      <div class="briefing-loading"><span class="spinner"></span> Writing your morning briefing…</div>
+    </div>`;
+  }
+  if (!todayBriefing) return '';
+  return `<div class="dash-card briefing-card" id="briefingCard">
+    <div class="briefing-head">
+      <div class="dash-card-label">Morning briefing</div>
+      <button class="briefing-dismiss" onclick="dismissBriefing()">Dismiss</button>
+    </div>
+    <div class="briefing-text">${formatMessage(tidyBriefingMarkdown(todayBriefing))}</div>
+  </div>`;
+}
+
 function buildSystemPrompt() {
   let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), heart rate and RPE-based training zones, and volume/load methodology.
 

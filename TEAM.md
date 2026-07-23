@@ -4,6 +4,13 @@ The cycling coach, extended from one athlete to a squad: **up to 6 team members 
 you as the master user**, who can see everyone's data on a Team Report page. This
 document is the product spec, the architecture, and the runbook for taking it live.
 
+> **Update — Telegram removed.** The Telegram bot (`api/telegram.js`) and the cron
+> morning briefing (`api/briefing.js`) described below no longer exist. They needed a
+> duplicate copy of the coach's prompt on the server (`api/_prompt.js`), which drifted
+> out of sync with the app. The briefing now runs in-app on first open of the day; the
+> coach's prompt lives only in `app/cycling-coach.html`. Ignore the Telegram rows,
+> diagram branch and checklist items below.
+
 ---
 
 ## 1. Product requirements
@@ -60,7 +67,7 @@ document is the product spec, the architecture, and the runbook for taking it li
   zero new dependencies, and the existing password UX already handles it.
 - One shared Strava/WHOOP developer app for all athletes (standard OAuth pattern);
   requires the provider-side approvals in the checklist below.
-- Telegram stays master-only (multi-member Telegram is a v2 item).
+- (Telegram has since been removed entirely.)
 - KV (Upstash Redis) remains the only store — no SQL migration for 7 users.
 
 ---
@@ -97,7 +104,7 @@ document is the product spec, the architecture, and the runbook for taking it li
 
 Key properties:
 
-- **8 serverless functions** (chat, state, strava, whoop, windy, telegram, oauth,
+- **8 serverless functions** (chat, state, strava, whoop, windy, route, oauth,
   team) — under the Hobby-plan limit of 12. `_`-prefixed files are shared helpers,
   not routes.
 - **Identity is server-side only.** The browser never says who it is; the password
@@ -139,11 +146,11 @@ additive), so rolling code back never corrupts state.
 
 | Requirement | Detail |
 |---|---|
-| Plan | **Hobby works** for 7 users: 8/12 functions, 60 s `maxDuration` (set for chat, telegram, team), KV via Upstash Marketplace. Consider **Pro** if you want >1 team, analytics, or password-protected preview deploys. |
+| Plan | **Hobby works** for 7 users: 8/12 functions, 60 s `maxDuration` (set for chat, team), KV via Upstash Marketplace. Consider **Pro** if you want >1 team, analytics, or password-protected preview deploys. |
 | Store | Upstash Redis integration (`cycling-coach-kv`) — **required** (roster, tokens, state, quotas all live there). Free tier (10k commands/day) is fine: ~2k commands/day at full team usage. |
 | Env vars (existing) | `ANTHROPIC_API_KEY`, `APP_PASSWORD`, `STRAVA_CLIENT_ID/SECRET/REFRESH_TOKEN`, `WHOOP_CLIENT_ID/SECRET` (+ seeded KV token), `WINDY_API_KEY` (optional), `TELEGRAM_*` (optional) |
 | Env vars (new, optional) | `MASTER_NAME` — your display name on the Team Report (default "Coach"). `CHAT_DAILY_LIMIT` — member daily chat quota (default 40). |
-| Function config | `vercel.json` already sets `maxDuration: 60` for `api/chat.js`, `api/telegram.js`, `api/team.js`. |
+| Function config | `vercel.json` sets `maxDuration: 60` for `api/chat.js` and `api/team.js`. |
 | Domains | The OAuth callback is registered per-domain. If you add a custom domain, re-register `https://<domain>/api/oauth` with Strava and WHOOP. |
 
 Provider-side requirements (the real gating items):
@@ -192,7 +199,7 @@ Post-deploy watchpoints:
 - [ ] Upstash dashboard: command volume (should stay well under free tier).
 - [ ] Anthropic console: spend after the first week of team chat; tune
       `CHAT_DAILY_LIMIT` accordingly.
-- [ ] Telegram bot still replies (it is untouched, master-only — a quick `/plan` is
+- [x] ~~Telegram bot still replies~~ (removed — the briefing is now in-app)
       a deterministic check).
 
 ---
