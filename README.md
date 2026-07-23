@@ -59,7 +59,7 @@ Chat and WHOOP still require Claude Desktop to be running; Strava does not.
 
 | Feature / Module | Status | Notes |
 |---|---|---|
-| Chat with coach | ✅ Complete | Full conversation history, persisted to localStorage (last 120 exchanges), restored on reload |
+| Chat with coach | ✅ Complete | Two-tier memory: durable coach notes (never expire, editable in My Data) + a rolling raw window; older turns are folded into notes rather than dropped |
 | WHOOP sync | ✅ Complete | Fetches recovery, HRV, RHR, sleep efficiency, sleep duration, SpO2, strain — all injected into system prompt |
 | Strava sync | ✅ Complete | 7-day rolling window via REST proxy; surfaces distance, elevation, moving time, suffer score per ride |
 | 7-day schedule generation | ✅ Complete | Claude generates JSON plan; stored in localStorage; rendered as session cards |

@@ -33,6 +33,10 @@ export default async function handler(req, res) {
         adaptations: b.adaptations && typeof b.adaptations === 'object' ? b.adaptations : {},
         goal: b.goal || null,
         home: b.home || null,
+        // Durable coach memory. Bounded here too so a bad client can't grow the blob.
+        coachNotes: Array.isArray(b.coachNotes)
+          ? b.coachNotes.filter(n => typeof n === 'string' && n.trim()).slice(0, 40).map(n => n.slice(0, 220))
+          : [],
         conversationHistory: Array.isArray(b.conversationHistory) ? b.conversationHistory : [],
         updatedBy: 'app',
       });

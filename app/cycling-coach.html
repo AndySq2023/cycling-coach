@@ -142,6 +142,15 @@
     margin-bottom: 8px;
   }
 
+  /* Coach memory — durable facts shown in the My Data panel, editable by the athlete. */
+  .notes-hint { font-size: 10px; line-height: 1.5; color: var(--text-muted); margin: -2px 0 8px; }
+  .note-row { display: flex; align-items: flex-start; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); }
+  .note-row:last-of-type { border-bottom: none; }
+  .note-text { flex: 1; font-size: 11px; line-height: 1.45; color: var(--text-mid); }
+  .note-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 1px 3px; flex-shrink: 0; }
+  .note-del:hover { color: var(--danger); }
+  .notes-empty { font-size: 10px; color: var(--text-muted); font-style: italic; padding: 4px 0; }
+
   .metric-row {
     display: flex;
     justify-content: space-between;
@@ -1370,6 +1379,18 @@
         <button class="load-btn" onclick="saveGoal()">Save Goal</button>
       </div>
 
+      <!-- WHAT THE COACH REMEMBERS — durable facts, kept across conversations -->
+      <div>
+        <div class="data-section-label">Coach remembers</div>
+        <div class="notes-hint">Facts the coach keeps about you, so it stops forgetting. It adds these itself — delete anything wrong.</div>
+        <div id="coachNotesList"></div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input class="data-textarea" id="noteInput" style="flex:1;margin:0;"
+            placeholder="Add a fact yourself…" onkeydown="if(event.key==='Enter')addCoachNoteManual()" />
+          <button class="load-btn icon" onclick="addCoachNoteManual()" title="Add note">＋</button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -1587,6 +1608,23 @@ let _briefingRunning = false;
 const BRIEFING_KEY = 'cyclingCoachBriefing';
 const BRIEFING_DISMISS_KEY = 'cyclingCoachBriefingDismissed';
 
+// ── COACH MEMORY ───────────────────────────────────────────
+// Durable facts about the athlete (goal context, niggles, constraints, what works),
+// kept indefinitely and injected into every prompt — the counterweight to the raw chat
+// window below, which is deliberately short. The coach writes these itself via a
+// ```coach_notes``` block; the athlete can delete or add them in the My Data panel.
+let coachNotes = [];
+const NOTES_KEY = 'cyclingCoachNotes';
+const NOTES_MAX = 40;        // hard cap so the prompt can't grow without bound
+const NOTE_MAX_CHARS = 220;  // one fact, not an essay
+
+// Raw conversation kept verbatim. Once it passes ROLL_AT we fold everything older than
+// the last WINDOW entries into coachNotes and drop it, so the prompt stays small and
+// nothing important is lost. (Entries, not exchanges: one exchange = 2.)
+const HISTORY_WINDOW = 40;
+const HISTORY_ROLL_AT = 60;
+let _rollRunning = false;
+
 // ── Units: backend data is metric; distance/speed shown imperial, temp stays °C ──
 const mi   = km  => km  == null ? null : Math.round(km  * 0.621371 * 10) / 10; // km → miles (1dp)
 const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);          // kph → mph
@@ -1651,6 +1689,7 @@ function pushState() {
         adaptations: adaptationNotes,
         goal: athleteData.goal || null,
         home: localStorage.getItem('cyclingCoachHome') || null,
+        coachNotes,
         conversationHistory: conversationHistory.slice(-120),
       }),
     })
@@ -1736,6 +1775,13 @@ async function pullState() {
       localStorage.setItem('cyclingCoachGoal', s.goal);
       const gi = document.getElementById('goalInput'); if (gi) gi.value = s.goal;
     }
+    // Adopt the server's memory. Guarded on non-empty: a device that hasn't synced yet
+    // must never wipe facts another device already learned.
+    if (Array.isArray(s.coachNotes) && s.coachNotes.length) {
+      coachNotes = s.coachNotes.filter(n => typeof n === 'string' && n.trim()).slice(0, NOTES_MAX);
+      localStorage.setItem(NOTES_KEY, JSON.stringify(coachNotes));
+      renderCoachNotes();
+    }
     // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
     if (serverHistoryDiffers(s.conversationHistory)) {
       conversationHistory = s.conversationHistory;
@@ -1804,6 +1850,10 @@ async function coachFetch(url, options = {}) {
 
   // Restore saved route history (Routes tab)
   loadRoutes();
+
+  // Restore the coach's long-term memory
+  loadCoachNotes();
+  renderCoachNotes();
 
   // Restore chat history
   const savedChat = localStorage.getItem('cyclingCoachChat');
@@ -2785,6 +2835,145 @@ function saveGoal() {
 
 
 // ── SYSTEM PROMPT ──────────────────────────────────────────
+// ── COACH MEMORY ───────────────────────────────────────────
+// Two-tier memory: durable facts (coachNotes) + a short raw chat window. Replaces the
+// old flat "keep the last 120 turns and forget everything else" behaviour, which was
+// both expensive (120 turns resent every message) and forgetful (anything older was
+// gone for good, including things a coach must not forget).
+
+function loadCoachNotes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NOTES_KEY) || '[]');
+    coachNotes = Array.isArray(raw) ? raw.filter(n => typeof n === 'string' && n.trim()).slice(0, NOTES_MAX) : [];
+  } catch (e) { coachNotes = []; }
+}
+
+function saveCoachNotes() {
+  localStorage.setItem(NOTES_KEY, JSON.stringify(coachNotes));
+  renderCoachNotes();
+  pushState();
+}
+
+function renderCoachNotes() {
+  const el = document.getElementById('coachNotesList');
+  if (!el) return;
+  if (!coachNotes.length) {
+    el.innerHTML = '<div class="notes-empty">Nothing yet — the coach adds facts as it learns them.</div>';
+    return;
+  }
+  el.innerHTML = coachNotes.map((n, i) =>
+    `<div class="note-row"><div class="note-text">${escapeHtml(n)}</div>` +
+    `<button class="note-del" onclick="deleteCoachNote(${i})" title="Forget this">✕</button></div>`
+  ).join('');
+}
+
+function deleteCoachNote(i) {
+  if (i < 0 || i >= coachNotes.length) return;
+  coachNotes.splice(i, 1);
+  saveCoachNotes();
+}
+
+function addCoachNoteManual() {
+  const input = document.getElementById('noteInput');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  applyCoachNotes({ add: [text] });
+  input.value = '';
+}
+
+// Normalise + dedupe on the way in. Matching is case-insensitive on trimmed text so the
+// coach re-stating a fact it already knows doesn't accumulate near-duplicates.
+function applyCoachNotes({ add = [], remove = [] } = {}) {
+  let changed = false;
+
+  (Array.isArray(remove) ? remove : []).forEach(r => {
+    const needle = String(r || '').trim().toLowerCase();
+    if (!needle) return;
+    const before = coachNotes.length;
+    coachNotes = coachNotes.filter(n => n.trim().toLowerCase() !== needle);
+    if (coachNotes.length !== before) changed = true;
+  });
+
+  (Array.isArray(add) ? add : []).forEach(a => {
+    const text = String(a || '').trim().slice(0, NOTE_MAX_CHARS);
+    if (!text) return;
+    if (coachNotes.some(n => n.trim().toLowerCase() === text.toLowerCase())) return;
+    coachNotes.push(text);
+    changed = true;
+  });
+
+  if (coachNotes.length > NOTES_MAX) coachNotes = coachNotes.slice(-NOTES_MAX); // newest win
+  if (changed) saveCoachNotes();
+  return changed;
+}
+
+// Parse a ```coach_notes ... ``` block. Same fenced-block convention as schedule_update
+// et al, so the coach writes memory the same way it writes the schedule.
+function extractCoachNotes(text) {
+  const re = /```coach_notes\s*([\s\S]*?)```/gi;
+  let match, notes = null;
+  while ((match = re.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(match[1].trim());
+      notes = notes || { add: [], remove: [] };
+      if (Array.isArray(obj.add)) notes.add.push(...obj.add);
+      if (Array.isArray(obj.remove)) notes.remove.push(...obj.remove);
+    } catch (e) { console.warn('Bad coach_notes JSON:', e); }
+  }
+  const clean = text.replace(/```coach_notes[\s\S]*?```/gi, '').trim();
+  return { clean, notes };
+}
+
+// Fold the oldest turns into durable notes, then drop them. Runs in the background after
+// a reply has already been shown — the athlete never waits on it. Best-effort: if the
+// call fails we simply keep the history and try again after the next message.
+async function maybeRollHistory() {
+  if (_rollRunning || conversationHistory.length <= HISTORY_ROLL_AT) return;
+  _rollRunning = true;
+  try {
+    const cutoff = conversationHistory.length - HISTORY_WINDOW;
+    const older = conversationHistory.slice(0, cutoff);
+    const transcript = older
+      .map(t => `${t.role === 'assistant' ? 'COACH' : 'ATHLETE'}: ${t.content}`)
+      .join('\n\n')
+      .slice(-24000); // bound the request; the tail is the most recent of the old turns
+
+    const system = `You maintain a cycling coach's long-term memory of one athlete.
+Read the older conversation below and extract ONLY durable facts worth remembering for months — things a coach must not forget.
+
+Worth keeping: injuries and niggles, recurring constraints (when they can/can't ride, equipment they lack), event dates and goals, what training reliably works or backfires for them, strong stated preferences, relevant life context.
+NOT worth keeping: one-off numbers already in Strava/WHOOP, the weather, individual session chatter, anything already listed under ALREADY KNOWN.
+
+ALREADY KNOWN (do not repeat these):
+${coachNotes.length ? coachNotes.map(n => '- ' + n).join('\n') : '- (nothing yet)'}
+
+Reply with ONLY a JSON array of short factual strings, each under 200 characters. Return [] if there is nothing durable to add. No prose, no code fences.`;
+
+    const res = await coachFetch(API.chat + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system, messages: [{ role: 'user', content: transcript }] }),
+    });
+    const data = await res.json();
+    if (data.error || !data.content?.[0]?.text) return; // keep history, retry next time
+
+    let raw = data.content[0].text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    let facts = [];
+    try { facts = JSON.parse(raw); } catch (e) { return; } // unparseable — don't drop history
+    if (!Array.isArray(facts)) return;
+
+    applyCoachNotes({ add: facts.filter(f => typeof f === 'string') });
+    // Only now is it safe to forget the raw turns.
+    conversationHistory = conversationHistory.slice(cutoff);
+    saveChat();
+    if (facts.length) console.log(`coach memory: folded ${older.length} turns into ${facts.length} fact(s)`);
+  } catch (err) {
+    console.warn('History roll failed:', err);
+  } finally {
+    _rollRunning = false;
+  }
+}
+
 // ── MORNING BRIEFING ───────────────────────────────────────
 // Was a Vercel cron (api/briefing.js) that pushed a Telegram message at 07:20 UTC.
 // Telegram is gone, so the briefing now runs client-side on the first open of each
@@ -2848,9 +3037,11 @@ async function generateMorningBriefing() {
     // strip them defensively so a stray block can't leak raw JSON into the card).
     const reply = data.content[0].text;
     const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
-    const { clean: homeClean } = extractHomeSet(schedClean);
+    const { clean: notesClean, notes } = extractCoachNotes(schedClean);
+    const { clean: homeClean } = extractHomeSet(notesClean);
     const { clean: routeClean } = extractRouteRequest(homeClean);
     const { clean } = stripFakeRouteMarkers(routeClean);
+    if (notes) applyCoachNotes(notes);
 
     if (planSet) applyScheduleSet(planSet);
     else if (updates.length) applyScheduleUpdates(updates);
@@ -2990,6 +3181,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   if (athleteData.goal) {
     prompt += `\n\nATHLETE'S GOAL:\n${athleteData.goal}`;
   }
+  // Durable memory. These survive long after the raw conversation below has been rolled
+  // away, so they are the only thing standing between the coach and re-asking the
+  // athlete something they already told it months ago.
+  if (coachNotes.length) {
+    prompt += `\n\nWHAT YOU ALREADY KNOW ABOUT THIS ATHLETE (long-term memory — carried over from earlier conversations, treat as true unless they correct you, and never re-ask something answered here):`;
+    coachNotes.forEach(n => { prompt += `\n- ${n}`; });
+  }
   if (!athleteData.whoop && !athleteData.strava) {
     prompt += `\n\nNo data loaded yet. Ask the athlete to share their WHOOP recovery numbers and recent Strava rides so you can give personalized advice. You can still answer general cycling training questions.`;
   }
@@ -3069,6 +3267,14 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 [{"id":"s1","day":"Monday","date":"YYYY-MM-DD","type":"Zone 2 Endurance","duration":90,"intensity":"low","description":"One concise sentence.","targets":"e.g. HR 130-145bpm","tips":["short tip"],"bands":false}]
 \`\`\`
 Rules: start from today (${todayISO2}); every date MUST be copied from the CALENDAR list in the ground-truth section — never calculate a date or a day name yourself, and make each "day" match the calendar entry for its date; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
+
+  // ── COACH MEMORY (durable facts the coach maintains itself) ──────────────
+  prompt += `\n\n=== YOU CAN REMEMBER THINGS LONG-TERM ===
+Your raw conversation history is deliberately short — old messages get rolled away. Anything you want to still know in a month must be saved as a fact. When the athlete tells you something durable (an injury or niggle, a recurring constraint on when or how they can ride, an event date, kit they don't have, a training response that reliably works or backfires, a strong preference), save it:
+\`\`\`coach_notes
+{"add":["Left knee niggles on sustained climbs over ~20min"],"remove":["Training for a September gran fondo"]}
+\`\`\`
+Use "remove" to drop a fact that has become wrong or stale — copy its text exactly as listed above. Keep each fact one short sentence. Only save things that will still matter next month: NOT today's numbers (you always get those live), NOT the weather, NOT ordinary session chatter. Don't announce that you're saving a note — just do it, and put the block at the very end of your reply.`;
 
   // ── YOU CAN PLAN REAL ROUTES ────────────────────────────
   // Ground truth for route generation: real roads via a self-hosted GraphHopper
@@ -3702,9 +3908,11 @@ async function sendMessage(text) {
     } else {
       const reply = data.content[0].text;
       const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
-      const { clean: homeClean, homeSet } = extractHomeSet(schedClean);
+      const { clean: notesClean, notes } = extractCoachNotes(schedClean);
+      const { clean: homeClean, homeSet } = extractHomeSet(notesClean);
       const { clean: routeClean, routeRequest } = extractRouteRequest(homeClean);
       const { clean, faked } = stripFakeRouteMarkers(routeClean);
+      if (notes) applyCoachNotes(notes);
       appendBubble('coach', clean);
       // Store the reply WITH its route_request block (display strips it): replayed
       // history must show the model how past routes were actually triggered, or it
@@ -3732,6 +3940,8 @@ async function sendMessage(text) {
         conversationHistory.push({ role: 'assistant', content: '[Route planning failed: I wrote a result marker without emitting a route_request block. No route exists — I must emit the fenced route_request block to actually plan one.]' });
       }
       saveChat();
+      // Fold old turns into durable memory once the reply is on screen — never blocks it.
+      maybeRollHistory();
     }
   } catch (err) {
     typingEl.remove();
