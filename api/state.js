@@ -10,7 +10,7 @@
 // PUT is a silent no-op.
 import { requireUser } from './_auth.js';
 import { getState, setState } from './_state.js';
-import { repairPlanDates } from './_prompt.js';
+import { repairPlanDates } from './_dates.js';
 
 export default async function handler(req, res) {
   const user = await requireUser(req, res);

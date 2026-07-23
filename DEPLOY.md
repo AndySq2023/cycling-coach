@@ -20,9 +20,8 @@ api/
   whoop.js     # → WHOOP v2 API (port of the ~/whoop-mcp localhost:3001 bridge)
   windy.js     # → Windy Point Forecast API (ride-planning weather)
   state.js     # → GET/PUT the shared state blob (the app syncs its localStorage here)
-  telegram.js  # → Telegram webhook: chat with the coach over Telegram (see "Telegram bot")
 package.json   # root deps for the functions (@vercel/kv)
-vercel.json    # serves the app at "/", gives chat + telegram 60s to respond
+vercel.json    # serves the app at "/", gives chat + team 60s to respond
 ```
 
 ## One-time setup in Vercel
@@ -58,10 +57,7 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `MASTER_NAME` | *(optional — teams)* your display name on the Team Report (default "Coach") |
 | `CHAT_DAILY_LIMIT` | *(optional — teams)* coach messages per member per day (default 40; master exempt) |
 | `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
-| `TELEGRAM_BOT_TOKEN` | *(optional — for the Telegram bot)* from @BotFather |
-| `TELEGRAM_WEBHOOK_SECRET` | *(optional)* a random string you choose; also passed to `setWebhook` |
-| `TELEGRAM_CHAT_ID` | *(optional)* the **only** Telegram chat id allowed to use the bot (yours) |
-| `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat (web + Telegram). The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
+| `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat. The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
 | `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
 | `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
 | `ROUTE_CACHE_TTL_SECONDS` | *(optional)* how long identical route requests are cached in KV before re-querying GraphHopper, default 86400 (1 day) |
@@ -127,9 +123,9 @@ enter the app password when prompted, and chat + Strava + WHOOP should work. (Re
 - **Model:** `api/chat.js` uses `claude-opus-4-8`. Switch to `claude-sonnet-4-6` there
   for faster/cheaper replies if you prefer.
 - **State** (plan, chat history) lives in the browser's localStorage as before, but on a
-  hosted build the app also **mirrors it to KV** (`api/state.js`) so the Telegram bot can
+  hosted build the app also **mirrors it to KV** (`api/state.js`) so your other devices can
   see the same schedule, plan and recent conversation. The app pushes on every change and
-  pulls on load/focus, so Telegram messages and schedule edits show up in the web app too.
+  pulls on load/focus, so schedule edits made on one device show up on the others.
   KV is required for this (and for WHOOP); without it the bot just runs on empty state.
 
 ## Team accounts (multi-user, optional)
@@ -154,68 +150,20 @@ Members chat with the same coach on your Anthropic key — hence `CHAT_DAILY_LIM
 A member's browser stores their own password under the same `cyclingCoachPw`
 localStorage key; wrong password → the app clears it and re-prompts on reload.
 
-## Telegram bot (optional)
+## Morning briefing
 
-Chat with the coach from Telegram with full context — live WHOOP/Strava/weather (fetched
-per message), your training plan and goal, and the conversation shared with the web app.
-The bot can also **write your schedule** (same `schedule_set`/`schedule_update` blocks the
-web chat uses), so "move tomorrow to a rest day" from Telegram updates the app's Schedule
-tab on next sync.
+The coach writes you a short briefing — recovery read, today's session, best ride window —
+shown as a card at the top of the **Today** tab. It generates once on the first open of each
+day and is cached in localStorage, so reopening the app doesn't re-spend a Claude call.
+It can adapt today's session if recovery warrants (same `schedule_update` mechanism as chat),
+and the exchange is added to your conversation so the coach remembers what it told you.
 
-**Requires a KV store** (step 4) — that's the shared state the bot reads/writes.
+No setup: it needs only `ANTHROPIC_API_KEY`, which chat already requires.
 
-1. **Get the bot token.** In Telegram, message **@BotFather** → `/newbot` (or reuse an
-   existing bot's token). Set `TELEGRAM_BOT_TOKEN` in Vercel to that token.
-2. **Find your chat id.** Message your bot once, then open
-   `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and read
-   `result[].message.chat.id`. Set `TELEGRAM_CHAT_ID` to that number — the bot ignores
-   every other chat, so strangers can't spend your API credits or read your data.
-3. **Pick a webhook secret.** Choose any random string; set `TELEGRAM_WEBHOOK_SECRET` in
-   Vercel to it. Telegram echoes it back on every call so only Telegram can drive the
-   endpoint.
-4. **Redeploy** (env-var changes need it), then **register the webhook** — open this URL
-   once in a browser (it `200`s with `{"ok":true}`):
-
-   ```
-   https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-app>.vercel.app/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>
-   ```
-
-5. **Use it.** Message the bot. Commands: `/start` (intro), `/plan` (show this week),
-   `/reset` (clear the conversation — plan/data untouched).
-
-**Troubleshooting:** check `https://api.telegram.org/bot<TOKEN>/getWebhookInfo` —
-`last_error_message` shows the most recent failure. `pending_update_count` climbing means
-the function is erroring (check Vercel logs). A `401` from the webhook = the secret header
-didn't match `TELEGRAM_WEBHOOK_SECRET`. Silence with no reply = your `TELEGRAM_CHAT_ID`
-doesn't match the chat you're messaging from.
-
-### Daily morning briefing (optional)
-
-`api/briefing.js` + a Vercel Cron entry (`vercel.json` → `crons`) send an automated
-Claude-written briefing to your Telegram chat every morning: WHOOP recovery read,
-today's scheduled session (the coach may adapt it if recovery is poor — same
-`schedule_update` path as chat), and the best weather window to ride. The exchange is
-appended to the shared history, so it also appears in the web app's chat.
-
-Setup on top of the Telegram bot:
-1. Add a `CRON_SECRET` env var in Vercel (any random string). Vercel Cron sends it as
-   `Authorization: Bearer <CRON_SECRET>` automatically; the endpoint refuses to run
-   without it so strangers can't trigger paid briefings.
-2. Redeploy. The cron registers automatically from `vercel.json`.
-
-Schedule: `20 7 * * *` = **07:20 UTC** (8:20am UK in summer / 7:20am in winter — Vercel
-crons are UTC-only, so nudge it after clock changes if the time matters). ⚠️ On the
-**Hobby plan** Vercel only guarantees the run lands *within the hour* after the
-scheduled time, so the briefing may arrive anywhere from 8:20–9:20 BST. For to-the-minute
-delivery, use a free external pinger (e.g. cron-job.org) hitting
-`https://<app>.vercel.app/api/briefing` with the `Authorization: Bearer <CRON_SECRET>`
-header instead of (or as well as) the Vercel cron.
-
-Manual test after deploying:
-```
-curl -H "Authorization: Bearer <CRON_SECRET>" https://<your-app>.vercel.app/api/briefing
-```
-— should return `{"ok":true,"sent":true,...}` and the briefing appears in Telegram.
+> Earlier versions delivered this over Telegram via a Vercel Cron (`api/briefing.js`) and
+> offered a Telegram bot (`api/telegram.js`). Both were removed — they required a duplicate,
+> hand-maintained copy of the coach's prompt on the server, which drifted out of sync with
+> the app. If you want a proactive push again, add web push rather than a second coach.
 
 ## Troubleshooting WHOOP on the hosted site
 The Strava-style debugging applies — read Network → `/api/whoop` Response:

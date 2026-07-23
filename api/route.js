@@ -415,9 +415,8 @@ export async function planRoute(params) {
   throw new Error(`Unknown route mode "${params.mode}" — expected "loop" or "out_and_back".`);
 }
 
-// planRoute with the KV cache in front — shared by the HTTP handler below and the
-// Telegram path (api/telegram.js), so both only spend GraphHopper credits on
-// genuinely new requests.
+// planRoute with the KV cache in front, so repeat asks for the same route don't
+// re-spend GraphHopper credits.
 export async function planRouteCached(params) {
   const key = cacheKey(params);
   const cached = await kvGet(key);
