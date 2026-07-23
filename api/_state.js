@@ -21,6 +21,7 @@ function emptyState() {
     adaptations: {},     // adaptationNotes keyed by session id
     goal: null,          // free-text athlete goal
     home: null,          // "lat,lon" for weather, or null
+    coachNotes: [],      // durable facts the coach remembers about the athlete
     conversationHistory: [], // [{ role:'user'|'assistant', content }]
     updatedAt: null,
     updatedBy: null,     // 'app' | 'telegram'
