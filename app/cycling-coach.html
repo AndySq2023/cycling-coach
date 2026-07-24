@@ -1472,8 +1472,11 @@
     <div class="bands-view hidden" id="bandsView">
       <div class="bands-header">
         <h2>Resistance Band Training</h2>
-        <p>Complementary strength work — pick a focus area to generate a workout.</p>
+        <p>Your coach's sessions live here — or pick a focus area to generate one.</p>
       </div>
+
+      <!-- Coach-authored / saved sessions (written from chat via resistance_set) -->
+      <div id="resistanceLibList"></div>
 
       <div class="bands-category-row">
         <button class="band-cat-btn" id="catLegs" onclick="selectBandCategory('legs', this)">🦵 Legs &amp; Glutes</button>
@@ -1597,6 +1600,13 @@ let savedRoutes = [];
 const ROUTES_KEY = 'cyclingCoachRoutes';
 const ROUTES_MAX = 30;
 
+// Coach-writable resistance library (Resistance tab). Full exercise-level sessions the
+// coach builds from chat via a ```resistance_set``` block, persisted + device-synced
+// through the shared state blob (see pushState/pullState + api/state.js whitelist).
+let resistanceLib = [];
+const RESISTANCE_KEY = 'cyclingCoachResistance';
+const RESISTANCE_MAX = 20;
+
 let feedbackTargetId = null; // which session we're logging
 
 // Today's morning briefing text (null = none yet today). Generated once on the first
@@ -1690,6 +1700,7 @@ function pushState() {
         goal: athleteData.goal || null,
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
+        resistance: resistanceLib,
         conversationHistory: conversationHistory.slice(-120),
       }),
     })
@@ -1782,6 +1793,13 @@ async function pullState() {
       localStorage.setItem(NOTES_KEY, JSON.stringify(coachNotes));
       renderCoachNotes();
     }
+    // Adopt the coach's resistance library from another device. Array-present (not just
+    // non-empty) so a deliberate clear on one device propagates too.
+    if (Array.isArray(s.resistance)) {
+      resistanceLib = s.resistance.slice(0, RESISTANCE_MAX);
+      localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib));
+      if (currentTab === 'bands') renderResistanceLib();
+    }
     // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
     if (serverHistoryDiffers(s.conversationHistory)) {
       conversationHistory = s.conversationHistory;
@@ -1848,12 +1866,17 @@ async function coachFetch(url, options = {}) {
     athleteData.goal = savedGoal;
   }
 
-  // Restore saved route history (Routes tab)
+  // Restore saved route history (Routes tab), then merge in anything planned on another
+  // device (hosted only — pullRoutes is a no-op on local dev).
   loadRoutes();
+  pullRoutes();
 
   // Restore the coach's long-term memory
   loadCoachNotes();
   renderCoachNotes();
+
+  // Restore coach-authored resistance sessions (Resistance tab)
+  loadResistance();
 
   // Restore chat history
   const savedChat = localStorage.getItem('cyclingCoachChat');
@@ -2013,7 +2036,8 @@ function switchTab(tab) {
   if (tab === 'charts') renderCharts();
   if (tab === 'chat') scrollChatToLatest();
   if (tab === 'schedule' && trainingPlan.length) renderSchedule();
-  if (tab === 'routes') renderRoutes();
+  if (tab === 'routes') { renderRoutes(); pullRoutes(); } // re-merge in case another device planned one
+  if (tab === 'bands') renderResistanceLib();
   if (tab === 'team') renderTeam();
 }
 
@@ -3268,6 +3292,21 @@ To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use 
 \`\`\`
 Rules: start from today (${todayISO2}); every date MUST be copied from the CALENDAR list in the ground-truth section — never calculate a date or a day name yourself, and make each "day" match the calendar entry for its date; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). After the block, briefly tell the athlete what you scheduled and why. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.`;
 
+  // ── Resistance tab: full exercise-level strength sessions the coach can write ──
+  prompt += `\n\n=== YOU CAN WRITE FULL RESISTANCE SESSIONS TO THE "RESISTANCE" TAB ===
+Besides the ride schedule, you have direct write access to the in-app Resistance tab — a library of full strength/band/physio sessions with exercise-level detail (sets, reps, band, cue). This is separate from the Schedule tab: use it whenever the athlete wants the actual exercise breakdown saved (e.g. "put the full sessions in the resistance tab"). Never say you can't write there — you can.`;
+  if (resistanceLib.length) {
+    prompt += `\n\nCURRENT RESISTANCE LIBRARY (what's saved now — a resistance_set replaces ALL of it):`;
+    resistanceLib.forEach(w => {
+      prompt += `\n- ${w.name}${w.day ? ` (${w.day})` : ''}: ${w.exercises.length} exercises, ${w.duration}min`;
+    });
+  }
+  prompt += `\n\nTo save one or more full sessions, include this block at the very end of your reply (no text after it):
+\`\`\`resistance_set
+{"workouts":[{"name":"Monday — Glutes & Core","focus":"One sentence on why this matters for cycling.","duration":35,"category":"legs","day":"Monday","exercises":[{"name":"Banded glute bridge","sets":3,"reps":"15","band":"Medium","cue":"Drive through heels, squeeze at top."}]}]}
+\`\`\`
+Rules: "workouts" is the COMPLETE library — include every session you want kept, because this REPLACES all saved resistance sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). Give each exercise a name, sets, reps, band (Light/Medium/Heavy) and a short cue. After the block, briefly tell the athlete what you saved.`;
+
   // ── COACH MEMORY (durable facts the coach maintains itself) ──────────────
   prompt += `\n\n=== YOU CAN REMEMBER THINGS LONG-TERM ===
 Your raw conversation history is deliberately short — old messages get rolled away. Anything you want to still know in a month must be saved as a fact. When the athlete tells you something durable (an injury or niggle, a recurring constraint on when or how they can ride, an event date, kit they don't have, a training response that reliably works or backfires, a strong preference), save it:
@@ -3866,6 +3905,129 @@ function addBandsToSchedule() {
   }
 }
 
+// ── COACH-WRITABLE RESISTANCE LIBRARY ──────────────────────
+// Persisted, device-synced strength sessions the coach builds from chat. Same
+// fenced-block convention as the schedule: the coach emits ```resistance_set``` and
+// applyResistanceSet() stores + renders it in the Resistance tab.
+function loadResistance() {
+  try { resistanceLib = JSON.parse(localStorage.getItem(RESISTANCE_KEY)) || []; }
+  catch (e) { resistanceLib = []; }
+}
+
+function saveResistance() {
+  try { localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib)); }
+  catch (e) { console.warn('Could not persist resistance:', e); }
+  pushState(); // mirror to the shared blob so other devices pick it up
+}
+
+// Coerce a coach-supplied workout into the stored shape. Tolerant of missing fields so
+// a slightly-off JSON block still lands something useful rather than throwing.
+function normalizeResistanceWorkout(w, i) {
+  const exercises = Array.isArray(w?.exercises) ? w.exercises.map(ex => ({
+    name: String(ex?.name || 'Exercise').slice(0, 80),
+    sets: ex?.sets != null ? ex.sets : '',
+    reps: ex?.reps != null ? String(ex.reps) : '',
+    band: ['Light','Medium','Heavy'].includes(ex?.band) ? ex.band : 'Medium',
+    cue:  String(ex?.cue || '').slice(0, 200),
+  })) : [];
+  return {
+    id: 'w' + Date.now() + i,
+    name: String(w?.name || 'Resistance Session').slice(0, 80),
+    focus: String(w?.focus || '').slice(0, 240),
+    duration: Number(w?.duration) || exercises.length * 4,
+    category: String(w?.category || '').slice(0, 24),
+    day: w?.day ? String(w.day).slice(0, 12) : '',
+    exercises,
+    source: 'coach',
+  };
+}
+
+// Replace the whole library from a resistance_set block (schedule_set semantics).
+function applyResistanceSet(workouts) {
+  if (!Array.isArray(workouts)) return;
+  resistanceLib = workouts
+    .map(normalizeResistanceWorkout)
+    .filter(w => w.exercises.length)
+    .slice(0, RESISTANCE_MAX);
+  saveResistance();
+  if (currentTab === 'bands') renderResistanceLib();
+  showToast(`Coach saved ${resistanceLib.length} session${resistanceLib.length === 1 ? '' : 's'} to Resistance ✓`);
+}
+
+function deleteResistanceWorkout(id) {
+  resistanceLib = resistanceLib.filter(w => String(w.id) !== String(id));
+  saveResistance();
+  renderResistanceLib();
+}
+
+// Attach a saved session to the schedule the same way the generated bands do.
+function addLibWorkoutToSchedule(id) {
+  const w = resistanceLib.find(x => String(x.id) === String(id));
+  if (!w) return;
+  currentBandWorkout = { name: w.name, focus: w.focus, duration: w.duration, exercises: w.exercises };
+  currentBandCategory = w.category || 'legs';
+  addBandsToSchedule();
+}
+
+function renderResistanceLib() {
+  const list = document.getElementById('resistanceLibList');
+  if (!list) return;
+  if (!resistanceLib.length) { list.innerHTML = ''; return; }
+
+  const bandClass = { 'Light': 'light', 'Medium': 'medium', 'Heavy': 'heavy' };
+  list.innerHTML = resistanceLib.map(w => {
+    const exHtml = w.exercises.map((ex, i) => `
+      <div class="exercise-item">
+        <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
+        <div class="exercise-info">
+          <div class="exercise-name">${escapeHtml(ex.name)}</div>
+          ${ex.cue ? `<div class="exercise-cue">${escapeHtml(ex.cue)}</div>` : ''}
+        </div>
+        <div class="exercise-sets">
+          ${ex.sets && ex.reps ? `${ex.sets}×${ex.reps}` : escapeHtml(String(ex.reps || ex.sets || ''))}
+          <br>
+          <span class="band-color-badge ${bandClass[ex.band] || 'medium'}">${ex.band}</span>
+        </div>
+      </div>`).join('');
+    return `
+    <div class="bands-workout-card">
+      <div class="bands-workout-header">
+        <div>
+          <div class="bands-workout-title">${escapeHtml(w.name)}</div>
+          <div class="bands-workout-meta">
+            ${w.day ? `<div class="bands-duration-pill">📅 ${escapeHtml(w.day)}</div>` : ''}
+            <div class="bands-duration-pill">⏱ ${w.duration} min</div>
+            <div class="bands-duration-pill">${w.exercises.length} exercises</div>
+            <div class="bands-duration-pill" style="color:var(--accent)">✎ Coach</div>
+          </div>
+        </div>
+      </div>
+      ${w.focus ? `<div style="padding:10px 16px;font-size:12px;color:var(--text-muted);border-bottom:1px solid var(--border);line-height:1.5;">${escapeHtml(w.focus)}</div>` : ''}
+      <div class="exercise-list">${exHtml}</div>
+      <div class="bands-action-row">
+        <button class="gen-btn secondary" onclick="deleteResistanceWorkout('${w.id}')">🗑 Remove</button>
+        <button class="gen-btn primary" onclick="addLibWorkoutToSchedule('${w.id}')">+ Add to Schedule</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Parse a ```resistance_set``` block (full-library replace). Accepts {workouts:[...]}
+// or a bare array. Same tolerant, last-one-wins pattern as extractScheduleUpdates.
+function extractResistance(text) {
+  const re = /```resistance_set\s*([\s\S]*?)```/gi;
+  let match, workouts = null;
+  while ((match = re.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(match[1].trim());
+      const arr = Array.isArray(obj) ? obj : (Array.isArray(obj?.workouts) ? obj.workouts : null);
+      if (arr) workouts = arr;
+    } catch (e) { console.warn('Bad resistance_set JSON:', e); }
+  }
+  const clean = text.replace(/```resistance_set[\s\S]*?```/gi, '').trim();
+  return { clean, workouts };
+}
+
 // ── MESSAGING ──────────────────────────────────────────────
 async function sendMessage(text) {
   const input = document.getElementById('messageInput');
@@ -3909,10 +4071,12 @@ async function sendMessage(text) {
       const reply = data.content[0].text;
       const { clean: schedClean, updates, planSet } = extractScheduleUpdates(reply);
       const { clean: notesClean, notes } = extractCoachNotes(schedClean);
-      const { clean: homeClean, homeSet } = extractHomeSet(notesClean);
+      const { clean: resClean, workouts: resWorkouts } = extractResistance(notesClean);
+      const { clean: homeClean, homeSet } = extractHomeSet(resClean);
       const { clean: routeClean, routeRequest } = extractRouteRequest(homeClean);
       const { clean, faked } = stripFakeRouteMarkers(routeClean);
       if (notes) applyCoachNotes(notes);
+      if (resWorkouts) applyResistanceSet(resWorkouts);
       appendBubble('coach', clean);
       // Store the reply WITH its route_request block (display strips it): replayed
       // history must show the model how past routes were actually triggered, or it
@@ -4161,6 +4325,53 @@ function downloadGPX(points, name) {
 // the localStorage budget (a raw GraphHopper track is ~50-100KB otherwise).
 let _selectedRouteId = null;
 
+// ── ROUTE GEOMETRY: encoded polyline ──────────────────────────────────────────
+// Geometry dwarfs everything else the app stores: one 25-mile route is ~56 KB as raw
+// [lon,lat,ele] JSON, so 30 of them is ~1.6 MB — enough to threaten the localStorage
+// quota (hence the catch in persistRoutes) and far too much to sync. Google's
+// encoded-polyline format (what GraphHopper itself emits with points_encoded:true)
+// stores deltas as ASCII: measured 5.6x smaller with elevation included (56 KB -> 10 KB
+// per route, ~300 KB for all 30) and verified lossless at the 5dp we already round to.
+// Elevation rides along as a third delta in whole metres.
+function encodeRouteGeom(points) {
+  const chunk = (v) => {
+    let d = v < 0 ? ~(v << 1) : (v << 1), s = '';
+    while (d >= 0x20) { s += String.fromCharCode((0x20 | (d & 0x1f)) + 63); d >>= 5; }
+    return s + String.fromCharCode(d + 63);
+  };
+  let out = '', pLat = 0, pLon = 0, pEle = 0;
+  for (const p of points || []) {
+    const lon = Math.round(p[0] * 1e5), lat = Math.round(p[1] * 1e5), ele = Math.round(p[2] ?? 0);
+    out += chunk(lat - pLat) + chunk(lon - pLon) + chunk(ele - pEle);
+    pLat = lat; pLon = lon; pEle = ele;
+  }
+  return out;
+}
+function decodeRouteGeom(str) {
+  const pts = [];
+  let i = 0, lat = 0, lon = 0, ele = 0;
+  const next = () => {
+    let r = 0, sh = 0, b;
+    do { b = str.charCodeAt(i++) - 63; r |= (b & 0x1f) << sh; sh += 5; } while (b >= 0x20);
+    return (r & 1) ? ~(r >> 1) : (r >> 1);
+  };
+  while (i < str.length) {
+    lat += next(); lon += next(); ele += next();
+    pts.push([lon / 1e5, lat / 1e5, ele]);
+  }
+  return pts;
+}
+// Decoding 2500 points on every map render / GPX click is wasteful, so memoise by route
+// id — cached outside the record so nothing derived gets persisted or synced.
+const _geomCache = new Map();
+function routePoints(rt) {
+  if (!rt) return [];
+  if (Array.isArray(rt.points) && rt.points.length) return rt.points; // legacy pre-encoding record
+  if (typeof rt.geom !== 'string' || !rt.geom) return [];
+  if (!_geomCache.has(rt.id)) _geomCache.set(rt.id, decodeRouteGeom(rt.geom));
+  return _geomCache.get(rt.id);
+}
+
 function loadRoutes() {
   try { savedRoutes = JSON.parse(localStorage.getItem(ROUTES_KEY)) || []; }
   catch (e) { savedRoutes = []; }
@@ -4178,9 +4389,50 @@ function saveRoute(route) {
     Math.round(p[1] * 1e5) / 1e5,
     p[2] != null ? Math.round(p[2]) : null,
   ]);
-  savedRoutes.unshift({ ...route, points, id: 'r' + Date.now(), date: new Date().toISOString() });
+  const { points: _raw, ...meta } = route;
+  savedRoutes.unshift({ ...meta, geom: encodeRouteGeom(points), id: 'r' + Date.now(), date: new Date().toISOString() });
   savedRoutes = savedRoutes.slice(0, ROUTES_MAX);
   persistRoutes();
+  pushRoutes();
+}
+
+// ── ROUTE SYNC (hosted only) ──────────────────────────────────────────────────
+// Routes live in their own KV key (api/routes.js), NOT in the coach_state blob: that
+// blob is pushed on every plan/chat/goal change, and geometry would ride along every
+// time. Here it moves only when routes actually change.
+let _routesPushTimer = null;
+function pushRoutes() {
+  if (IS_LOCAL) return;
+  clearTimeout(_routesPushTimer);
+  _routesPushTimer = setTimeout(() => {
+    coachFetch('/api/routes', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routes: savedRoutes }),
+    }).catch(() => { /* offline — the local copy is still source of truth */ });
+  }, 800);
+}
+
+async function pullRoutes() {
+  if (IS_LOCAL) return;
+  try {
+    const res = await coachFetch('/api/routes');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!Array.isArray(d.routes)) return;
+    // Merge by id rather than overwrite: a route planned on the phone must not clobber
+    // one planned on the laptop before either has synced.
+    const byId = new Map();
+    [...d.routes, ...savedRoutes].forEach(r => { if (r?.id && !byId.has(r.id)) byId.set(r.id, r); });
+    savedRoutes = [...byId.values()]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, ROUTES_MAX);
+    persistRoutes();
+    if (currentTab === 'routes') renderRoutes();
+    // Push the union back if this device held anything the server didn't.
+    const serverIds = new Set(d.routes.map(r => r?.id));
+    if (savedRoutes.some(r => !serverIds.has(r.id))) pushRoutes();
+  } catch (e) { /* offline / transient */ }
 }
 
 function renderRoutes() {
@@ -4210,14 +4462,17 @@ function renderRoutes() {
 
 function downloadSavedRoute(id) {
   const rt = savedRoutes.find(x => x.id === id);
-  if (rt?.points?.length) downloadGPX(rt.points, `${rt.label} ${rt.date.slice(0, 10)}`);
+  const pts = routePoints(rt);
+  if (pts.length) downloadGPX(pts, `${rt.label} ${rt.date.slice(0, 10)}`);
 }
 
 function deleteRoute(id) {
   if (!confirm('Remove this route from your history?')) return;
   savedRoutes = savedRoutes.filter(x => x.id !== id);
+  _geomCache.delete(id);
   if (_selectedRouteId === id) _selectedRouteId = null;
   persistRoutes();
+  pushRoutes();
   renderRoutes();
 }
 
@@ -4251,7 +4506,8 @@ async function selectRoute(id) {
   document.querySelectorAll('.route-card').forEach(c =>
     c.classList.toggle('selected', c.dataset.id === id));
   const rt = savedRoutes.find(x => x.id === id);
-  if (!rt?.points?.length) return;
+  const pts = routePoints(rt);
+  if (!pts.length) return;
   const mapEl = document.getElementById('routeMap');
   mapEl.style.display = 'block';
   try { await ensureLeaflet(); }
@@ -4268,7 +4524,7 @@ async function selectRoute(id) {
   }
   if (_routeTrack) _routeTrack.remove();
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#FF5A1F';
-  const latlngs = rt.points.map(p => [p[1], p[0]]); // stored as GraphHopper [lon,lat,ele]
+  const latlngs = pts.map(p => [p[1], p[0]]); // stored as GraphHopper [lon,lat,ele]
   const line = L.polyline(latlngs, { color: accent, weight: 4 });
   _routeTrack = L.layerGroup([
     line,

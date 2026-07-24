@@ -37,6 +37,9 @@ export default async function handler(req, res) {
         coachNotes: Array.isArray(b.coachNotes)
           ? b.coachNotes.filter(n => typeof n === 'string' && n.trim()).slice(0, 40).map(n => n.slice(0, 220))
           : [],
+        // Coach-authored resistance sessions (Resistance tab). Bounded so a bad client
+        // can't grow the blob; the app re-normalizes shape on read.
+        resistance: Array.isArray(b.resistance) ? b.resistance.slice(0, 20) : [],
         conversationHistory: Array.isArray(b.conversationHistory) ? b.conversationHistory : [],
         updatedBy: 'app',
       });

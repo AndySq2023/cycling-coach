@@ -22,6 +22,7 @@ function emptyState() {
     goal: null,          // free-text athlete goal
     home: null,          // "lat,lon" for weather, or null
     coachNotes: [],      // durable facts the coach remembers about the athlete
+    resistance: [],      // coach-authored strength sessions (Resistance tab)
     conversationHistory: [], // [{ role:'user'|'assistant', content }]
     updatedAt: null,
     updatedBy: null,     // 'app' | 'telegram'
