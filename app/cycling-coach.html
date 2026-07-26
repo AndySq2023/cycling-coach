@@ -1591,14 +1591,22 @@ let adaptationNotes = {};    // sessionId → adaptation string
 let currentBandCategory = null;
 let currentBandWorkout = null;
 
-// Planned-route history, newest first. Per-device only (localStorage, not coach_state) —
-// track points would bloat every KV state sync, so routes stay per-device for now.
+// Planned-route history, newest first. Synced across the athlete's devices via its own
+// KV key (api/routes.js), NOT coach_state — see the ROUTE SYNC section below.
 // The consts live here (not with the Routes-tab functions) because the init IIFE calls
 // loadRoutes() before the interpreter reaches that section — a later const would still be
 // in its temporal dead zone and the lookup would throw.
 let savedRoutes = [];
 const ROUTES_KEY = 'cyclingCoachRoutes';
 const ROUTES_MAX = 30;
+// Tombstones: id -> deletion timestamp (ms). The merge in pullRoutes is a union, so
+// without these a route deleted on one device just gets re-added from another that still
+// holds it. A tombstone travels with the sync and suppresses the id everywhere. Pruned by
+// age + count so it can't grow without bound.
+let deletedRouteIds = {};
+const ROUTES_DELETED_KEY = 'cyclingCoachRoutesDeleted';
+const ROUTES_TOMBSTONE_MAX_AGE = 180 * 24 * 60 * 60 * 1000; // 180d — well past ROUTES_MAX churn
+const ROUTES_TOMBSTONE_MAX = 200;
 
 // Coach-writable resistance library (Resistance tab). Full exercise-level sessions the
 // coach builds from chat via a ```resistance_set``` block, persisted + device-synced
@@ -4400,11 +4408,28 @@ function routePoints(rt) {
 function loadRoutes() {
   try { savedRoutes = JSON.parse(localStorage.getItem(ROUTES_KEY)) || []; }
   catch (e) { savedRoutes = []; }
+  try {
+    const t = JSON.parse(localStorage.getItem(ROUTES_DELETED_KEY));
+    deletedRouteIds = (t && typeof t === 'object' && !Array.isArray(t)) ? t : {};
+  } catch (e) { deletedRouteIds = {}; }
+  pruneTombstones();
+}
+
+// Drop tombstones older than the max age, then cap to the newest N so the set stays small.
+function pruneTombstones() {
+  const cutoff = Date.now() - ROUTES_TOMBSTONE_MAX_AGE;
+  let entries = Object.entries(deletedRouteIds).filter(([, ts]) => Number(ts) >= cutoff);
+  if (entries.length > ROUTES_TOMBSTONE_MAX) {
+    entries = entries.sort((a, b) => b[1] - a[1]).slice(0, ROUTES_TOMBSTONE_MAX);
+  }
+  deletedRouteIds = Object.fromEntries(entries);
 }
 
 function persistRoutes() {
   try { localStorage.setItem(ROUTES_KEY, JSON.stringify(savedRoutes)); }
   catch (e) { console.warn('Could not persist routes:', e); }
+  try { localStorage.setItem(ROUTES_DELETED_KEY, JSON.stringify(deletedRouteIds)); }
+  catch (e) { /* tombstones are best-effort */ }
 }
 
 function saveRoute(route) {
@@ -4433,7 +4458,7 @@ function pushRoutes() {
     coachFetch('/api/routes', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ routes: savedRoutes }),
+      body: JSON.stringify({ routes: savedRoutes, deleted: deletedRouteIds }),
     }).catch(() => { /* offline — the local copy is still source of truth */ });
   }, 800);
 }
@@ -4445,18 +4470,32 @@ async function pullRoutes() {
     if (!res.ok) return;
     const d = await res.json();
     if (!Array.isArray(d.routes)) return;
-    // Merge by id rather than overwrite: a route planned on the phone must not clobber
-    // one planned on the laptop before either has synced.
+    // Union the tombstones first (local + whatever the server carries) so a delete from any
+    // device wins over a copy still living on another. Then merge by id rather than
+    // overwrite — a route planned on the phone must not clobber one planned on the laptop
+    // before either has synced — and drop anything tombstoned.
+    const serverDeleted = (d.deleted && typeof d.deleted === 'object' && !Array.isArray(d.deleted)) ? d.deleted : {};
+    for (const [id, ts] of Object.entries(serverDeleted)) {
+      if (!(id in deletedRouteIds) || Number(ts) > Number(deletedRouteIds[id])) deletedRouteIds[id] = ts;
+    }
+    pruneTombstones();
     const byId = new Map();
-    [...d.routes, ...savedRoutes].forEach(r => { if (r?.id && !byId.has(r.id)) byId.set(r.id, r); });
+    [...d.routes, ...savedRoutes].forEach(r => {
+      if (r?.id && !byId.has(r.id) && !(r.id in deletedRouteIds)) byId.set(r.id, r);
+    });
     savedRoutes = [...byId.values()]
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
       .slice(0, ROUTES_MAX);
     persistRoutes();
     if (currentTab === 'routes') renderRoutes();
-    // Push the union back if this device held anything the server didn't.
+    // Push back if this device holds routes or tombstones the server hadn't seen — including
+    // a tombstone for a route the server still lists (that's how the delete propagates).
     const serverIds = new Set(d.routes.map(r => r?.id));
-    if (savedRoutes.some(r => !serverIds.has(r.id))) pushRoutes();
+    const serverHasRoute = (id) => serverIds.has(id);
+    const needsPush =
+      savedRoutes.some(r => !serverHasRoute(r.id)) ||
+      Object.keys(deletedRouteIds).some(id => !(id in serverDeleted) || serverHasRoute(id));
+    if (needsPush) pushRoutes();
   } catch (e) { /* offline / transient */ }
 }
 
@@ -4494,6 +4533,8 @@ function downloadSavedRoute(id) {
 function deleteRoute(id) {
   if (!confirm('Remove this route from your history?')) return;
   savedRoutes = savedRoutes.filter(x => x.id !== id);
+  deletedRouteIds[id] = Date.now(); // tombstone so the delete reaches the other devices
+  pruneTombstones();
   _geomCache.delete(id);
   if (_selectedRouteId === id) _selectedRouteId = null;
   persistRoutes();

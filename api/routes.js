@@ -17,8 +17,9 @@
 import { requireUser } from './_auth.js';
 import { kvGet, kvSet } from './_kv.js';
 
-const MAX_ROUTES = 30;        // mirrors the app's ROUTES_MAX
-const MAX_GEOM_CHARS = 60000; // ~25k points encoded — far beyond any real ride, but bounded
+const MAX_ROUTES = 30;         // mirrors the app's ROUTES_MAX
+const MAX_GEOM_CHARS = 60000;  // ~25k points encoded — far beyond any real ride, but bounded
+const MAX_TOMBSTONES = 200;    // mirrors the app's ROUTES_TOMBSTONE_MAX
 
 // Keep only known fields, coerced and length-capped, so a buggy or hostile client can't
 // grow the stored blob without limit.
@@ -34,6 +35,25 @@ function sanitize(r) {
   };
 }
 
+// Tombstones (id -> deletion timestamp ms) let a delete on one device propagate instead of
+// being undone by another device that still holds the route. Coerce, drop junk, cap to the
+// newest N so a client can't grow the blob without limit.
+function sanitizeDeleted(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return {};
+  const entries = Object.entries(d)
+    .map(([id, ts]) => [String(id).slice(0, 40), Number(ts) || 0])
+    .filter(([id, ts]) => id && ts > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_TOMBSTONES);
+  return Object.fromEntries(entries);
+}
+
+// KV historically held a bare routes array; it now holds { routes, deleted }. Read both.
+function unpack(stored) {
+  if (Array.isArray(stored)) return { routes: stored, deleted: {} };
+  return { routes: Array.isArray(stored?.routes) ? stored.routes : [], deleted: stored?.deleted || {} };
+}
+
 export default async function handler(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
@@ -42,18 +62,19 @@ export default async function handler(req, res) {
   const key = `routes:${user.id}`;
   try {
     if (req.method === 'GET') {
-      const routes = await kvGet(key);
-      res.status(200).json({ routes: Array.isArray(routes) ? routes : [] });
+      const { routes, deleted } = unpack(await kvGet(key));
+      res.status(200).json({ routes: Array.isArray(routes) ? routes : [], deleted: sanitizeDeleted(deleted) });
       return;
     }
     if (req.method === 'PUT' || req.method === 'POST') {
       const list = Array.isArray(req.body?.routes) ? req.body.routes : [];
+      const deleted = sanitizeDeleted(req.body?.deleted);
       const clean = list
-        .filter(r => r && r.id)
+        .filter(r => r && r.id && !(r.id in deleted)) // never store a route that's tombstoned
         .slice(0, MAX_ROUTES)
         .map(sanitize);
-      await kvSet(key, clean);
-      res.status(200).json({ ok: true, count: clean.length });
+      await kvSet(key, { routes: clean, deleted });
+      res.status(200).json({ ok: true, count: clean.length, tombstones: Object.keys(deleted).length });
       return;
     }
     res.status(405).json({ error: 'Method not allowed' });
