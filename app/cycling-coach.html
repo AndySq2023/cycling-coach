@@ -2400,6 +2400,50 @@ function renderDashboard() {
 // by both Strava backends (all prompt-facing fields stay 7-day). No top-level
 // state here: everything lives inside functions (see the STATE_POLL_MS TDZ bug).
 
+// ── PERFORMANCE DASHBOARD — goal-focused (London → Brighton) ──────────────────
+// Replaces the old coach-jargon charts (HR efficiency, ATL/CTL load curve). Every
+// card answers one plain readiness question for the event below, from the 90-day
+// Strava ride history alone (no power meter). Change GOAL_EVENT if the goal changes.
+const GOAL_EVENT = { name: 'London → Brighton', date: '2026-09-13', miles: 54, climbFt: 3500 };
+const FT_PER_M = 3.28084;
+
+function eventCountdown() {
+  const days = Math.ceil((Date.parse(GOAL_EVENT.date + 'T09:00:00Z') - Date.now()) / 86400000);
+  return { days, weeks: Math.max(0, Math.round(days / 7)), past: days < 0 };
+}
+
+// Monday-start week key for a YYYY-MM-DD date.
+function weekStartOf(ds) {
+  const d = new Date(ds + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+// Per-week ride rollup for the last nWeeks: total miles, longest single ride, biggest
+// single-ride climb, ride count and hours. Shared by the three bar charts.
+function weeklyRideStats(history, nWeeks) {
+  const thisWeek = weekStartOf(new Date().toISOString().slice(0, 10));
+  const weeks = [];
+  for (let i = nWeeks - 1; i >= 0; i--) {
+    weeks.push({ start: new Date(Date.parse(thisWeek) - i * 7 * 86400000).toISOString().slice(0, 10),
+      totalMi: 0, longestMi: 0, biggestClimbFt: 0, rides: 0, hours: 0 });
+  }
+  const idx = new Map(weeks.map((w, i) => [w.start, i]));
+  (history || []).forEach(r => {
+    const i = idx.get(weekStartOf(r.date));
+    if (i == null) return;
+    const distMi = (r.distance_km || 0) * 0.621371;
+    const w = weeks[i];
+    w.totalMi += distMi;
+    w.longestMi = Math.max(w.longestMi, distMi);
+    w.biggestClimbFt = Math.max(w.biggestClimbFt, (r.elevation_m || 0) * FT_PER_M);
+    w.hours += (r.moving_time_min || 0) / 60;
+    w.rides++;
+  });
+  weeks.thisWeek = thisWeek;
+  return weeks;
+}
+
 function renderCharts() {
   const el = document.getElementById('chartsContent');
   if (!el) return;
@@ -2407,7 +2451,7 @@ function renderCharts() {
   if (!st || !Array.isArray(st.history) || !st.history.length) {
     const msg = st
       ? 'This Strava backend doesn&#39;t return ride history yet — restart the proxy (or redeploy), then sync again.'
-      : 'Sync Strava to build your performance charts from the last 90 days of riding.';
+      : 'Sync Strava to build your London → Brighton readiness from the last 90 days of riding.';
     el.innerHTML = `
       <div class="dash-card" style="text-align:center;padding:40px 20px;">
         <div style="font-size:26px;margin-bottom:10px;">📊</div>
@@ -2416,8 +2460,13 @@ function renderCharts() {
       </div>`;
     return;
   }
-  const perRide = chartLoadModel(st.history, athleteData.whoop ? athleteData.whoop.rhr : null);
-  el.innerHTML = `<div class="chart-grid">${chartEfficiency(st.history)}${chartLoadCurve(perRide)}${chartWeekly(perRide)}</div>`;
+  const weeks = weeklyRideStats(st.history, 12);
+  el.innerHTML = `<div class="chart-grid">
+    ${chartDistanceReadiness(weeks)}
+    ${chartClimbReadiness(weeks)}
+    ${chartCountdownVolume(weeks)}
+    ${chartFinishTime(st.history)}
+  </div>`;
 }
 
 function chartCardShell(label, headHtml, legendHtml, svg, note) {
@@ -2428,35 +2477,6 @@ function chartCardShell(label, headHtml, legendHtml, svg, note) {
     ${svg}
     ${note ? `<div class="chart-note">${note}</div>` : ''}
   </div>`;
-}
-
-function chartMedian(arr) {
-  const s = [...arr].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-// Per-ride training load. Strava's suffer_score (Relative Effort — an HR-based
-// TRIMP) when present; else a Banister TRIMP from avg HR (verified same ballpark:
-// 69 est vs 59 actual on a real ride); rides with no HR at all get the median
-// load-per-minute of the known rides.
-function chartLoadModel(history, rhr) {
-  const rest = rhr || 60;
-  const hrmax = Math.max(180, ...history.map(r => (r.max_hr || 0) + 5));
-  const out = history.map(r => {
-    let load = null, est = false;
-    if (r.suffer_score != null) load = r.suffer_score;
-    else if (r.avg_hr && r.moving_time_min) {
-      const x = Math.min(0.95, Math.max(0.05, (r.avg_hr - rest) / (hrmax - rest)));
-      load = Math.round(r.moving_time_min * x * 0.64 * Math.exp(1.92 * x));
-      est = true;
-    }
-    return { ...r, load, est };
-  });
-  const known = out.filter(r => r.load != null && r.moving_time_min);
-  const perMin = known.length ? chartMedian(known.map(r => r.load / r.moving_time_min)) : 0.8;
-  out.forEach(r => { if (r.load == null) { r.load = Math.round((r.moving_time_min || 0) * perMin); r.est = true; } });
-  return out;
 }
 
 // "Nice" y-axis ticks (1/2/2.5/5 × 10^k steps) between min and max.
@@ -2475,184 +2495,120 @@ function chartYAxis(ticks, yOf, x0, x1, fmt) {
     <text x="${x0 - 7}" y="${(yOf(t) + 3.5).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmt(t)}</text>`).join('');
 }
 
-// Dashed vertical line + month label at each month boundary in [t0, t1].
-function chartMonthMarks(t0, t1, xOf, yTop, yBottom) {
-  const marks = [];
-  const d = new Date(t0);
-  d.setUTCHours(0, 0, 0, 0); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
-  for (; d.getTime() <= t1; d.setUTCMonth(d.getUTCMonth() + 1)) {
-    const x = xOf(d.getTime());
-    marks.push(`<line x1="${x.toFixed(1)}" y1="${yTop}" x2="${x.toFixed(1)}" y2="${yBottom}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 3"/>
-      <text x="${(x + 4).toFixed(1)}" y="${yBottom + 16}" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`);
-  }
-  return marks.join('');
-}
-
-// Chart 1 — HR ÷ speed per ride, the no-power efficiency proxy. Lower = fitter.
-// Flat-ride filter (≥30 min, ≤10 m climb/km) keeps terrain noise out.
-function chartEfficiency(history) {
-  const label = 'HR efficiency trend · MVP';
-  const rows = history.filter(r =>
-    r.avg_hr && r.avg_speed_kph && r.distance_km > 3 && (r.moving_time_min || 0) >= 30 &&
-    ((r.elevation_m || 0) / r.distance_km) <= 10);
-  if (rows.length < 3) {
-    return chartCardShell(label, '', '',
-      '',
-      `Need 3+ steady rides with heart rate to draw a trend — ${rows.length} of ${history.length} synced rides qualify (≥30 min, ≤10 m climb/km).`);
-  }
-  const pts = rows.map(r => ({ t: Date.parse(r.date), v: r.avg_hr / (r.avg_speed_kph * 0.621371), r }));
-  const n = pts.length;
-  const xs = pts.map(p => (p.t - pts[0].t) / 86400000);
-  const ys = pts.map(p => p.v);
-  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
-  const denom = xs.reduce((s, x) => s + (x - mx) * (x - mx), 0) || 1;
-  const slope = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0) / denom;
-  const fit = x => my + slope * (x - mx);
-
-  const pct = fit(0) ? ((fit(xs[n - 1]) - fit(0)) / fit(0)) * 100 : 0;
-  const better = pct < -0.5, worse = pct > 0.5;
-  const head = `<div class="chart-big">${ys[n - 1].toFixed(1)}<span class="u">bpm/mph · latest</span></div>
-    <span class="chart-delta ${better ? 'good' : worse ? 'bad' : ''}">${better ? '▼' : worse ? '▲' : '◆'} ${Math.abs(pct).toFixed(1)}% over ${Math.round(xs[n - 1])} days ${better ? '· improving' : worse ? '· drifting up' : '· flat'}</span>`;
-
-  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
-  const t0 = pts[0].t, t1 = pts[n - 1].t || t0 + 1;
-  const vmin = Math.min(...ys), vmax = Math.max(...ys);
-  const vpad = (vmax - vmin) * 0.15 || 0.5;
-  const xOf = t => padL + ((t - t0) / (t1 - t0 || 1)) * (W - padL - padR);
-  const yOf = v => padT + (1 - (v - (vmin - vpad)) / ((vmax + vpad) - (vmin - vpad))) * (H - padT - padB);
-  const { ticks, step } = chartTicks(vmin - vpad, vmax + vpad, 4);
-
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.t).toFixed(1)} ${yOf(p.v).toFixed(1)}`).join(' ');
-  const dots = pts.map(p => `<circle cx="${xOf(p.t).toFixed(1)}" cy="${yOf(p.v).toFixed(1)}" r="3.5" fill="var(--accent)"><title>${p.r.date} · ${p.v.toFixed(2)} bpm/mph · ${Math.round(p.r.avg_hr)} bpm @ ${mi(p.r.avg_speed_kph)} mph</title></circle>`).join('');
-  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    ${chartYAxis(ticks, yOf, padL, W - padR, t => step < 1 ? t.toFixed(1) : Math.round(t))}
-    ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
-    <line x1="${xOf(t0).toFixed(1)}" y1="${yOf(fit(0)).toFixed(1)}" x2="${xOf(t1).toFixed(1)}" y2="${yOf(fit(xs[n - 1])).toFixed(1)}" stroke="var(--text-mid)" stroke-width="2" stroke-dasharray="6 5"/>
-    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.35"/>
-    ${dots}
-  </svg>`;
-  return chartCardShell(label, head, '', svg,
-    `Avg HR ÷ avg speed per steady ride (≥30 min, ≤10 m climb/km — ${rows.length} of ${history.length} rides). Dashed line = trend; lower = a stronger aerobic engine.`);
-}
-
-// Chart 2 — classic fitness (CTL, 42d) vs fatigue (ATL, 7d) exponentially-weighted
-// load curve. Seeded with the first 28 days then hidden, so the warm-up bias
-// doesn't show.
-function chartLoadCurve(perRide) {
-  const label = 'Fitness vs fatigue · ATL / CTL · MVP';
-  const byDay = new Map();
-  perRide.forEach(r => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.load || 0)));
-  const DAYS = 90, WARM = 28;
-  const days = [];
-  for (let i = DAYS - 1; i >= 0; i--) {
-    const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    days.push({ date, t: Date.parse(date), load: byDay.get(date) || 0 });
-  }
-  let atl = days.slice(0, WARM).reduce((s, d) => s + d.load, 0) / WARM, ctl = atl;
-  days.forEach(d => {
-    atl += (d.load - atl) / 7;
-    ctl += (d.load - ctl) / 42;
-    d.atl = atl; d.ctl = ctl;
-  });
-  const view = days.slice(WARM);
-  const last = view[view.length - 1];
-  const tsb = last.ctl - last.atl;
-  let word = 'Neutral', cls = '';
-  if (tsb >= 5) { word = 'Fresh'; cls = 'good'; }
-  else if (tsb < -30) { word = 'Overreaching'; cls = 'bad'; }
-  else if (tsb < -10) { word = 'Productive fatigue'; cls = 'warn'; }
-  const head = `<div class="chart-big">${tsb >= 0 ? '+' : '−'}${Math.abs(Math.round(tsb))}<span class="u">form · CTL − ATL</span></div>
-    <span class="chart-delta ${cls}">${word} · fitness ${Math.round(last.ctl)} · fatigue ${Math.round(last.atl)}</span>`;
-  const legend = `<span><i style="background:var(--accent)"></i>CTL · fitness (42-day)</span><span><i style="background:var(--warn)"></i>ATL · fatigue (7-day)</span>`;
-
-  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
-  const t0 = view[0].t, t1 = last.t;
-  const ymax = Math.max(10, ...view.map(d => Math.max(d.atl, d.ctl))) * 1.2;
-  const xOf = t => padL + ((t - t0) / (t1 - t0 || 1)) * (W - padL - padR);
-  const yOf = v => padT + (1 - v / ymax) * (H - padT - padB);
-  const { ticks } = chartTicks(0, ymax, 4);
-  const pathOf = key => view.map((d, i) => `${i ? 'L' : 'M'}${xOf(d.t).toFixed(1)} ${yOf(d[key]).toFixed(1)}`).join(' ');
-  const ctlPath = pathOf('ctl');
-  const estCount = perRide.filter(r => r.est).length;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
-    ${chartMonthMarks(t0, t1, xOf, padT, H - padB)}
-    <path d="${ctlPath} L${xOf(t1).toFixed(1)} ${yOf(0).toFixed(1)} L${xOf(t0).toFixed(1)} ${yOf(0).toFixed(1)} Z" fill="var(--accent)" opacity="0.10"/>
-    <path d="${ctlPath}" fill="none" stroke="var(--accent)" stroke-width="2.5"><title>CTL — 42-day fitness</title></path>
-    <path d="${pathOf('atl')}" fill="none" stroke="var(--warn)" stroke-width="2"><title>ATL — 7-day fatigue</title></path>
-    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.ctl).toFixed(1)}" r="4" fill="var(--accent)"><title>CTL ${Math.round(last.ctl)}</title></circle>
-    <circle cx="${xOf(t1).toFixed(1)}" cy="${yOf(last.atl).toFixed(1)}" r="4" fill="var(--warn)"><title>ATL ${Math.round(last.atl)}</title></circle>
-  </svg>`;
-  return chartCardShell(label, head, legend, svg,
-    `Daily load = Strava Relative Effort${estCount ? ` (TRIMP estimate for ${estCount} ride${estCount > 1 ? 's' : ''} without it)` : ''}. Form ≥ +5 fresh · −10 to −30 productive · below −30 overreaching.`);
-}
-
-// Chart 3 — weekly load bars with a 4-week rolling average. The often-cited ramp
-// guide is ≲ +10% week-on-week; the 4-week line stops one odd week reading as a trend.
-function chartWeekly(perRide) {
-  const label = 'Weekly volume &amp; TSS proxy · MVP';
-  const weekOf = ds => {
-    const d = new Date(ds + 'T12:00:00Z');
-    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-    return d.toISOString().slice(0, 10);
-  };
-  const thisWeek = weekOf(new Date().toISOString().slice(0, 10));
-  const weeks = [];
-  for (let i = 11; i >= 0; i--) {
-    weeks.push({ start: new Date(Date.parse(thisWeek) - i * 7 * 86400000).toISOString().slice(0, 10), load: 0, min: 0, km: 0, rides: 0 });
-  }
-  const idx = new Map(weeks.map((w, i) => [w.start, i]));
-  perRide.forEach(r => {
-    const i = idx.get(weekOf(r.date));
-    if (i == null) return;
-    weeks[i].load += r.load || 0; weeks[i].min += r.moving_time_min || 0;
-    weeks[i].km += r.distance_km || 0; weeks[i].rides++;
-  });
-  weeks.forEach((w, i) => {
-    const s = weeks.slice(Math.max(0, i - 3), i + 1);
-    w.avg = s.reduce((a, x) => a + x.load, 0) / s.length;
-  });
-
-  const cur = weeks[weeks.length - 1];
-  const prev4 = weeks.slice(-5, -1);
-  const prevAvg = prev4.reduce((a, x) => a + x.load, 0) / (prev4.length || 1);
-  const pct = prevAvg ? ((cur.load - prevAvg) / prevAvg) * 100 : 0;
-  let cls = '', word = 'on trend';
-  if (pct > 25) { cls = 'bad'; word = 'big jump — watch the ramp'; }
-  else if (pct > 10) { cls = 'warn'; word = 'above the ~10% ramp guide'; }
-  else if (pct >= -15) { cls = 'good'; }
-  else { word = 'light week'; }
-  const head = `<div class="chart-big">${Math.round(cur.load)}<span class="u">load this week (so far)</span></div>
-    <span class="chart-delta ${cls}">${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(0)}% vs prior 4-week avg · ${word}</span>`;
-  const legend = `<span><i style="background:var(--accent)"></i>weekly load</span><span><i style="background:var(--text)"></i>4-week rolling avg</span>`;
-
-  const W = 720, H = 240, padL = 46, padR = 16, padT = 14, padB = 30;
+// Shared weekly bar chart for the readiness cards. valOf(week) → bar height; optional
+// dashed target line (the event demand) and a 4-week rolling-average line.
+function weeklyBarSvg(weeks, valOf, opts = {}) {
+  const { targetVal = null, unit = '', rollingAvg = false, fmt = v => Math.round(v) } = opts;
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 16, padB = 30;
   const plotW = W - padL - padR;
-  const ymax = Math.max(10, ...weeks.map(w => Math.max(w.load, w.avg))) * 1.15;
+  const ymax = Math.max(1, targetVal ? targetVal * 1.15 : 0, ...weeks.map(w => valOf(w) * 1.1));
   const yOf = v => padT + (1 - v / ymax) * (H - padT - padB);
   const slotW = plotW / weeks.length, barW = slotW * 0.58;
   const xMid = i => padL + slotW * (i + 0.5);
   const { ticks } = chartTicks(0, ymax, 4);
   const fmtWk = ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-
   const bars = weeks.map((w, i) => {
-    const partial = w.start === thisWeek;
-    const h = Math.max(0, yOf(0) - yOf(w.load));
-    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(w.load).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4"
-      fill="var(--accent)" opacity="${partial ? '0.35' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}>
-      <title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · load ${Math.round(w.load)} · ${w.rides} ride${w.rides === 1 ? '' : 's'} · ${(w.min / 60).toFixed(1)}h · ${mi(w.km)}mi</title></rect>`;
+    const v = valOf(w), partial = w.start === weeks.thisWeek;
+    const h = Math.max(0, yOf(0) - yOf(v));
+    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.4' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
   }).join('');
+  const target = targetVal ? `<line x1="${padL}" y1="${yOf(targetVal).toFixed(1)}" x2="${W - padR}" y2="${yOf(targetVal).toFixed(1)}" stroke="var(--danger)" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="${W - padR}" y="${(yOf(targetVal) - 6).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--danger)">${fmt(targetVal)}${unit} · the day</text>` : '';
+  let avg = '';
+  if (rollingAvg) {
+    const line = weeks.map((w, i) => {
+      const s = weeks.slice(Math.max(0, i - 3), i + 1);
+      const a = s.reduce((x, y) => x + valOf(y), 0) / s.length;
+      return `${i ? 'L' : 'M'}${xMid(i).toFixed(1)} ${yOf(a).toFixed(1)}`;
+    }).join(' ');
+    avg = `<path d="${line}" fill="none" stroke="var(--text)" stroke-width="2"/>`;
+  }
   const xLabels = weeks.map((w, i) => i % 2 === (weeks.length - 1) % 2
     ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmtWk(w.start)}</text>` : '').join('');
-  const avgLine = weeks.map((w, i) => `${i ? 'L' : 'M'}${xMid(i).toFixed(1)} ${yOf(w.avg).toFixed(1)}`).join(' ');
-  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
-    ${chartYAxis(ticks, yOf, padL, W - padR, t => Math.round(t))}
-    ${bars}
-    <path d="${avgLine}" fill="none" stroke="var(--text)" stroke-width="2"><title>4-week rolling average</title></path>
-    ${xLabels}
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, t => fmt(t))}
+    ${bars}${target}${avg}${xLabels}
   </svg>`;
-  return chartCardShell(label, head, legend, svg,
-    'Weekly load score (same TRIMP-style series as the curve above) · hatched bar = current week in progress. Guide: grow ≲ 10% week-on-week.');
+}
+
+// Chart 1 — can I go the distance? Longest ride each week vs the event distance.
+function chartDistanceReadiness(weeks) {
+  const label = `Can I go the distance? · ${GOAL_EVENT.miles} miles`;
+  const longest = Math.max(0, ...weeks.map(w => w.longestMi));
+  const gap = GOAL_EVENT.miles - longest;
+  const ready = gap <= 0, close = gap > 0 && gap <= 12;
+  const head = `<div class="chart-big">${longest.toFixed(0)}<span class="u">mi · longest ride (12 wks)</span></div>
+    <span class="chart-delta ${ready ? 'good' : close ? 'warn' : 'bad'}">${ready ? '✓ you\'ve gone the distance' : `${gap.toFixed(0)} mi short of the day`}</span>`;
+  const svg = weeklyBarSvg(weeks, w => w.longestMi, { targetVal: GOAL_EVENT.miles, unit: ' mi' });
+  const note = ready
+    ? `Your longest ride already matches the ${GOAL_EVENT.miles}-mile day — now it's about doing it comfortably, with the climbing on tired legs.`
+    : `Bars = your longest single ride each week; dashed line = the ${GOAL_EVENT.miles}-mile event. Build your long ride up gradually — ideally past ~45 mi before the day so 54 isn't a shock.`;
+  return chartCardShell(label, head, '', svg, note);
+}
+
+// Chart 2 — can I handle the hills? Biggest single-ride climb each week vs the day's total.
+function chartClimbReadiness(weeks) {
+  const label = `Can I handle the hills? · ${GOAL_EVENT.climbFt.toLocaleString()} ft`;
+  const biggest = Math.max(0, ...weeks.map(w => w.biggestClimbFt));
+  const gap = GOAL_EVENT.climbFt - biggest;
+  const ready = gap <= 0, close = gap > 0 && gap <= 1000;
+  const head = `<div class="chart-big">${Math.round(biggest).toLocaleString()}<span class="u">ft · biggest climb (12 wks)</span></div>
+    <span class="chart-delta ${ready ? 'good' : close ? 'warn' : 'bad'}">${ready ? '✓ matched the day\'s climbing' : `${Math.round(gap).toLocaleString()} ft below the day`}</span>`;
+  const svg = weeklyBarSvg(weeks, w => w.biggestClimbFt, { targetVal: GOAL_EVENT.climbFt, unit: ' ft', fmt: v => Math.round(v).toLocaleString() });
+  const note = `Bars = the most climbing in a single ride each week; dashed line = the ~${GOAL_EVENT.climbFt.toLocaleString()} ft the route climbs (it saves Ditchling Beacon — short and brutally steep — for the end). This counts total climbing, not steepness, so also get a proper steep hill in your legs before the day.`;
+  return chartCardShell(label, head, '', svg, note);
+}
+
+// Chart 3 — am I doing enough, in time? Weekly miles + countdown to the event.
+function chartCountdownVolume(weeks) {
+  const { weeks: wtg, past } = eventCountdown();
+  const eventStr = new Date(GOAL_EVENT.date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const label = `Am I doing enough, in time? · ${eventStr}`;
+  const cur = weeks[weeks.length - 1];
+  const prev4 = weeks.slice(-5, -1);
+  const prevAvg = prev4.reduce((a, w) => a + w.totalMi, 0) / (prev4.length || 1);
+  const pct = prevAvg ? ((cur.totalMi - prevAvg) / prevAvg) * 100 : 0;
+  let cls = '', word = 'on trend';
+  if (pct > 30) { cls = 'warn'; word = 'big jump — don\'t ramp too fast'; }
+  else if (pct >= -15) { cls = 'good'; word = pct >= 0 ? 'building nicely' : 'steady'; }
+  else { word = 'lighter week'; }
+  const head = `<div class="chart-big">${past ? '—' : wtg}<span class="u">${past ? 'event has passed' : 'weeks to go'}</span></div>
+    <span class="chart-delta ${cls}">${Math.round(cur.totalMi)} mi this week · ${word}</span>`;
+  const legend = `<span><i style="background:var(--accent)"></i>miles per week</span><span><i style="background:var(--text)"></i>4-week average</span>`;
+  const svg = weeklyBarSvg(weeks, w => w.totalMi, { unit: ' mi', rollingAvg: true });
+  const note = `Bars = total miles each week (hatched = this week so far); line = your 4-week average. With ${past ? 'the event behind you' : wtg + ' weeks to go'}, a steady build of roughly 10% a week — with an easier week every 3rd or 4th — sets you up without overcooking it.`;
+  return chartCardShell(label, head, legend, svg, note);
+}
+
+// Chart 4 — how long will it take? Event distance ÷ recent sustained pace.
+function chartFinishTime(history) {
+  const label = `How long will the ${GOAL_EVENT.miles} miles take?`;
+  const cutoff = new Date(Date.now() - 42 * 86400000).toISOString().slice(0, 10);
+  const recent = history.filter(r => r.date >= cutoff && r.distance_km > 3 && r.moving_time_min > 0);
+  const src = recent.length >= 2 ? recent : history.filter(r => r.distance_km > 3 && r.moving_time_min > 0);
+  const totKm = src.reduce((a, r) => a + r.distance_km, 0);
+  const totH = src.reduce((a, r) => a + (r.moving_time_min || 0) / 60, 0);
+  if (!totH || !src.length) {
+    return chartCardShell(label, '', '', '', 'Sync a few rides with time data and I\'ll project your finish time from your pace.');
+  }
+  const mph = (totKm * 0.621371) / totH;
+  const ridingH = GOAL_EVENT.miles / mph;
+  const withStops = ridingH * 1.3;
+  const fmtHM = h => { const m = Math.round(h * 60); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
+  const head = `<div class="chart-big">${fmtHM(ridingH)}<span class="u">in the saddle · at ${mph.toFixed(1)} mph</span></div>
+    <span class="chart-delta">≈ ${fmtHM(withStops)} door to door</span>`;
+  // Simple split bar: riding time vs the ~30% added for stops.
+  const W = 720, H = 58, padX = 8, y = 12, bh = 22;
+  const plotW = W - padX * 2;
+  const ridingW = (ridingH / withStops) * plotW;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="${padX}" y="${y}" width="${plotW}" height="${bh}" rx="6" fill="var(--surface2)"/>
+    <rect x="${padX}" y="${y}" width="${ridingW.toFixed(1)}" height="${bh}" rx="6" fill="var(--accent)"><title>Riding ${fmtHM(ridingH)}</title></rect>
+    <text x="${padX + 10}" y="${y + bh + 18}" font-family="DM Mono,monospace" font-size="11" fill="var(--accent)">riding ${fmtHM(ridingH)}</text>
+    <text x="${W - padX}" y="${y + bh + 18}" text-anchor="end" font-family="DM Mono,monospace" font-size="11" fill="var(--text-muted)">+ stops ≈ ${fmtHM(withStops)} total</text>
+  </svg>`;
+  const note = `From your average speed over the last ${recent.length >= 2 ? '6 weeks' : '90 days'} (${src.length} rides, ${mph.toFixed(1)} mph). "Door to door" adds ~30% for food stops, queues and the Ditchling walk-ups — a planning figure, not a race time.`;
+  return chartCardShell(label, head, '', svg, note);
 }
 
 // ── WHOOP LIVE SYNC ────────────────────────────────────────
