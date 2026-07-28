@@ -6,24 +6,24 @@
 <title>Cycling Coach</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;450;500;600&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    /* Daybreak — bright editorial light theme */
-    --bg: #F1EDE4;          /* cream canvas */
+    /* Editorial — cobalt accent on warm paper (design handoff) */
+    --bg: #F5F3EC;          /* warm paper canvas */
     --surface: #ffffff;     /* white cards & panels */
     --surface2: #f4f0e7;    /* cream-tinted inset */
     --border: #e6e0d3;      /* warm hairline */
-    --accent: #FF5A1F;      /* daybreak orange */
-    --accent-dim: #d8480f;  /* darker orange for text on light */
+    --accent: #2E5BD8;      /* cobalt */
+    --accent-dim: #234FBF;  /* deep cobalt for text on light */
     --text: #1a1812;        /* warm near-black */
     --text-muted: #8c8676;  /* warm grey */
     --text-mid: #6b6557;    /* mid warm grey */
     --coach-bubble: #ffffff;/* coach bubble white */
-    --user-bubble: #FF5A1F; /* user bubble orange */
-    --user-text: #ffffff;   /* text on orange */
+    --user-bubble: #2E5BD8; /* user bubble cobalt */
+    --user-text: #ffffff;   /* text on cobalt */
     --danger: #D64A3A;
     --warn: #E0892B;
     --good: #2E7D52;        /* easy / Z2 / positive green */
@@ -31,6 +31,18 @@
     --band-easy: #3B7DD8;
     --band-med: #E0892B;
     --band-hard: #D64A3A;
+    /* Editorial redesign tokens (oklch, per design handoff) */
+    --acc: oklch(52% 0.21 258);        /* cobalt accent blocks / buttons */
+    --on-acc: oklch(99% 0 0);          /* text on accent */
+    --acc-deep: oklch(46% 0.19 258);   /* accent text / links / underline */
+    --acc-wash: oklch(52% 0.21 258 / 0.12);
+    --pos: oklch(44% 0.02 265);        /* positive deltas — neutral, not green */
+    --neg: oklch(55% 0.18 30);         /* negative deltas / warnings */
+    --ink: oklch(17% 0.012 265);       /* editorial display ink */
+    --meta: oklch(56% 0.01 265);       /* faint meta text */
+    --label: oklch(46% 0.012 265);     /* uppercase labels */
+    --hair: oklch(89% 0.005 95);       /* editorial hairline */
+    --inset: oklch(99% 0.003 95);      /* inset panels */
   }
 
   body {
@@ -43,45 +55,48 @@
     overflow: hidden;
   }
 
-  /* TOP BAR */
+  /* TOP BAR — light editorial (design handoff) */
   header {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 14px 20px;
-    border-bottom: 1px solid #2a2720;
-    background: var(--panel-dark);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--hair);
+    background: oklch(97% 0.006 95 / 0.9);
+    backdrop-filter: blur(18px) saturate(1.4);
     flex-shrink: 0;
   }
 
   .avatar {
-    width: 38px; height: 38px;
-    border-radius: 50%;
-    background: var(--accent);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px;
+    width: 10px; height: 24px;
+    border-radius: 0;
+    background: var(--acc);
     flex-shrink: 0;
+    font-size: 0;
   }
 
   .header-info { flex: 1; }
   .header-name {
-    font-family: 'Bricolage Grotesque', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
     font-size: 15px;
-    color: #F1EDE4;
-    letter-spacing: 0.02em;
+    color: var(--ink);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
   }
   .header-status {
     font-size: 11px;
-    color: var(--accent);
-    display: flex; align-items: center; gap: 5px;
-    margin-top: 2px;
+    color: var(--label);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 3px;
   }
   .status-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
-    background: var(--accent);
-    animation: pulse 2s infinite;
+    background: var(--pos);
+    animation: pulse 2.4s infinite;
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -91,17 +106,20 @@
   .header-actions { display: flex; gap: 8px; align-items: center; }
 
   .data-panel-toggle {
-    font-family: 'DM Mono', monospace;
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 11px;
-    color: #c9c2b2;
-    background: #24211a;
-    border: 1px solid #34302700;
-    padding: 5px 10px;
-    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-mid);
+    background: none;
+    border: 1px solid var(--hair);
+    padding: 8px 14px;
+    border-radius: 0;
     cursor: pointer;
     transition: all 0.15s;
   }
-  .data-panel-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .data-panel-toggle:hover { color: var(--acc-deep); border-color: var(--acc-deep); }
 
   /* MAIN LAYOUT */
   .main {
@@ -110,18 +128,33 @@
     overflow: hidden;
   }
 
-  /* DATA PANEL */
+  /* DATA PANEL — overlay drawer at all widths (editorial: content is full-bleed,
+     sync/data live behind the "My Data" toggle, mirroring the design's top-bar model). */
   .data-panel {
-    width: 280px;
-    border-right: 1px solid var(--border);
+    position: fixed;
+    top: 0; left: 0;
+    width: 320px;
+    height: 100dvh;
+    border-right: 1px solid var(--hair);
     background: var(--surface);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: width 0.25s ease;
+    transform: translateX(0);
+    transition: transform 0.25s ease;
+    z-index: 50;
+    box-shadow: 2px 0 30px rgba(20,18,14,0.14);
     flex-shrink: 0;
   }
-  .data-panel.collapsed { width: 0; }
+  .data-panel.collapsed { transform: translateX(-100%); box-shadow: none; }
+  .data-panel-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20,18,14,0.32);
+    z-index: 49;
+  }
+  .data-panel-backdrop.show { display: block; }
 
   .data-panel-inner {
     padding: 16px;
@@ -248,21 +281,25 @@
   .tab-bar::-webkit-scrollbar { display: none; }
   .tab-bar > .tab-btn { flex: 0 0 auto; }
   .tab-btn {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    padding: 6px 14px;
-    border-radius: 20px;
-    border: 1px solid transparent;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 6px 2px;
+    margin: 0 8px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
     background: none;
-    color: var(--text-muted);
+    color: var(--meta);
     cursor: pointer;
     transition: all 0.15s;
     white-space: nowrap;
   }
-  .tab-btn:hover { color: var(--text-mid); }
-  .tab-btn.active { background: var(--accent); color: var(--user-text); }
+  .tab-btn:first-of-type { margin-left: 4px; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { background: none; color: var(--acc-deep); border-bottom-color: var(--acc-deep); }
 
   /* CHAT AREA */
   .chat-area {
@@ -567,10 +604,10 @@
   .schedule-view {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: 32px 32px 44px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
   }
   .schedule-view.hidden,
   .bands-view.hidden { display: none; }
@@ -582,61 +619,66 @@
 
   .schedule-header {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 12px;
+    margin-bottom: 22px;
   }
   .schedule-header-left h2 {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: 15px;
-    font-weight: 800;
-    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(28px, 4.2vw, 46px);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    color: var(--ink);
   }
   .schedule-header-left p {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--meta);
+    margin-top: 10px;
+    max-width: 640px;
   }
-  .schedule-header-actions { display: flex; gap: 6px; }
+  .schedule-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
   .gen-btn {
-    font-family: 'Bricolage Grotesque', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 11px;
-    font-weight: 700;
-    padding: 7px 14px;
-    border-radius: 4px;
-    border: none;
+    font-weight: 600;
+    padding: 11px 20px;
+    border-radius: 0;
+    border: 1px solid transparent;
     cursor: pointer;
     transition: all 0.15s;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
-  .gen-btn.primary { background: var(--accent); color: var(--user-text); }
-  .gen-btn.primary:hover { opacity: 0.85; }
-  .gen-btn.secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--text-mid); }
-  .gen-btn.secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .gen-btn.primary { background: var(--acc); color: var(--on-acc); border-color: var(--acc); }
+  .gen-btn.primary:hover { filter: brightness(1.06); }
+  .gen-btn.secondary { background: none; border: 1px solid var(--hair); color: var(--text-mid); }
+  .gen-btn.secondary:hover { border-color: var(--acc-deep); color: var(--acc-deep); }
   .gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* TEAM (master user only) */
   .team-view {
     flex: 1;
     overflow-y: auto;
-    padding: 16px;
+    padding: 32px 32px 44px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
   }
   .team-view.hidden { display: none; }
   .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-  .team-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .team-card { background: var(--surface); border: 1px solid var(--hair); border-radius: 6px; padding: 20px 22px; display: flex; flex-direction: column; gap: 9px; }
   .team-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .team-card-name { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 14px; color: var(--text); }
-  .team-role-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-mid); }
-  .team-role-badge.master { background: var(--panel-dark); color: #F1EDE4; border-color: var(--panel-dark); }
-  .team-metric { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 11.5px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+  .team-card-name { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--ink); }
+  .team-role-badge { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px; border-radius: 0; background: var(--inset); border: 1px solid var(--hair); color: var(--label); }
+  .team-role-badge.master { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .team-metric { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12px; padding: 5px 0; border-bottom: 1px solid oklch(93% 0.004 95); }
   .team-metric:last-of-type { border-bottom: none; }
-  .team-metric .lbl { color: var(--text-muted); flex-shrink: 0; }
-  .team-metric .val { font-family: 'DM Mono', monospace; font-weight: 500; color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-metric .lbl { color: var(--label); flex-shrink: 0; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .team-metric .val { font-family: 'Space Grotesk', sans-serif; font-weight: 600; color: var(--ink); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .team-metric .val.good { color: var(--good); }
   .team-metric .val.warn { color: var(--warn); }
   .team-metric .val.bad { color: var(--danger); }
@@ -669,19 +711,19 @@
 
   .session-card {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 11px;
     transition: border-color 0.15s;
     animation: slideIn 0.2s ease;
   }
-  .session-card:hover { border-color: #d8cfbd; }
-  .session-card.completed { opacity: 0.7; border-style: dashed; }
-  .session-card.rest-day { background: var(--bg); }
-  .session-card.today { border-color: var(--accent); }
+  .session-card:hover { border-color: var(--acc-deep); }
+  .session-card.completed { opacity: 0.6; }
+  .session-card.rest-day { background: oklch(95% 0.006 95); border-color: oklch(91% 0.005 95); }
+  .session-card.today { border-color: var(--acc); background: linear-gradient(120deg, var(--acc-wash), transparent 55%); }
 
   .session-card-top {
     display: flex;
@@ -711,11 +753,13 @@
   .session-intensity-dot.rest { background: var(--text-muted); }
 
   .session-type {
-    font-family: 'Bricolage Grotesque', sans-serif;
-    font-size: 14px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 19px;
     font-weight: 700;
-    color: var(--text);
+    letter-spacing: -0.02em;
+    color: var(--ink);
     flex: 1;
+    margin-top: 4px;
   }
 
   .session-meta {
@@ -1104,7 +1148,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── TODAY DASHBOARD ──────────────────────────── */
-  .dashboard-view { flex:1; overflow-y:auto; padding:18px 16px 30px; }
+  .dashboard-view { flex:1; overflow-y:auto; padding:36px 32px 44px; }
   .dashboard-view.hidden { display:none; }
   .dashboard-view::-webkit-scrollbar { width:4px; }
   .dashboard-view::-webkit-scrollbar-track { background:transparent; }
@@ -1116,8 +1160,8 @@
   .dash-greeting .accent { color:var(--accent); }
   .dash-date { font-family:'DM Mono',monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted); white-space:nowrap; flex-shrink:0; }
 
-  .dash-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px; }
-  .dash-card-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-muted); }
+  .dash-card { background:var(--surface); border:1px solid var(--hair); border-radius:6px; padding:24px; }
+  .dash-card-label { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--label); }
 
   /* Morning briefing — generated once on the first open of each day. Replaces the
      old Telegram cron briefing; same content, delivered in-app. */
@@ -1159,7 +1203,7 @@
   .today-desc { font-size:13px; line-height:1.55; color:#c4bdb0; margin-top:13px; max-width:460px; position:relative; }
   .today-card.rest .today-desc, .today-card.empty .today-desc { color:var(--text-mid); }
   .today-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin-top:18px; position:relative; }
-  .dash-btn { font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:13px; border-radius:10px; padding:10px 18px; border:none; cursor:pointer; transition:all 0.15s; letter-spacing:0.02em; }
+  .dash-btn { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12px; border-radius:0; padding:12px 22px; border:1px solid transparent; cursor:pointer; transition:all 0.15s; letter-spacing:0.1em; text-transform:uppercase; }
   .dash-btn.primary { background:var(--accent); color:#fff; }
   .dash-btn.primary:hover { opacity:0.88; }
   .dash-btn.ghost { background:transparent; color:#e7e1d4; border:1px solid rgba(255,255,255,0.22); }
@@ -1198,14 +1242,106 @@
   .glance-temp { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:42px; line-height:1; letter-spacing:-0.03em; color:#1a1812; }
   .glance-wx-meta { display:flex; flex-direction:column; gap:3px; font-family:'DM Mono',monospace; font-size:12px; color:#7a6a3e; }
 
+  /* ── EDITORIAL TODAY (design handoff) ───────────────────────── */
+  .ed-today { font-family:'Inter',-apple-system,sans-serif; font-feature-settings:"tnum" 1; color:var(--ink); max-width:1180px; margin:0 auto; }
+  .ed-hero { display:grid; grid-template-columns:auto 1fr; gap:40px; align-items:center; margin-bottom:20px; }
+  .ed-num { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:clamp(84px,13vw,168px); letter-spacing:-0.06em; line-height:0.78; color:var(--ink); }
+  .ed-num.nodata { font-size:clamp(40px,6vw,64px); color:var(--meta); letter-spacing:-0.02em; }
+  .ed-num-meta { display:flex; align-items:center; flex-wrap:wrap; gap:10px 14px; margin-top:16px; }
+  .ed-kicker { font-size:11px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:var(--label); }
+  .ed-kicker.faint { color:var(--meta); }
+  .ed-eyebrow { font-size:11px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:var(--meta); margin-bottom:16px; }
+  .ed-headline { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:clamp(30px,4.4vw,50px); letter-spacing:-0.04em; line-height:1.03; text-wrap:balance; margin-bottom:22px; }
+  .ed-headline .dim { color:var(--meta); }
+  .ed-btns { display:flex; gap:10px; flex-wrap:wrap; }
+  .ed-btn { font-family:'Inter',sans-serif; font-size:13px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:14px 28px; border:1px solid var(--acc-deep); background:none; color:var(--acc-deep); cursor:pointer; border-radius:0; transition:all .15s; }
+  .ed-btn.primary { background:var(--acc); border-color:var(--acc); color:var(--on-acc); }
+  .ed-btn.primary:hover { filter:brightness(1.06); }
+  .ed-btn.ghost { border-color:var(--hair); color:var(--text-mid); font-weight:600; }
+  .ed-btn.ghost:hover { border-color:var(--acc-deep); color:var(--acc-deep); }
+
+  .ed-read { background:var(--acc); color:var(--on-acc); border-radius:4px; padding:30px 34px; margin-bottom:20px; display:grid; grid-template-columns:1fr 300px; gap:40px; align-items:center; }
+  .ed-read.solo { grid-template-columns:1fr; }
+  .ed-read-label { font-size:11px; font-weight:700; letter-spacing:0.16em; text-transform:uppercase; opacity:0.6; margin-bottom:14px; }
+  .ed-read-body { font-size:21px; line-height:1.45; font-weight:450; letter-spacing:-0.015em; text-wrap:pretty; }
+  .ed-read-body b, .ed-read-body strong { font-weight:700; }
+  .ed-read-body p { margin:0 0 8px; } .ed-read-body p:last-child { margin:0; }
+  .ed-spark-head { display:flex; justify-content:space-between; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; opacity:0.6; margin-bottom:10px; }
+  .ed-spark svg { width:100%; height:60px; display:block; }
+  .ed-spark-foot { font-size:11px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; opacity:0.6; margin-top:8px; }
+
+  .ed-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--surface); border:1px solid var(--hair); border-radius:6px; margin-bottom:20px; overflow:hidden; }
+  .ed-cell { padding:20px 24px; border-right:1px solid oklch(91% 0.005 95); }
+  .ed-cell:last-child { border-right:none; }
+  .ed-cell-label { font-size:11px; font-weight:600; letter-spacing:0.11em; text-transform:uppercase; color:var(--label); margin-bottom:12px; }
+  .ed-cell-row { display:flex; align-items:baseline; gap:8px; }
+  .ed-cell-val { font-family:'Space Grotesk',sans-serif; font-size:26px; font-weight:700; letter-spacing:-0.02em; color:var(--ink); }
+  .ed-cell-delta { font-size:12.5px; font-weight:600; }
+  .ed-cell-delta.pos { color:var(--pos); } .ed-cell-delta.neg { color:var(--neg); }
+  .ed-cell-ctx { font-size:12px; color:var(--meta); margin-top:5px; }
+  .ed-cell-cta { font-size:12.5px; font-weight:600; color:var(--acc-deep); background:none; border:none; padding:0; cursor:pointer; margin-top:2px; }
+
+  .ed-lower { display:grid; grid-template-columns:1.55fr 1fr; gap:20px; align-items:start; }
+  .ed-panel { background:var(--surface); border:1px solid var(--hair); border-radius:6px; overflow:hidden; }
+  .ed-sess-top { padding:24px 28px 0; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+  .ed-sess-label { font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--label); margin-bottom:12px; }
+  .ed-sess-title { font-family:'Space Grotesk',sans-serif; font-size:24px; font-weight:700; letter-spacing:-0.02em; color:var(--ink); }
+  .ed-sess-note { font-size:11.5px; color:var(--meta); text-align:right; max-width:180px; line-height:1.5; }
+  .ed-sess-chips { display:flex; gap:8px; flex-wrap:wrap; padding:16px 28px 0; }
+  .ed-chip { font-family:'Space Grotesk',sans-serif; font-size:12px; font-weight:600; letter-spacing:0.02em; color:var(--text-mid); background:var(--inset); border:1px solid var(--hair); border-radius:3px; padding:7px 12px; }
+  .ed-sess-desc { padding:16px 28px 0; font-size:14.5px; line-height:1.55; color:var(--text-mid); text-wrap:pretty; }
+  .ed-sess-actions { padding:20px 28px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .ed-done { font-size:12.5px; font-weight:600; color:var(--pos); }
+  .ed-agenda { border-top:1px solid oklch(91% 0.005 95); margin-top:20px; padding:14px 28px 8px; }
+  .ed-agenda-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .ed-agenda-meta { font-size:11px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase; color:var(--meta); }
+  .ed-arow { display:grid; grid-template-columns:52px 4px 1fr auto; gap:14px; align-items:center; padding:11px 0; border-top:1px solid oklch(93% 0.004 95); cursor:pointer; transition:opacity .15s; }
+  .ed-arow:first-of-type { border-top:none; }
+  .ed-arow.done { opacity:0.5; } .ed-arow:hover { opacity:0.75; }
+  .ed-arow.is-today { background:linear-gradient(120deg, var(--acc-wash), transparent 60%); margin:0 -28px; padding:11px 28px; border-radius:4px; }
+  .ed-adate { text-align:left; }
+  .ed-adow { font-size:10px; font-weight:600; letter-spacing:0.06em; color:var(--meta); }
+  .ed-adnum { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; line-height:1; color:var(--ink); }
+  .ed-abar { width:4px; height:30px; border-radius:2px; background:var(--meta); }
+  .ed-abar.low { background:var(--acc); } .ed-abar.medium { background:var(--warn); } .ed-abar.high { background:var(--neg); } .ed-abar.rest { background:oklch(85% 0.006 95); }
+  .ed-atype { font-size:14px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ed-asub { font-size:12px; color:var(--meta); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .ed-abadge { font-size:10px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:var(--acc-deep); }
+  .ed-abadge.done { color:var(--pos); }
+
+  .ed-coach { padding:24px; display:flex; flex-direction:column; min-height:360px; }
+  .ed-coach-head { display:flex; align-items:center; gap:10px; padding-bottom:18px; border-bottom:1px solid oklch(91% 0.005 95); margin-bottom:16px; }
+  .ed-coach-av { width:32px; height:32px; border-radius:50%; background:linear-gradient(140deg, var(--acc), var(--acc-deep)); flex-shrink:0; }
+  .ed-coach-name { font-size:13.5px; font-weight:600; color:var(--ink); }
+  .ed-coach-sub { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--meta); margin-top:2px; }
+  .ed-coach-dot { width:5px; height:5px; border-radius:50%; background:var(--pos); }
+  .ed-coach-seed { font-size:13px; line-height:1.55; color:var(--text-mid); background:oklch(91% 0.005 95); border-radius:3px 13px 13px 13px; padding:12px 14px; margin-bottom:14px; }
+  .ed-replies { display:flex; flex-direction:column; gap:7px; margin-top:auto; }
+  .ed-reply { text-align:left; border:1px solid var(--hair); background:var(--inset); border-radius:11px; padding:10px 13px; font-size:12.5px; color:var(--text-mid); cursor:pointer; transition:all .15s; font-family:'Inter',sans-serif; }
+  .ed-reply:hover { border-color:var(--acc-deep); color:var(--ink); }
+  .ed-reply.solid { background:var(--acc); border-color:var(--acc); color:var(--on-acc); font-weight:600; text-align:center; letter-spacing:0.04em; }
+
+  @media (max-width: 900px) {
+    .ed-hero { grid-template-columns:1fr; gap:20px; }
+    .ed-read, .ed-lower { grid-template-columns:1fr; }
+    .ed-strip { grid-template-columns:1fr 1fr; }
+    .ed-cell:nth-child(2) { border-right:none; }
+    .ed-cell:nth-child(1), .ed-cell:nth-child(2) { border-bottom:1px solid oklch(91% 0.005 95); }
+  }
+  @media (max-width: 520px) {
+    .ed-strip { grid-template-columns:1fr; }
+    .ed-cell { border-right:none; border-bottom:1px solid oklch(91% 0.005 95); }
+    .ed-cell:last-child { border-bottom:none; }
+  }
+
   /* ── PERFORMANCE DASHBOARD (charts) ── */
-  .charts-view { flex:1; overflow-y:auto; padding:18px 16px 30px; }
+  .charts-view { flex:1; overflow-y:auto; padding:32px 32px 44px; }
   .charts-view.hidden { display:none; }
   .chart-grid { display:grid; grid-template-columns:1fr; gap:16px; max-width:860px; margin:0 auto; }
   .chart-card svg { width:100%; height:auto; display:block; margin-top:6px; }
   .chart-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:10px; }
-  .chart-big { font-family:'Bricolage Grotesque',sans-serif; font-weight:800; font-size:30px; line-height:1; letter-spacing:-0.03em; color:var(--text); }
-  .chart-big .u { font-family:'DM Mono',monospace; font-size:12px; color:var(--text-muted); font-weight:400; margin-left:4px; }
+  .chart-big { font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:34px; line-height:1; letter-spacing:-0.035em; color:var(--ink); }
+  .chart-big .u { font-family:'Space Grotesk',sans-serif; font-size:13px; color:var(--meta); font-weight:500; margin-left:4px; }
   .chart-delta { font-family:'DM Mono',monospace; font-size:12px; padding:3px 8px; border-radius:7px; background:var(--surface2); color:var(--text-mid); }
   .chart-delta.good { background:rgba(46,125,82,0.1); color:var(--good); }
   .chart-delta.warn { background:rgba(224,137,43,0.12); color:var(--warn); }
@@ -1220,56 +1356,34 @@
   }
 
   @media (max-width: 600px) {
-    .data-panel {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 85vw;
-      max-width: 320px;
-      height: 100dvh;
-      z-index: 50;
-      box-shadow: 2px 0 16px rgba(0,0,0,0.25);
-      /* Open is the un-suffixed state, same as desktop — `.collapsed` hides.
-         Animate transform here, not width, since width stays fixed. */
-      transform: translateX(0);
-      transition: transform 0.25s ease;
-    }
-    .data-panel.collapsed { width: 85vw; max-width: 320px; transform: translateX(-100%); }
-    .data-panel-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.4);
-      z-index: 49;
-    }
-    .data-panel-backdrop.show { display: block; }
+    .data-panel { width: 85vw; max-width: 320px; }
     /* Tighter tabs so most of them fit before the bar needs scrolling. */
     .tab-bar { padding: 8px 10px; gap: 2px; }
-    .tab-btn { padding: 6px 10px; letter-spacing: 0.02em; }
+    .tab-btn { padding: 6px 2px; margin: 0 6px; letter-spacing: 0.1em; font-size: 11px; }
   }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="avatar">🚴</div>
+  <div class="avatar"></div>
   <div class="header-info">
-    <div class="header-name">Cycling Coach</div>
+    <div class="header-name">Coach</div>
     <div class="header-status">
       <span class="status-dot"></span>
-      reads your WHOOP + Strava
+      WHOOP · Strava
     </div>
   </div>
   <div class="header-actions">
-    <span id="userChip" style="display:none;font-size:10px;color:#B8B0A0;font-family:'DM Mono',monospace;margin-right:8px;"></span>
-    <button class="data-panel-toggle" onclick="togglePanel()">⚡ My Data</button>
+    <span id="userChip" style="display:none;font-size:10px;color:var(--meta);font-family:'DM Mono',monospace;margin-right:8px;"></span>
+    <button class="data-panel-toggle" onclick="togglePanel()">My Data</button>
   </div>
 </header>
 
 <div class="main">
   <!-- DATA PANEL -->
   <div class="data-panel-backdrop" id="dataPanelBackdrop" onclick="togglePanel()"></div>
-  <div class="data-panel" id="dataPanel">
+  <div class="data-panel collapsed" id="dataPanel">
     <div class="data-panel-inner">
 
       <!-- WHOOP -->
@@ -1399,14 +1513,14 @@
 
     <!-- TAB BAR -->
     <div class="tab-bar">
-      <button class="tab-btn active" id="tab-today" onclick="switchTab('today')">◎ Today</button>
-      <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">📊 Dashboard</button>
-      <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">💬 Chat</button>
-      <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">📅 Schedule</button>
-      <button class="tab-btn" id="tab-routes" onclick="switchTab('routes')">🗺 Routes</button>
-      <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">💪 Resistance</button>
-      <button class="tab-btn" id="tab-team" onclick="switchTab('team')" style="display:none">👥 Team</button>
-      <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;" title="Clear chat history">✕ Clear</button>
+      <button class="tab-btn active" id="tab-today" onclick="switchTab('today')">Today</button>
+      <button class="tab-btn" id="tab-charts" onclick="switchTab('charts')">Insights</button>
+      <button class="tab-btn" id="tab-chat" onclick="switchTab('chat')">Chat</button>
+      <button class="tab-btn" id="tab-schedule" onclick="switchTab('schedule')">Training</button>
+      <button class="tab-btn" id="tab-routes" onclick="switchTab('routes')">Routes</button>
+      <button class="tab-btn" id="tab-bands" onclick="switchTab('bands')">Strength</button>
+      <button class="tab-btn" id="tab-team" onclick="switchTab('team')" style="display:none">Team</button>
+      <button class="tab-btn" id="tab-clear" onclick="confirmClearChat()" style="margin-left:auto;font-size:10px;letter-spacing:0.1em;" title="Clear chat history">Clear</button>
     </div>
 
     <!-- TODAY DASHBOARD -->
@@ -1418,7 +1532,7 @@
     <div class="charts-view hidden" id="chartsView">
       <div class="schedule-header">
         <div class="schedule-header-left">
-          <h2>Performance Dashboard</h2>
+          <h2>What the data says</h2>
           <p id="chartsMeta">Trends from your last 90 days of riding — no power meter needed.</p>
         </div>
       </div>
@@ -1450,13 +1564,13 @@
     <div class="schedule-view hidden" id="scheduleView">
       <div class="schedule-header">
         <div class="schedule-header-left">
-          <h2>Training Schedule</h2>
+          <h2>This week</h2>
           <p id="scheduleMeta">Generate a plan based on your goal and current data.</p>
         </div>
         <div class="schedule-header-actions">
-          <button class="gen-btn secondary" id="adaptBtn" onclick="adaptPlan()" style="display:none">↺ Adapt Plan</button>
-          <button class="gen-btn secondary" id="exportBtn" onclick="exportCalendar()" title="Download a .ics file to add this week to Apple/Google Calendar">📆 Export</button>
-          <button class="gen-btn primary" id="generateBtn" onclick="generateSchedule()">Generate Plan</button>
+          <button class="gen-btn secondary" id="adaptBtn" onclick="adaptPlan()" style="display:none">Adapt plan</button>
+          <button class="gen-btn secondary" id="exportBtn" onclick="exportCalendar()" title="Download a .ics file to add this week to Apple/Google Calendar">Export</button>
+          <button class="gen-btn primary" id="generateBtn" onclick="generateSchedule()">Generate plan</button>
         </div>
       </div>
       <div id="scheduleContent">
@@ -1508,7 +1622,7 @@
     <div class="team-view hidden" id="teamView">
       <div class="schedule-header">
         <div class="schedule-header-left">
-          <h2>Team Report</h2>
+          <h2>Team</h2>
           <p id="teamMeta">Live recovery, riding volume and plan adherence for the whole squad.</p>
         </div>
         <div class="schedule-header-actions">
@@ -1581,7 +1695,7 @@
 // ── STATE ──────────────────────────────────────────────────
 let athleteData = { whoop: null, strava: null, weather: null, goal: null };
 let conversationHistory = [];
-let panelOpen = true;
+let panelOpen = false;
 let currentTab = 'today';
 
 let trainingPlan = [];       // array of session objects
@@ -2240,159 +2354,250 @@ function dashGreeting() {
 function intensityWord(i) {
   return ({ low:'Easy', medium:'Moderate', high:'Hard', rest:'Rest' })[i] || '';
 }
+// Build an SVG polyline sparkline (viewBox 0 0 300 60) from a numeric series.
+// Returns { poly, lx, ly } or null when there isn't enough data to draw one.
+function edSparkline(vals) {
+  const v = (vals || []).filter(x => x != null && !isNaN(x));
+  if (v.length < 3) return null;
+  const max = Math.max(...v), min = Math.min(...v), range = (max - min) || 1;
+  const pts = v.map((x, i) => {
+    const px = (i / (v.length - 1)) * 300;
+    const py = 54 - ((x - min) / range) * 46;   // invert into a 8..54 band
+    return `${px.toFixed(1)},${py.toFixed(1)}`;
+  });
+  const [lx, ly] = pts[pts.length - 1].split(',');
+  return { poly: pts.join(' '), lx, ly };
+}
+
 function renderDashboard() {
   const el = document.getElementById('dashboardContent');
   if (!el) return;
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0, 10);
   const w  = athleteData.whoop || {};
   const st = athleteData.strava || null;
   const wx = athleteData.weather || null;
-
-  // greeting
-  const dateStr = new Date().toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
   const rec = (w.recovery_score != null) ? w.recovery_score : null;
-  let headline = 'ready when you are.';
-  if (rec != null) headline = rec >= 67 ? "you're primed to ride." : rec >= 34 ? 'ease into today.' : 'recovery comes first today.';
-  const greetHtml = `
-    <div class="dash-greeting-row">
-      <div class="dash-greeting">${dashGreeting()},<br><span class="accent">${headline}</span></div>
-      <div class="dash-date">${dateStr}</div>
-    </div>`;
-
-  // recovery ring
-  const R = 66, C = 2 * Math.PI * R;
-  const pct = rec != null ? Math.max(0, Math.min(100, rec)) : 0;
-  const dash = (pct / 100) * C;
-  let ringColor = 'var(--border)', statusWord = 'No data', statusColor = 'var(--text-muted)';
-  if (rec != null) {
-    if (rec >= 67)      { ringColor = 'var(--good)';   statusWord = 'Primed';   statusColor = 'var(--good)'; }
-    else if (rec >= 34) { ringColor = 'var(--warn)';   statusWord = 'Moderate'; statusColor = 'var(--warn)'; }
-    else                { ringColor = 'var(--danger)'; statusWord = 'Low';      statusColor = 'var(--danger)'; }
-  }
-  const vital = (label, val) => `<div class="vital"><div class="vital-label">${label}</div><div class="vital-val">${val}</div></div>`;
-  const hrv   = w.hrv != null ? `${w.hrv}<span class="u">ms</span>`  : '—';
-  const rhr   = w.rhr != null ? `${w.rhr}<span class="u">bpm</span>` : '—';
-  const sleep = w.sleep_efficiency != null ? `${w.sleep_efficiency}<span class="u">%</span>`
-              : (w.sleep_duration_h != null ? `${w.sleep_duration_h}<span class="u">h</span>` : '—');
-  const recoveryHtml = `
-    <div class="dash-card recovery-card">
-      <div class="dash-card-label" style="align-self:flex-start">Recovery · today</div>
-      <div class="ring-wrap">
-        <svg width="150" height="150" viewBox="0 0 150 150">
-          <circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="12"></circle>
-          <circle cx="75" cy="75" r="${R}" fill="none" stroke="${ringColor}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 75 75)"></circle>
-        </svg>
-        <div class="ring-center">
-          <div class="ring-num">${rec != null ? rec : '—'}<span class="ring-pct">${rec != null ? '%' : ''}</span></div>
-          <div class="ring-status" style="color:${statusColor}">${statusWord}</div>
-        </div>
-      </div>
-      <div class="vitals-row">${vital('HRV', hrv)}${vital('RHR', rhr)}${vital('Sleep', sleep)}</div>
-    </div>`;
-
-  // today's session
   const ts = trainingPlan.find(s => s.date === today);
-  let todayHtml;
-  if (!trainingPlan.length) {
-    todayHtml = `
-      <div class="dash-card today-card empty">
-        <div class="today-label">Today's plan</div>
-        <div class="today-title" style="font-size:22px;margin-top:8px">No plan yet</div>
-        <div class="today-desc">Generate a personalised training week from your goal and live data.</div>
-        <div class="today-actions"><button class="dash-btn primary" onclick="switchTab('schedule')">Generate plan →</button></div>
-      </div>`;
-  } else if (!ts || ts.intensity === 'rest') {
-    todayHtml = `
-      <div class="dash-card today-card rest">
-        <div class="today-label">Today · ${formatSessionDate(today)}</div>
-        <div class="today-title">${ts ? escapeHtml(ts.type || 'Rest Day') : 'Rest Day'}</div>
-        <div class="today-desc">${ts && ts.description ? escapeHtml(ts.description) : 'Full recovery — keep it easy, hydrate and stretch.'}</div>
-        <div class="today-actions"><button class="dash-btn ghost" onclick="switchTab('chat')">Ask coach</button></div>
-      </div>`;
+  const hasSession = ts && ts.intensity !== 'rest';
+  const done = ts ? sessionFeedback[ts.id] : null;
+  const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase();
+  const esc = escapeHtml;
+
+  // recovery status word / colour
+  let statusWord = 'Awaiting sync', statusVar = 'var(--meta)';
+  if (rec != null) {
+    if (rec >= 67)      { statusWord = 'Primed';   statusVar = 'var(--good)'; }
+    else if (rec >= 34) { statusWord = 'Moderate'; statusVar = 'var(--warn)'; }
+    else                { statusWord = 'Low';      statusVar = 'var(--neg)'; }
+  }
+
+  // ── HERO ──────────────────────────────────────────────
+  let l1, l2;
+  if (rec == null)        { l1 = "Let's see where you're at."; l2 = 'Sync your data to begin.'; }
+  else if (!hasSession)   {
+    if (rec >= 67)        { l1 = 'Fresh legs today.';      l2 = 'Bank it — recovery is the work.'; }
+    else if (rec >= 34)   { l1 = 'Sitting in the middle.'; l2 = 'An easy spin keeps things moving.'; }
+    else                  { l1 = 'Recovery comes first.';  l2 = 'Nothing heavy today.'; }
   } else {
-    const done = sessionFeedback[ts.id];
+    if (rec >= 67)        { l1 = 'Green light.';            l2 = "Today's session is yours to take."; }
+    else if (rec >= 34)   { l1 = 'Enough in the tank.';    l2 = 'Keep it honest and controlled.'; }
+    else                  { l1 = 'Ease into it.';          l2 = 'Dial the intensity back today.'; }
+  }
+
+  // hero action buttons
+  let primaryBtn, ghostBtn;
+  if (!trainingPlan.length) {
+    primaryBtn = `<button class="ed-btn primary" onclick="switchTab('schedule')">Generate plan</button>`;
+    ghostBtn   = `<button class="ed-btn ghost" onclick="switchTab('chat')">Ask coach</button>`;
+  } else if (hasSession && !done) {
+    primaryBtn = `<button class="ed-btn primary" onclick="openFeedbackModal('${ts.id}')">Log session</button>`;
+    ghostBtn   = `<button class="ed-btn ghost" onclick="chatAboutSession('${ts.id}')">Ask coach</button>`;
+  } else {
+    primaryBtn = `<button class="ed-btn primary" onclick="switchTab('chat')">Ask coach</button>`;
+    ghostBtn   = `<button class="ed-btn ghost" onclick="switchTab('schedule')">This week</button>`;
+  }
+
+  const numMeta = rec != null
+    ? `<span class="ed-kicker">Recovery</span>
+       <span class="ed-kicker" style="color:${statusVar}">${statusWord}</span>
+       ${w.hrv != null ? `<span class="ed-kicker faint">HRV ${w.hrv}ms</span>` : ''}`
+    : `<span class="ed-kicker">Recovery</span><button class="ed-cell-cta" onclick="syncWHOOP()" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;">Sync WHOOP →</button>`;
+
+  const heroHtml = `
+    <div class="ed-hero">
+      <div>
+        <div class="ed-num${rec == null ? ' nodata' : ''}">${rec != null ? rec : '—'}</div>
+        <div class="ed-num-meta">${numMeta}</div>
+      </div>
+      <div>
+        <div class="ed-eyebrow">${dateStr}</div>
+        <div class="ed-headline">${l1}<br><span class="dim">${l2}</span></div>
+        <div class="ed-btns">${primaryBtn}${ghostBtn}</div>
+      </div>
+    </div>`;
+
+  // ── TODAY'S READ (cobalt block) ───────────────────────
+  let readBody;
+  if (todayBriefing) {
+    readBody = formatMessage(tidyBriefingMarkdown(todayBriefing));
+  } else {
+    const parts = [];
+    if (rec != null) {
+      parts.push(rec >= 67 ? `Recovery's back at <b>${rec}%</b> — the tank is full.`
+               : rec >= 34 ? `Recovery's mid at <b>${rec}%</b> — enough to train, not to bury yourself.`
+                           : `Recovery's low at <b>${rec}%</b> — your body is asking for easy today.`);
+    } else parts.push('Sync WHOOP to get today’s recovery read.');
+    if (st && st.total_km_7d != null) parts.push(`You’ve ridden <b>${mi(st.total_km_7d)} mi</b> over the last seven days across ${st.rides_7d != null ? st.rides_7d : '—'} rides.`);
+    if (hasSession) parts.push(`Today: <b>${esc(ts.type)}</b>${ts.duration > 0 ? `, ${ts.duration} min` : ''}.`);
+    else if (trainingPlan.length) parts.push('No ride on the plan today — keep it easy.');
+    readBody = `<p>${parts.join(' ')}</p>`;
+  }
+
+  // sparkline from 12-week ride volume (real Strava history), else omit right col
+  let sparkCol = '';
+  if (st && Array.isArray(st.history) && st.history.length) {
+    const wk = weeklyRideStats(st.history, 12).map(x => x.totalMi);
+    const sp = edSparkline(wk);
+    if (sp) {
+      const first = wk.find(x => x > 0) || 0, last = wk[wk.length - 1] || 0;
+      const trend = last > first * 1.05 ? 'Trending up' : last < first * 0.95 ? 'Easing off' : 'Holding steady';
+      const totalMi = Math.round(wk.reduce((a, b) => a + b, 0));
+      sparkCol = `
+        <div class="ed-spark">
+          <div class="ed-spark-head"><div>12-week volume</div><div>${totalMi} mi</div></div>
+          <svg viewBox="0 0 300 60" preserveAspectRatio="none">
+            <polyline points="${sp.poly}" fill="none" stroke="var(--on-acc)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+            <circle cx="${sp.lx}" cy="${sp.ly}" r="4" fill="var(--on-acc)"></circle>
+          </svg>
+          <div class="ed-spark-foot">${trend}${st.total_elevation_7d != null ? ` · ${st.total_elevation_7d}m climb 7d` : ''}</div>
+        </div>`;
+    }
+  }
+  const readHtml = `
+    <div class="ed-read${sparkCol ? '' : ' solo'}">
+      <div>
+        <div class="ed-read-label">Today's read</div>
+        <div class="ed-read-body">${readBody}</div>
+      </div>
+      ${sparkCol}
+    </div>`;
+
+  // ── METRIC STRIP (4 cells) ────────────────────────────
+  const fmtSleep = h => { const H = Math.floor(h), M = Math.round((h - H) * 60); return `${H}:${String(M).padStart(2, '0')}`; };
+  const cell = (label, inner) => `<div class="ed-cell"><div class="ed-cell-label">${label}</div>${inner}</div>`;
+  const val = (v, delta, ctx) => `<div class="ed-cell-row"><div class="ed-cell-val">${v}</div>${delta || ''}</div><div class="ed-cell-ctx">${ctx}</div>`;
+  const cta = (fn) => `<div class="ed-cell-row"><button class="ed-cell-cta" onclick="${fn}">Sync →</button></div>`;
+
+  const sleepCell = (w.sleep_duration_h != null)
+    ? val(fmtSleep(w.sleep_duration_h), '', w.sleep_efficiency != null ? `Efficiency ${w.sleep_efficiency}%` : 'Last night')
+    : (w.sleep_efficiency != null ? val(w.sleep_efficiency + '%', '', 'Sleep efficiency') : cta('syncWHOOP()'));
+
+  const loadCell = (st && st.total_km_7d != null)
+    ? val(mi(st.total_km_7d), st.rides_7d != null ? `<div class="ed-cell-delta pos">${st.rides_7d} rides</div>` : '',
+          st.total_moving_time_h_7d != null ? `${st.total_moving_time_h_7d}h moving` : 'Last 7 days')
+    : cta('syncStrava()');
+
+  const hrvCell = (w.hrv != null)
+    ? val(w.hrv, `<div class="ed-cell-delta pos">ms</div>`, w.rhr != null ? `RHR ${w.rhr} bpm` : 'Heart-rate variability')
+    : cta('syncWHOOP()');
+
+  let condCell;
+  if (wx && wx.now && wx.now.temp_c != null) {
+    const n = wx.now, sm = wx.summary || {};
+    condCell = val(n.temp_c + '°',
+      n.wind_kph != null ? `<div class="ed-cell-delta pos">${mph(n.wind_kph)}${n.wind_dir ? ' ' + n.wind_dir : ''} mph</div>` : '',
+      sm.precip_mm_total != null ? `${sm.precip_mm_total} mm rain · 48h` : 'Now');
+  } else condCell = cta('syncWeather()');
+
+  const stripHtml = `<div class="ed-strip">${cell('Sleep', sleepCell)}${cell('7-day miles', loadCell)}${cell('HRV', hrvCell)}${cell('Conditions', condCell)}</div>`;
+
+  // ── SESSION CARD + WEEK AGENDA ────────────────────────
+  let sessInner;
+  if (!trainingPlan.length) {
+    sessInner = `
+      <div class="ed-sess-top"><div><div class="ed-sess-label">Today's plan</div><div class="ed-sess-title">No plan yet</div></div></div>
+      <div class="ed-sess-desc">Generate a personalised training week from your goal and live data.</div>
+      <div class="ed-sess-actions"><button class="ed-btn primary" onclick="switchTab('schedule')">Generate plan</button></div>`;
+  } else if (!hasSession) {
+    sessInner = `
+      <div class="ed-sess-top"><div><div class="ed-sess-label">Today · ${formatSessionDate(today)}</div><div class="ed-sess-title">${ts ? esc(ts.type || 'Rest day') : 'Rest day'}</div></div></div>
+      <div class="ed-sess-desc">${ts && ts.description ? esc(ts.description) : 'Full recovery — keep it easy, hydrate and stretch.'}</div>
+      <div class="ed-sess-actions"><button class="ed-btn ghost" onclick="switchTab('chat')">Ask coach</button></div>`;
+  } else {
     const chips = [];
-    if (ts.duration > 0) chips.push(`⏱ ${ts.duration} min`);
+    if (ts.duration > 0) chips.push(`${ts.duration} min`);
     if (ts.targets) chips.push(ts.targets);
-    todayHtml = `
-      <div class="dash-card today-card">
-        <div class="today-glow"></div>
-        <div class="today-top">
-          <div class="today-label">Today's ride · ${formatSessionDate(today)}</div>
-          <div class="today-tag ${ts.intensity}">${intensityWord(ts.intensity)}</div>
-        </div>
-        <div class="today-title">${escapeHtml(ts.type)}</div>
-        <div class="today-metrics">${chips.map(c => `<span class="today-chip">${escapeHtml(c)}</span>`).join('')}</div>
-        ${ts.description ? `<div class="today-desc">${escapeHtml(ts.description)}</div>` : ''}
-        <div class="today-actions">
-          ${done
-            ? `<span class="today-done">✓ Logged${done.rpe ? ` · RPE ${done.rpe}/10` : ''}</span><button class="dash-btn ghost" onclick="openFeedbackModal('${ts.id}')">Edit</button>`
-            : `<button class="dash-btn primary" onclick="openFeedbackModal('${ts.id}')">✓ Log session</button>`}
-          <button class="dash-btn ghost" onclick="chatAboutSession('${ts.id}')">Ask coach</button>
-        </div>
+    if (ts.intensity) chips.push(intensityWord(ts.intensity));
+    sessInner = `
+      <div class="ed-sess-top">
+        <div><div class="ed-sess-label">Today's session · ${formatSessionDate(today)}</div><div class="ed-sess-title">${esc(ts.type)}</div></div>
+        ${done && done.rpe ? `<div class="ed-sess-note">Logged · RPE ${done.rpe}/10</div>` : ''}
+      </div>
+      <div class="ed-sess-chips">${chips.map(c => `<span class="ed-chip">${esc(c)}</span>`).join('')}</div>
+      ${ts.description ? `<div class="ed-sess-desc">${esc(ts.description)}</div>` : ''}
+      <div class="ed-sess-actions">
+        ${done
+          ? `<span class="ed-done">✓ Logged</span><button class="ed-btn ghost" onclick="openFeedbackModal('${ts.id}')">Edit</button>`
+          : `<button class="ed-btn primary" onclick="openFeedbackModal('${ts.id}')">Log session</button>`}
+        <button class="ed-btn ghost" onclick="chatAboutSession('${ts.id}')">Ask coach</button>
       </div>`;
   }
 
-  // week agenda
-  let agendaHtml = '';
+  let agendaInner = '';
   if (trainingPlan.length) {
     const rows = trainingPlan.map(s => {
       const isToday = s.date === today;
       const isDone = !!sessionFeedback[s.id];
       const d = new Date(s.date + 'T12:00:00');
-      const dow = d.toLocaleDateString('en-GB', { weekday:'short' }).toUpperCase();
-      const sub = (s.duration > 0 ? `${s.duration} min` : 'Recovery') + (s.targets ? ` · ${escapeHtml(s.targets)}` : '');
-      const badge = isToday ? '<span class="agenda-badge">Today</span>' : (isDone ? '<span class="agenda-badge done">✓</span>' : '');
+      const dow = d.toLocaleDateString('en-GB', { weekday: 'short' }).toUpperCase();
+      const sub = (s.duration > 0 ? `${s.duration} min` : 'Recovery') + (s.targets ? ` · ${esc(s.targets)}` : '');
+      const badge = isToday ? '<span class="ed-abadge">Today</span>' : (isDone ? '<span class="ed-abadge done">✓ Done</span>' : '');
       return `
-        <div class="agenda-row ${isDone ? 'done' : ''}" onclick="switchTab('schedule')">
-          <div class="agenda-date"><div class="agenda-dow">${dow}</div><div class="agenda-dnum">${d.getDate()}</div></div>
-          <div class="agenda-bar ${s.intensity}"></div>
-          <div class="agenda-info"><div class="agenda-type">${escapeHtml(s.type)}</div><div class="agenda-sub">${sub}</div></div>
+        <div class="ed-arow ${isDone ? 'done' : ''}${isToday ? ' is-today' : ''}" onclick="switchTab('schedule')">
+          <div class="ed-adate"><div class="ed-adow">${dow}</div><div class="ed-adnum">${d.getDate()}</div></div>
+          <div class="ed-abar ${s.intensity}"></div>
+          <div style="min-width:0"><div class="ed-atype">${esc(s.type)}</div><div class="ed-asub">${sub}</div></div>
           ${badge}
         </div>`;
     }).join('');
     const logged = trainingPlan.filter(s => sessionFeedback[s.id]).length;
     const trainTotal = trainingPlan.filter(s => s.intensity !== 'rest').length;
-    agendaHtml = `
-      <div class="dash-card agenda-card">
-        <div class="agenda-head"><div class="dash-card-label">This week</div><div class="agenda-meta">${logged}/${trainTotal} logged</div></div>
+    agendaInner = `
+      <div class="ed-agenda">
+        <div class="ed-agenda-head"><div class="ed-sess-label" style="margin:0">This week</div><div class="ed-agenda-meta">${logged}/${trainTotal} logged</div></div>
         ${rows}
       </div>`;
   }
 
-  // glances
-  let glances = '';
-  if (st) {
-    glances += `
-      <div class="dash-card glance">
-        <div class="dash-card-label">Last 7 days · Strava</div>
-        <div class="glance-big">${st.total_km_7d != null ? mi(st.total_km_7d) : '—'}<span class="u">mi</span></div>
-        <div class="glance-stats">
-          <div><b>${st.rides_7d != null ? st.rides_7d : '—'}</b><span>rides</span></div>
-          <div><b>${st.total_elevation_7d != null ? st.total_elevation_7d + 'm' : '—'}</b><span>climb</span></div>
-          <div><b>${st.total_moving_time_h_7d != null ? st.total_moving_time_h_7d + 'h' : '—'}</b><span>moving</span></div>
+  // ── COACH PANEL ───────────────────────────────────────
+  const loggedCount = Object.keys(sessionFeedback).length;
+  const coachSub = loggedCount ? `Remembers ${loggedCount} logged session${loggedCount === 1 ? '' : 's'}` : 'Ready when you are';
+  const seed = hasSession
+    ? `Today I've got you down for ${esc(ts.type)}${ts.duration > 0 ? `, ${ts.duration} min` : ''}. Tell me how you're feeling and I'll adjust.`
+    : (rec != null && rec < 34
+        ? `Recovery's low today — I'd keep it easy. Ask me anything.`
+        : `Ask me anything about today's training, your recovery or the week ahead.`);
+  const replies = ['What should I focus on today?', 'Am I overtraining?', "How's my recovery trend?"];
+  const coachHtml = `
+    <div class="ed-panel ed-coach">
+      <div class="ed-coach-head">
+        <div class="ed-coach-av"></div>
+        <div style="flex:1">
+          <div class="ed-coach-name">Your coach</div>
+          <div class="ed-coach-sub"><span class="ed-coach-dot"></span>${coachSub}</div>
         </div>
-      </div>`;
-  }
-  if (wx && wx.now) {
-    const n = wx.now, sm = wx.summary || {};
-    glances += `
-      <div class="dash-card glance weather">
-        <div class="dash-card-label">Weather · next 48h</div>
-        <div class="glance-weather">
-          <div class="glance-temp">${n.temp_c != null ? n.temp_c + '°' : '—'}</div>
-          <div class="glance-wx-meta">
-            <div>💨 ${n.wind_kph != null ? mph(n.wind_kph) + (n.wind_dir ? ' ' + n.wind_dir : '') + ' mph' : '—'}</div>
-            <div>🌡 ${sm.temp_c_min != null ? sm.temp_c_min + '–' + sm.temp_c_max + '°C' : '—'}</div>
-            <div>🌧 ${sm.precip_mm_total != null ? sm.precip_mm_total + ' mm' : '—'}</div>
-          </div>
-        </div>
-      </div>`;
-  }
-  const glanceHtml = glances ? `<div class="glance-row">${glances}</div>` : '';
+      </div>
+      <div class="ed-coach-seed">${seed}</div>
+      <div class="ed-replies">
+        ${replies.map(r => `<button class="ed-reply" onclick="switchTab('chat');sendChip(this)">${r}</button>`).join('')}
+        <button class="ed-reply solid" onclick="switchTab('chat')">Open full chat →</button>
+      </div>
+    </div>`;
 
-  el.innerHTML = greetHtml + briefingCardHtml() + `<div class="dash-hero">${recoveryHtml}${todayHtml}</div>` + agendaHtml + glanceHtml;
+  const lowerHtml = `<div class="ed-lower"><div class="ed-panel">${sessInner}${agendaInner}</div>${coachHtml}</div>`;
+
+  el.innerHTML = `<div class="ed-today">${heroHtml}${readHtml}${stripHtml}${lowerHtml}</div>`;
 }
 
 // ── PERFORMANCE DASHBOARD (three charts) ──────────────────
@@ -2986,13 +3191,32 @@ Hard rules for this briefing:
 - The athlete has NO power meter: never give wattage targets or power zones. Use heart rate, RPE, and duration only.
 - Do NOT plan a route in a briefing. Never emit a route_request or home_set block here.`;
 
+// Signature of the WHOOP numbers a briefing is grounded in. Cached briefings carry
+// this so we can tell when the recovery they quoted has since changed — WHOOP often
+// returns the PREVIOUS cycle's recovery early in the morning and only finalises the
+// new day's score once the night is scored. Without this, a briefing generated before
+// scoring stays frozen with the old numbers for the rest of the day while the sidebar
+// (which re-syncs) shows the finalised ones — a visible mismatch. Empty string when
+// WHOOP is absent, so a missing feed never forces a needless regenerate.
+function whoopBriefingSig() {
+  const w = athleteData.whoop;
+  if (!w || w.recovery_score == null) return '';
+  return `${w.recovery_score}/${w.hrv ?? ''}/${w.rhr ?? ''}`;
+}
+
 // Show today's cached briefing if we already have one, otherwise generate it.
 // Called from init() once the live data it depends on has landed.
 async function maybeMorningBriefing() {
   const todayISO = new Date().toISOString().slice(0, 10);
   try {
     const saved = JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null');
-    if (saved && saved.date === todayISO && saved.text) {
+    const sig = whoopBriefingSig();
+    // Reuse the cache only when it's today's AND grounded in the same WHOOP numbers we
+    // now hold. If WHOOP has since finalised a different recovery (saved.whoopSig set and
+    // changed), regenerate so the briefing matches the sidebar. Legacy caches without a
+    // whoopSig are treated as still-valid to avoid a one-off regenerate on upgrade.
+    const whoopStale = saved && sig && saved.whoopSig != null && saved.whoopSig !== sig;
+    if (saved && saved.date === todayISO && saved.text && !whoopStale) {
       todayBriefing = saved.text;
       renderDashboard();
       return;
@@ -3039,7 +3263,7 @@ async function generateMorningBriefing() {
     text = '☀️ ' + text;
 
     todayBriefing = text;
-    localStorage.setItem(BRIEFING_KEY, JSON.stringify({ date: todayISO, text }));
+    localStorage.setItem(BRIEFING_KEY, JSON.stringify({ date: todayISO, text, whoopSig: whoopBriefingSig() }));
     localStorage.removeItem(BRIEFING_DISMISS_KEY); // a new day's briefing starts undismissed
 
     // Record it in the conversation the same way the Telegram briefing did, so the coach
