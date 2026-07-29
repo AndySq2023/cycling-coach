@@ -3204,6 +3204,15 @@ function whoopBriefingSig() {
   return `${w.recovery_score}/${w.hrv ?? ''}/${w.rhr ?? ''}`;
 }
 
+// Pull the recovery % a cached briefing actually quotes, from the [Recovery: N%] metric
+// marker the coach is told to emit (it's what renders as the inline chip). Used to detect
+// a briefing whose prose is stuck on an old day's number even if its WHOOP signature looks
+// current — compared against the live score so the card can never contradict the hero.
+function cachedBriefingRecovery(text) {
+  const m = String(text || '').match(/\[\s*recovery:\s*(\d{1,3})\s*%/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 // Show today's cached briefing if we already have one, otherwise generate it.
 // Called from init() once the live data it depends on has landed.
 async function maybeMorningBriefing() {
@@ -3211,11 +3220,23 @@ async function maybeMorningBriefing() {
   try {
     const saved = JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null');
     const sig = whoopBriefingSig();
-    // Reuse the cache only when it's today's AND grounded in the same WHOOP numbers we
-    // now hold. If WHOOP has since finalised a different recovery (saved.whoopSig set and
-    // changed), regenerate so the briefing matches the sidebar. Legacy caches without a
-    // whoopSig are treated as still-valid to avoid a one-off regenerate on upgrade.
-    const whoopStale = saved && sig && saved.whoopSig != null && saved.whoopSig !== sig;
+    const liveRec = athleteData.whoop?.recovery_score;
+    // Reuse the cache only when it's today's AND grounded in the same WHOOP numbers the
+    // hero now shows. WHOOP often returns the previous cycle's recovery early in the
+    // morning and finalises the real score later, so a briefing cached at first light can
+    // quote a number the hero no longer shows. Two independent checks force a regenerate:
+    //   sigStale  — the signature the briefing was grounded in differs from live WHOOP
+    //               (covers legacy caches with no signature too: if we have a live reading
+    //               and the cache can't prove it matches, don't trust it).
+    //   textStale — the recovery % actually written into the cached text (the [Recovery: N%]
+    //               marker) disagrees with the live score. This catches a briefing that was
+    //               cached WITH the right signature but whose prose anchored on an old number
+    //               replayed from chat history — a signature check alone can't see that.
+    const sigStale  = saved && sig && saved.whoopSig !== sig;
+    const textStale = saved && liveRec != null &&
+      cachedBriefingRecovery(saved.text) != null &&
+      cachedBriefingRecovery(saved.text) !== liveRec;
+    const whoopStale = sigStale || textStale;
     if (saved && saved.date === todayISO && saved.text && !whoopStale) {
       todayBriefing = saved.text;
       renderDashboard();
@@ -3238,7 +3259,12 @@ async function generateMorningBriefing() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system: buildSystemPrompt(),
-        messages: [...conversationHistory, { role: 'user', content: BRIEFING_ASK }],
+        // Single clean turn — deliberately NOT [...conversationHistory]. The briefing is
+        // grounded entirely in today's live data in the system prompt; replaying the chat
+        // let the model anchor on a vivid earlier briefing (e.g. a red-recovery day) and
+        // re-quote its numbers even though today's WHOOP is different. We still append the
+        // result to conversationHistory afterward so the chat remembers what it told you.
+        messages: [{ role: 'user', content: BRIEFING_ASK }],
       }),
     });
     const data = await res.json();
