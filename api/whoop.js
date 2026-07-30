@@ -10,7 +10,7 @@
 // invalidates the old one. Vercel's filesystem is read-only, so the rotated token
 // MUST be persisted in Vercel KV. KV is effectively required for this function.
 import { requireUser } from './_auth.js';
-import { kvGet, kvSet } from './_kv.js';
+import { kvGet, kvSet, cached } from './_kv.js';
 
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
@@ -67,7 +67,17 @@ async function whoopGet(token, pathAndQuery) {
   return res.json();
 }
 
-export async function getWhoopSummary(userId = 'master') {
+// Recovery/sleep are computed once when you wake, so they barely move during the day —
+// but each uncached call is 3 WHOOP requests plus a token refresh. 5 minutes keeps it
+// live-feeling while collapsing repeat loads.
+const SUMMARY_TTL_S = 300;
+
+// Cached entry point — what every caller should use. `force` skips the cache read.
+export async function getWhoopSummary(userId = 'master', force = false) {
+  return cached(`whoop_sum:${userId}`, SUMMARY_TTL_S, () => fetchWhoopSummary(userId), force);
+}
+
+async function fetchWhoopSummary(userId = 'master') {
   const token = await getAccessToken(userId);
   const [profile, recovery, sleep] = await Promise.all([
     whoopGet(token, '/user/profile/basic'),
@@ -96,7 +106,7 @@ export default async function handler(req, res) {
   if (!user) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
-    res.status(200).json(await getWhoopSummary(user.id));
+    res.status(200).json(await getWhoopSummary(user.id, req.query?.fresh === '1'));
   } catch (err) {
     // { not_connected } tells the app to show the Connect button instead of an error;
     // otherwise return { error } (HTTP 200) so the existing handler surfaces it cleanly.

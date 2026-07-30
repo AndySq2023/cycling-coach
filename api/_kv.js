@@ -20,6 +20,24 @@ export async function kvDel(key) {
   catch { /* non-fatal */ }
 }
 
+// Read-through cache for expensive upstream fetches (WHOOP/Strava summaries). Without
+// this, every app load, every sync tap and every morning briefing re-runs the full
+// provider fan-out — for Strava that's up to 3 pages of 90-day history plus a ride-detail
+// call, per request. TTLs are short (minutes), so data still feels live.
+//
+// Never caches a failure or an { error } payload: a transient upstream blip must not be
+// served for the rest of the TTL. `force` bypasses the read for an explicit refresh.
+// Degrades to a plain call when KV is unconfigured (kvGet returns null, kvSet no-ops).
+export async function cached(key, ttlSeconds, fn, force = false) {
+  if (!force) {
+    const hit = await kvGet(key);
+    if (hit != null) return hit;
+  }
+  const value = await fn();
+  if (value && !value.error) await kvSet(key, value, { ex: ttlSeconds });
+  return value;
+}
+
 // Atomic counter (used for per-user daily chat quotas). Returns the new count, or
 // null when KV is unavailable — callers should NOT enforce limits on null, otherwise
 // a KV outage would lock everyone out of the coach.

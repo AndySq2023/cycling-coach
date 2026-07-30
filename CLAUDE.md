@@ -35,7 +35,13 @@ Two independent pieces that never import each other:
 
 Claude Desktop must be running for chat and WHOOP. Strava is independent (launchd service).
 
-**`proxy/server.js`** — dependency-free Node (ESM) HTTP server. Single responsibility: call the Strava REST API (`/api/v3/athlete/activities`) with a refresh-token flow, normalise field names (e.g. `distance` → `distance_km`), and return a fixed JSON shape the app expects. Tokens auto-rotate and are persisted back to `~/.strava-proxy/auth.json` (outside this repo). Routes: `GET /api/strava`, `GET /api/health`.
+**Cost/perf guards on the hosted API** (`api/chat.js`, `api/strava.js`, `api/whoop.js`): the daily chat quota (`CHAT_DAILY_LIMIT`) caps *how many* messages a member sends, not *how big* — `api/chat.js` also rejects an oversized `system` (>60k chars) or `messages` (>400k chars / >400 entries) BEFORE spending a token or counting against the quota. `getStravaSummary()`/`getWhoopSummary()` are cached server-side (`api/_kv.js`'s `cached()` helper — 3min Strava, 5min WHOOP) so routine loads/polls don't re-run the full provider fan-out (90-day Strava history + ride detail, or the 3-call WHOOP fetch); an explicit "⚡ Sync" tap passes `?fresh=1` to bypass it.
+
+**`proxy/server.js`** — dependency-free Node (ESM) HTTP server. Single responsibility: resolve the athlete's Strava/Windy credentials (refresh-token flow, `~/.strava-proxy/auth.json`, outside this repo) and hand them to `shared/*-core.js`, which does the actual API call and shaping. Routes: `GET /api/strava`, `GET /api/windy`, `GET /api/health`.
+
+**`shared/strava-core.js`** / **`shared/weather-core.js`** — the Strava/Windy response shaping, imported by BOTH `proxy/server.js` (local) and `api/strava.js`/`api/windy.js` (hosted). Used to be ~250 lines of byte-identical duplication between the two backends; now each piece of logic lives once. Each backend owns only its own credential lookup and passes an access token / API key in. **If you change the shape the app consumes ride or weather data in, change it here** — not in `api/` or `proxy/`.
+
+**`test/`** — `npm test` (node:test, zero dependencies). Covers the highest-consequence pure logic: the fenced-block parsers that write to the training plan/memory/routes (`parsers.test.mjs`), the plan-date repair guards (`dates.test.mjs`), the route polyline codec (`route-codec.test.mjs`), and the shared Strava shaping (`strava-core.test.mjs`). `app/cycling-coach.html` has no build step and can't be `import`ed, so `test/_load-app.mjs` extracts named top-level functions from the `<script>` block by brace-matching and evaluates them standalone — it only works for pure functions (no DOM), which is exactly the set worth pinning down. If you add a new fenced-block type or a new date/geometry guard, add it here.
 
 ## Key functions in cycling-coach.html
 
