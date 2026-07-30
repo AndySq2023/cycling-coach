@@ -15,6 +15,20 @@ const MAX_TOKENS = 4096;
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_DAILY_LIMIT = 40;
 
+// ── COST GUARDS ───────────────────────────────────────────────────────────────
+// The daily quota caps how MANY messages a member sends, not how BIG they are —
+// so on its own it bounds nothing: one request can carry a book. These cap the
+// size of a single call, and the daily quota then bounds the day. Deliberately
+// generous: the app's own system prompt (live data + plan + memory) runs ~8-12k
+// chars and a long conversation adds more, so this only stops genuine abuse and
+// runaway loops, never normal coaching use.
+const MAX_SYSTEM_CHARS = 60000;   // ~15k tokens — the app's prompt is well under
+const MAX_MESSAGES_CHARS = 400000; // ~100k tokens of history
+const MAX_MESSAGES = 400;          // entries; the app rolls at 60
+
+const charCount = (messages) => messages.reduce(
+  (n, m) => n + (typeof m?.content === 'string' ? m.content.length : JSON.stringify(m?.content ?? '').length), 0);
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
   const user = await requireUser(req, res);
@@ -26,6 +40,18 @@ export default async function handler(req, res) {
   const { system, messages } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     res.status(400).json({ error: 'Request needs a non-empty messages[] array.' });
+    return;
+  }
+
+  // Size guards run BEFORE the quota is spent and before the upstream call, so an
+  // oversized request costs nothing — neither credits nor one of the day's messages.
+  // { error } over HTTP 200 so the app's existing error path surfaces it in the chat.
+  if (typeof system === 'string' && system.length > MAX_SYSTEM_CHARS) {
+    res.status(200).json({ error: 'That request is too large to send (system prompt). Try clearing some chat history.' });
+    return;
+  }
+  if (messages.length > MAX_MESSAGES || charCount(messages) > MAX_MESSAGES_CHARS) {
+    res.status(200).json({ error: 'That conversation is too long to send. Clear some chat history and try again.' });
     return;
   }
 

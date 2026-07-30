@@ -13,8 +13,12 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+// Response shaping is shared with the hosted functions — see shared/*-core.js.
+// This file owns ONLY credential handling (~/.strava-proxy/auth.json) and the HTTP surface.
+import { buildStravaSummary } from '../shared/strava-core.js';
+import { buildForecast } from '../shared/weather-core.js';
 
-const PORT = 3002;
+const PORT = Number(process.env.PORT) || 3002; // env override lets a second copy run for testing
 
 // ── Credential persistence ─────────────────────────────────
 const AUTH_DIR = path.join(os.homedir(), '.strava-proxy');
@@ -58,213 +62,17 @@ async function getAccessToken() {
 }
 
 // ── Activity fetch + summary ───────────────────────────────
-function num(...vals) {
-  for (const v of vals) if (typeof v === 'number' && Number.isFinite(v)) return v;
-  return null;
-}
-
-function normalizeActivity(a) {
-  return {
-    id: a.id,
-    name: a.name || 'Ride',
-    date: String(a.start_date_local || a.start_date || '').slice(0, 10),
-    distance_km: a.distance != null ? +(a.distance / 1000).toFixed(1) : null,
-    moving_time_min: a.moving_time != null ? Math.round(a.moving_time / 60) : null,
-    moving_time_s: num(a.moving_time),
-    elevation_m: a.total_elevation_gain != null ? Math.round(a.total_elevation_gain) : null,
-    avg_speed_kph: a.average_speed != null ? +(a.average_speed * 3.6).toFixed(1) : null,
-    avg_hr: a.average_heartrate != null ? Math.round(a.average_heartrate) : null,
-    max_hr: a.max_heartrate != null ? Math.round(a.max_heartrate) : null,
-    suffer_score: num(a.suffer_score),
-    sport_type: a.sport_type || a.type || '',
-  };
-}
-
-// Compact per-segment lap comparison for one activity. Segments the rider hit
-// 2+ times in the ride ARE the laps (park loops) — Strava's own lap array is
-// usually a single entry unless the lap button was pressed.
-function buildRideDetail(a) {
-  const hr = (v) => (v != null && Number.isFinite(v)) ? Math.round(v) : null;
-  const secs = (e) => num(e.moving_time, e.elapsed_time);
-
-  const laps = (a.laps || []).length > 1
-    ? a.laps.map((l, i) => ({
-        lap: i + 1,
-        distance_km: l.distance != null ? +(l.distance / 1000).toFixed(1) : null,
-        time_s: secs(l),
-        avg_hr: hr(l.average_heartrate),
-        max_hr: hr(l.max_heartrate),
-      }))
-    : [];
-
-  const bySeg = new Map();
-  for (const e of a.segment_efforts || []) {
-    const id = e.segment?.id;
-    if (id == null) continue;
-    if (!bySeg.has(id)) bySeg.set(id, []);
-    bySeg.get(id).push(e);
-  }
-  // Overlapping segment definitions abound (a park loop has ~10 "full lap"
-  // variants) — after sorting by length, only keep a segment if it's meaningfully
-  // shorter (<80%) than the last one kept, so the list spans lap → climbs.
-  const candidates = [...bySeg.values()]
-    .filter(v => v.length >= 2 && (v[0].distance || 0) >= 400)
-    .sort((x, y) => (y[0].distance || 0) - (x[0].distance || 0));
-  const kept = [];
-  for (const v of candidates) {
-    if (kept.length >= 10) break;
-    const last = kept[kept.length - 1];
-    if (!last || (v[0].distance || 0) < 0.8 * (last[0].distance || 0)) kept.push(v);
-  }
-  const repeated_segments = kept
-    .map(v => ({
-      name: v[0].name || v[0].segment?.name || 'segment',
-      distance_km: +((v[0].distance || 0) / 1000).toFixed(1),
-      efforts: v
-        .sort((x, y) => (x.start_index ?? 0) - (y.start_index ?? 0))
-        .map(e => ({ time_s: secs(e), avg_hr: hr(e.average_heartrate) })),
-    }));
-
-  return {
-    avg_hr: hr(a.average_heartrate),
-    max_hr: hr(a.max_heartrate),
-    laps,
-    repeated_segments,
-  };
-}
-
-async function getRideDetail(token, activityId) {
-  const res = await fetch(`https://www.strava.com/api/v3/activities/${activityId}?include_all_efforts=true`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Strava activity detail error (${res.status}): ${(await res.text()).slice(0, 200)}`);
-  return buildRideDetail(await res.json());
-}
-
-// 90 days of history feeds the dashboard charts (HR efficiency, ATL/CTL, weekly
-// load — CTL alone needs 42 days to warm up). The prompt-facing fields below stay
-// 7-day so the system prompt doesn't grow with the wider fetch.
-const HISTORY_DAYS = 90;
-
+// Shaping lives in shared/strava-core.js; here we just supply the access token.
 async function getStravaSummary() {
-  const token = await getAccessToken();
-  const after = Math.floor((Date.now() - HISTORY_DAYS * 86400000) / 1000);
-  let activities = [];
-  for (let page = 1; page <= 3; page++) {
-    const res = await fetch(`https://www.strava.com/api/v3/athlete/activities?after=${after}&per_page=200&page=${page}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`Strava API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
-    const batch = await res.json();
-    activities = activities.concat(batch);
-    if (batch.length < 200) break;
-  }
-
-  const rides = activities
-    .map(normalizeActivity)
-    .filter(a => /ride/i.test(a.sport_type))
-    .sort((x, y) => y.date.localeCompare(x.date));
-
-  const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const rides7 = rides.filter(r => r.date >= sevenAgo);
-
-  const totalKm = rides7.reduce((s, r) => s + (r.distance_km || 0), 0);
-  const totalElev = rides7.reduce((s, r) => s + (r.elevation_m || 0), 0);
-  const totalH = rides7.reduce((s, r) => s + (r.moving_time_s || 0), 0) / 3600;
-
-  // Segment-level detail for the most recent ride only (one extra API call);
-  // a failure here must not take down the whole summary.
-  let last_ride_detail = null;
-  if (rides7.length && rides7[0].id != null) {
-    try {
-      last_ride_detail = await getRideDetail(token, rides7[0].id);
-    } catch (err) {
-      console.error('Strava ride detail failed:', err.message);
-    }
-  }
-
-  const strip = ({ id, moving_time_s, sport_type, ...keep }) => keep;
-  // Chart-only series, oldest → newest. Never inject this into a prompt.
-  const lean = ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score }) =>
-    ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score });
-  return {
-    last_ride: rides7.length ? strip(rides7[0]) : null,
-    last_ride_detail,
-    rides_7d: rides7.length,
-    total_km_7d: +totalKm.toFixed(1),
-    total_elevation_7d: Math.round(totalElev),
-    total_moving_time_h_7d: +totalH.toFixed(1),
-    all_rides: rides7.map(strip),
-    history_days: HISTORY_DAYS,
-    history: [...rides].reverse().map(lean),
-  };
+  return buildStravaSummary(await getAccessToken());
 }
 
 // ── Windy point forecast (for ride-planning weather) ──────
 // Key: WINDY_API_KEY env var, or windy_key in ~/.strava-proxy/auth.json.
-const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-function windDir(u, v) {
-  const deg = (Math.atan2(u, v) * 180 / Math.PI + 180) % 360;
-  return COMPASS[Math.round(deg / 45) % 8];
-}
-const wround = (n, d = 0) => (n == null || !Number.isFinite(n)) ? null : +n.toFixed(d);
-
 async function getForecast(lat, lon) {
   const key = process.env.WINDY_API_KEY || readAuth().windy_key;
   if (!key) throw new Error('Missing Windy key — set WINDY_API_KEY or add "windy_key" to ~/.strava-proxy/auth.json');
-
-  const res = await fetch('https://api.windy.com/api/point-forecast/v2', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      lat, lon, model: 'gfs',
-      parameters: ['wind', 'windGust', 'temp', 'precip'],
-      levels: ['surface'], key,
-    }),
-  });
-  if (!res.ok) throw new Error(`Windy API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
-  const d = await res.json();
-
-  const ts = d.ts || [];
-  const U = d['wind_u-surface'] || [], V = d['wind_v-surface'] || [];
-  const G = d['gust-surface'] || [], T = d['temp-surface'] || [], P = d['past3hprecip-surface'] || [];
-  if (!ts.length) throw new Error('Windy returned no forecast timesteps.');
-
-  const HOURS_AHEAD = 48;
-  const now = Date.now(), horizon = now + HOURS_AHEAD * 3600000;
-  const hourly = [];
-  for (let i = 0; i < ts.length; i++) {
-    if (ts[i] < now - 3600000 || ts[i] > horizon) continue;
-    const u = U[i], v = V[i];
-    const speed = (u != null && v != null) ? Math.hypot(u, v) : null;
-    hourly.push({
-      time: new Date(ts[i]).toISOString(),
-      temp_c: wround(T[i] != null ? T[i] - 273.15 : null, 1),
-      wind_kph: wround(speed != null ? speed * 3.6 : null),
-      gust_kph: wround(G[i] != null ? G[i] * 3.6 : null),
-      wind_dir: (u != null && v != null) ? windDir(u, v) : null,
-      precip_mm: wround(P[i], 1),
-    });
-  }
-  if (!hourly.length) throw new Error('No forecast points within the next 48h.');
-
-  const nums = (arr) => arr.filter(n => n != null && Number.isFinite(n));
-  const winds = nums(hourly.map(h => h.wind_kph)), gusts = nums(hourly.map(h => h.gust_kph));
-  const temps = nums(hourly.map(h => h.temp_c));
-  const precipTotal = nums(hourly.map(h => h.precip_mm)).reduce((s, n) => s + n, 0);
-  return {
-    location: { lat: wround(lat, 3), lon: wround(lon, 3) }, model: 'gfs',
-    now: hourly[0], hourly,
-    summary: {
-      hours: HOURS_AHEAD,
-      wind_kph_min: winds.length ? Math.min(...winds) : null,
-      wind_kph_max: winds.length ? Math.max(...winds) : null,
-      gust_kph_max: gusts.length ? Math.max(...gusts) : null,
-      temp_c_min: temps.length ? Math.min(...temps) : null,
-      temp_c_max: temps.length ? Math.max(...temps) : null,
-      precip_mm_total: wround(precipTotal, 1),
-    },
-  };
+  return buildForecast(lat, lon, key);
 }
 
 // ── HTTP server ────────────────────────────────────────────

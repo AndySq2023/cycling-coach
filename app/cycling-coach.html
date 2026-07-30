@@ -1416,7 +1416,7 @@
           <span class="metric-label">SpO2</span>
           <span class="metric-value" id="disp-spo2">—</span>
         </div>
-        <button class="load-btn" id="whoopSyncBtn" onclick="syncWHOOP()">⚡ Sync from WHOOP</button>
+        <button class="load-btn" id="whoopSyncBtn" onclick="syncWHOOP(true)">⚡ Sync from WHOOP</button>
         <button class="load-btn" id="whoopConnectBtn" style="display:none" onclick="connectProvider('whoop')">🔗 Connect your WHOOP</button>
       </div>
 
@@ -1446,7 +1446,7 @@
           <span class="metric-label">Moving time</span>
           <span class="metric-value" id="disp-movingtime">—</span>
         </div>
-        <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava()">⚡ Sync from Strava</button>
+        <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava(true)">⚡ Sync from Strava</button>
         <button class="load-btn" id="stravaConnectBtn" style="display:none" onclick="connectProvider('strava')">🔗 Connect your Strava</button>
       </div>
 
@@ -2422,7 +2422,7 @@ function renderDashboard() {
     ? `<span class="ed-kicker">Recovery</span>
        <span class="ed-kicker" style="color:${statusVar}">${statusWord}</span>
        ${w.hrv != null ? `<span class="ed-kicker faint">HRV ${w.hrv}ms</span>` : ''}`
-    : `<span class="ed-kicker">Recovery</span><button class="ed-cell-cta" onclick="syncWHOOP()" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;">Sync WHOOP →</button>`;
+    : `<span class="ed-kicker">Recovery</span><button class="ed-cell-cta" onclick="syncWHOOP(true)" style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;">Sync WHOOP →</button>`;
 
   const heroHtml = `
     <div class="ed-hero">
@@ -2491,16 +2491,16 @@ function renderDashboard() {
 
   const sleepCell = (w.sleep_duration_h != null)
     ? val(fmtSleep(w.sleep_duration_h), '', w.sleep_efficiency != null ? `Efficiency ${w.sleep_efficiency}%` : 'Last night')
-    : (w.sleep_efficiency != null ? val(w.sleep_efficiency + '%', '', 'Sleep efficiency') : cta('syncWHOOP()'));
+    : (w.sleep_efficiency != null ? val(w.sleep_efficiency + '%', '', 'Sleep efficiency') : cta('syncWHOOP(true)'));
 
   const loadCell = (st && st.total_km_7d != null)
     ? val(mi(st.total_km_7d), st.rides_7d != null ? `<div class="ed-cell-delta pos">${st.rides_7d} rides</div>` : '',
           st.total_moving_time_h_7d != null ? `${st.total_moving_time_h_7d}h moving` : 'Last 7 days')
-    : cta('syncStrava()');
+    : cta('syncStrava(true)');
 
   const hrvCell = (w.hrv != null)
     ? val(w.hrv, `<div class="ed-cell-delta pos">ms</div>`, w.rhr != null ? `RHR ${w.rhr} bpm` : 'Heart-rate variability')
-    : cta('syncWHOOP()');
+    : cta('syncWHOOP(true)');
 
   let condCell;
   if (wx && wx.now && wx.now.temp_c != null) {
@@ -2608,7 +2608,12 @@ function renderDashboard() {
 // ── PERFORMANCE DASHBOARD — goal-focused (London → Brighton) ──────────────────
 // Replaces the old coach-jargon charts (HR efficiency, ATL/CTL load curve). Every
 // card answers one plain readiness question for the event below, from the 90-day
-// Strava ride history alone (no power meter). Change GOAL_EVENT if the goal changes.
+// Strava ride history alone (no power meter).
+//
+// ★ EDIT THIS when the goal event changes — it's the only thing to update. ★
+// Deliberately a plain constant rather than parsed from the free-text Goal field:
+// extracting a date/distance/climb out of prose reliably is a much bigger, fragile
+// piece of work for a single-athlete app where a one-line edit does the job.
 const GOAL_EVENT = { name: 'London → Brighton', date: '2026-09-13', miles: 54, climbFt: 3500 };
 const FT_PER_M = 3.28084;
 
@@ -2661,7 +2666,7 @@ function renderCharts() {
       <div class="dash-card" style="text-align:center;padding:40px 20px;">
         <div style="font-size:26px;margin-bottom:10px;">📊</div>
         <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);max-width:420px;margin:0 auto;">${msg}</div>
-        <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava()">⚡ Sync Strava</button></div>
+        <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava(true)">⚡ Sync Strava</button></div>
       </div>`;
     return;
   }
@@ -2817,7 +2822,9 @@ function chartFinishTime(history) {
 }
 
 // ── WHOOP LIVE SYNC ────────────────────────────────────────
-async function syncWHOOP() {
+// force=true (an explicit user tap on Sync) bypasses the server-side cache; the
+// automatic sync on load is happy with a cached summary.
+async function syncWHOOP(force = false) {
   const btn = document.getElementById('whoopSyncBtn');
   const status = document.getElementById('whoop-sync-status');
   btn.textContent = 'Syncing…';
@@ -2825,7 +2832,7 @@ async function syncWHOOP() {
   status.textContent = '';
 
   try {
-    const res = await coachFetch(API.whoop + '/api/whoop');
+    const res = await coachFetch(API.whoop + '/api/whoop' + (force ? '?fresh=1' : ''));
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
     if (d.not_connected) {
@@ -2869,7 +2876,9 @@ async function syncWHOOP() {
   btn.disabled = false;
 }
 
-async function syncStrava() {
+// force=true (an explicit user tap on Sync) bypasses the server-side cache; the
+// automatic sync on load is happy with a cached summary.
+async function syncStrava(force = false) {
   const btn = document.getElementById('stravaSyncBtn');
   const status = document.getElementById('strava-sync-status');
   btn.textContent = 'Syncing…';
@@ -2877,7 +2886,7 @@ async function syncStrava() {
   status.textContent = '';
 
   try {
-    const res = await coachFetch(API.strava + '/api/strava');
+    const res = await coachFetch(API.strava + '/api/strava' + (force ? '?fresh=1' : ''));
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
     if (d.not_connected) {
@@ -4351,9 +4360,9 @@ async function syncAndReconcile() {
   const btn = document.getElementById('syncReconcileBtn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Syncing…'; }
 
-  // 1. Pull fresh Strava data
+  // 1. Pull fresh Strava data — user-initiated, so bypass the server-side cache.
   try {
-    const res = await coachFetch(API.strava + '/api/strava');
+    const res = await coachFetch(API.strava + '/api/strava?fresh=1');
     if (res.ok) {
       const d = await res.json();
       if (!d.error) {
