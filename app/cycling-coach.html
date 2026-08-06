@@ -1824,6 +1824,9 @@ function pushState() {
         coachNotes,
         resistance: resistanceLib,
         conversationHistory: conversationHistory.slice(-120),
+        // Mirror whatever's cached locally (or null) so other devices adopt the same
+        // briefing instead of generating their own.
+        briefing: (() => { try { return JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null'); } catch (e) { return null; } })(),
       }),
     })
       .then(r => (r && r.ok) ? r.json() : null)
@@ -1928,6 +1931,18 @@ async function pullState() {
       renderChatFromHistory();
       saveChat();
     }
+    // Adopt today's briefing if another device already generated one — this is what
+    // keeps the weather read and plan identical across devices instead of each one
+    // spending its own Claude call and getting a different generation.
+    if (s.briefing && s.briefing.text && s.briefing.date === new Date().toISOString().slice(0, 10)) {
+      let local = null;
+      try { local = JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null'); } catch (e) {}
+      if (!local || local.date !== s.briefing.date || local.text !== s.briefing.text) {
+        localStorage.setItem(BRIEFING_KEY, JSON.stringify(s.briefing));
+        todayBriefing = s.briefing.text;
+        if (currentTab === 'today') renderDashboard();
+      }
+    }
   } finally {
     _suppressPush = false;
   }
@@ -1961,9 +1976,9 @@ async function coachFetch(url, options = {}) {
   }
   if (TEAM_DEMO) applyUserRole(); // unhide the Team tab for the canned-data preview
 
-  // On phones the panel is an overlay drawer — start it closed so it isn't
-  // covering the chat on load. Desktop keeps it docked open.
-  if (window.matchMedia('(max-width: 600px)').matches) togglePanel();
+  // The data panel is an overlay drawer that starts closed (see the "collapsed"
+  // class in the markup) so it isn't covering content or exposing synced data
+  // on load, on both phone and desktop — the athlete opens it via "My Data".
 
   buildRpeScale();
   const saved = localStorage.getItem('cyclingCoachPlan');
@@ -3226,6 +3241,11 @@ function cachedBriefingRecovery(text) {
 // Called from init() once the live data it depends on has landed.
 async function maybeMorningBriefing() {
   const todayISO = new Date().toISOString().slice(0, 10);
+  // Pull the server copy first — another device may have already generated today's
+  // briefing (pullState() adopts it into BRIEFING_KEY below). Without this, two devices
+  // opened the same morning each fire their own Claude call and get two different
+  // briefings instead of sharing one.
+  await pullState();
   try {
     const saved = JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null');
     const sig = whoopBriefingSig();
