@@ -1,7 +1,7 @@
 // Vercel serverless function — the web app's sync endpoint for per-user coach state.
 // GET  → returns the caller's { plan, feedback, adaptations, goal, home,
-//        conversationHistory } PLUS a `user: { id, name, role }` field so the app
-//        knows who it is (the app shows the Team tab only to role 'master').
+//        conversationHistory, briefing } PLUS a `user: { id, name, role }` field so
+//        the app knows who it is (the app shows the Team tab only to role 'master').
 // PUT  → replaces the caller's state with the body (a full localStorage snapshot).
 //
 // Which blob is read/written is decided by WHO authenticates (requireUser), so a
@@ -41,6 +41,11 @@ export default async function handler(req, res) {
         // can't grow the blob; the app re-normalizes shape on read.
         resistance: Array.isArray(b.resistance) ? b.resistance.slice(0, 20) : [],
         conversationHistory: Array.isArray(b.conversationHistory) ? b.conversationHistory : [],
+        // Today's morning briefing — shared across devices so it's generated once and
+        // every device shows the same weather read and plan, not a fresh AI call each.
+        briefing: (b.briefing && typeof b.briefing === 'object' && typeof b.briefing.text === 'string')
+          ? { date: String(b.briefing.date || ''), text: b.briefing.text.slice(0, 4000), whoopSig: String(b.briefing.whoopSig || '') }
+          : null,
         updatedBy: 'app',
       });
       res.status(200).json({ ok: true, updatedAt: saved.updatedAt });

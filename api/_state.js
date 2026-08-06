@@ -24,6 +24,8 @@ function emptyState() {
     coachNotes: [],      // durable facts the coach remembers about the athlete
     resistance: [],      // coach-authored strength sessions (Resistance tab)
     conversationHistory: [], // [{ role:'user'|'assistant', content }]
+    briefing: null,       // { date, text, whoopSig } — today's morning briefing, shared
+                           // across devices so only one is ever generated per day
     updatedAt: null,
     updatedBy: null,     // 'app' | 'telegram'
   };
