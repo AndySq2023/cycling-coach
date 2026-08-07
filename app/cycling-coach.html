@@ -3754,19 +3754,30 @@ Return the full 7-day plan as the same JSON array format, with "adaptation_note"
   btn.innerHTML = '↺ Adapt Plan';
 }
 
+// Display order: today first, then the rest of the week ahead (soonest first),
+// then a history divider, then past days most-recent-first. trainingPlan itself
+// stays date-ascending (other code relies on that) — this only reorders the render.
+function scheduleDisplayOrder(today) {
+  const upcoming = [], history = [];
+  trainingPlan.forEach(s => (s.date && s.date < today ? history : upcoming).push(s));
+  upcoming.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  history.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return { upcoming, history };
+}
+
 function renderSchedule() {
   const el = document.getElementById('scheduleContent');
   const today = new Date().toISOString().slice(0,10);
+  const { upcoming, history } = scheduleDisplayOrder(today);
 
-  let html = '';
-  trainingPlan.forEach(s => {
+  const renderCard = s => {
     const isToday = s.date === today;
     const isDone = !!sessionFeedback[s.id];
     const isRest = s.intensity === 'rest';
     const fb = sessionFeedback[s.id];
     const adapt = adaptationNotes[s.id];
 
-    html += `<div class="session-card ${isDone ? 'completed' : ''} ${isRest ? 'rest-day' : ''} ${isToday ? 'today' : ''}">`;
+    let html = `<div class="session-card ${isDone ? 'completed' : ''} ${isRest ? 'rest-day' : ''} ${isToday ? 'today' : ''}">`;
 
     html += `<div class="session-card-top">
       <div>
@@ -3818,7 +3829,14 @@ function renderSchedule() {
     }
 
     html += `</div>`;
-  });
+    return html;
+  };
+
+  let html = upcoming.map(renderCard).join('');
+  if (history.length) {
+    html += `<div class="date-divider">History</div>`;
+    html += history.map(renderCard).join('');
+  }
 
   el.innerHTML = html;
 
