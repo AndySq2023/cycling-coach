@@ -18,7 +18,7 @@ api/
   chat.js      # → Anthropic Messages API (replaces the Claude Desktop bridge)
   strava.js    # → Strava REST API (port of proxy/server.js)
   whoop.js     # → WHOOP v2 API (port of the ~/whoop-mcp localhost:3001 bridge)
-  windy.js     # → Windy Point Forecast API (ride-planning weather)
+  weather.js   # → Open-Meteo forecast API (ride-planning weather, no key needed)
   state.js     # → GET/PUT the shared state blob (the app syncs its localStorage here)
 package.json   # root deps for the functions (@vercel/kv)
 vercel.json    # serves the app at "/", gives chat + team 60s to respond
@@ -56,7 +56,6 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `APP_PASSWORD` | a password you choose — the app asks for it on first load. **This is now the *master* login** (team owner); members get their own generated passwords (see "Team accounts"). |
 | `MASTER_NAME` | *(optional — teams)* your display name on the Team Report (default "Coach") |
 | `CHAT_DAILY_LIMIT` | *(optional — teams)* coach messages per member per day (default 40; master exempt) |
-| `WINDY_API_KEY` | *(optional)* Point Forecast key from api.windy.com → enables the Weather panel |
 | `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat. The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
 | `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
 | `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
@@ -69,10 +68,10 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 > Without `APP_PASSWORD` the API refuses to run, so chat can't be left open to the
 > world by accident.
 >
-> `WINDY_API_KEY` is optional: leave it unset and the Weather panel just shows a sync
-> error (everything else works). Get a free key at **api.windy.com → sign in → API keys
-> → Point Forecast**. The app sends the ride location (set in the Weather panel, or 📍
-> from the device); the key itself never leaves the server.
+> The Weather panel needs no API key or env var — it calls Open-Meteo, which is free
+> and keyless. (It previously used the Windy Point Forecast API; that was switched out
+> because Windy's free tier deliberately randomizes/shuffles its data — real Windy data
+> needs a paid Professional plan.)
 >
 > `GRAPHHOPPER_URL` is optional: leave it unset and route-planning requests from chat
 > will just fail with an error, everything else works unaffected. Using GraphHopper's

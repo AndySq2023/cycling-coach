@@ -86,7 +86,7 @@ document is the product spec, the architecture, and the runbook for taking it li
                       │  api/state.js ────┼── requireUser ──► per-user KV keys                │
                       │  api/strava.js ───┤        │                                          │
                       │  api/whoop.js ────┤        │        Upstash Redis (KV)                │
-                      │  api/windy.js ────┤        │  team_roster                             │
+                      │  api/weather.js ──┤        │  team_roster                             │
                       │  api/oauth.js ────┤        │  coach_state           (master, legacy)  │
                       │  api/team.js ─────┘        │  coach_state:<uid>     (members)         │
                       │   (master-only)            │  strava_refresh_token  (master, legacy)  │
@@ -99,12 +99,12 @@ document is the product spec, the architecture, and the runbook for taking it li
                       └──────────┬─────────────────┴──────────────────────────────────────────┘
                                  │ server-side calls
                                  ▼
-                 Anthropic API · Strava API · WHOOP API · Windy API · Telegram API
+                 Anthropic API · Strava API · WHOOP API · Open-Meteo API · Telegram API
 ```
 
 Key properties:
 
-- **8 serverless functions** (chat, state, strava, whoop, windy, route, oauth,
+- **8 serverless functions** (chat, state, strava, whoop, weather, route, oauth,
   team) — under the Hobby-plan limit of 12. `_`-prefixed files are shared helpers,
   not routes.
 - **Identity is server-side only.** The browser never says who it is; the password
@@ -148,7 +148,7 @@ additive), so rolling code back never corrupts state.
 |---|---|
 | Plan | **Hobby works** for 7 users: 8/12 functions, 60 s `maxDuration` (set for chat, team), KV via Upstash Marketplace. Consider **Pro** if you want >1 team, analytics, or password-protected preview deploys. |
 | Store | Upstash Redis integration (`cycling-coach-kv`) — **required** (roster, tokens, state, quotas all live there). Free tier (10k commands/day) is fine: ~2k commands/day at full team usage. |
-| Env vars (existing) | `ANTHROPIC_API_KEY`, `APP_PASSWORD`, `STRAVA_CLIENT_ID/SECRET/REFRESH_TOKEN`, `WHOOP_CLIENT_ID/SECRET` (+ seeded KV token), `WINDY_API_KEY` (optional), `TELEGRAM_*` (optional) |
+| Env vars (existing) | `ANTHROPIC_API_KEY`, `APP_PASSWORD`, `STRAVA_CLIENT_ID/SECRET/REFRESH_TOKEN`, `WHOOP_CLIENT_ID/SECRET` (+ seeded KV token), `TELEGRAM_*` (optional) |
 | Env vars (new, optional) | `MASTER_NAME` — your display name on the Team Report (default "Coach"). `CHAT_DAILY_LIMIT` — member daily chat quota (default 40). |
 | Function config | `vercel.json` sets `maxDuration: 60` for `api/chat.js` and `api/team.js`. |
 | Domains | The OAuth callback is registered per-domain. If you add a custom domain, re-register `https://<domain>/api/oauth` with Strava and WHOOP. |

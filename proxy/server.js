@@ -67,12 +67,10 @@ async function getStravaSummary() {
   return buildStravaSummary(await getAccessToken());
 }
 
-// ── Windy point forecast (for ride-planning weather) ──────
-// Key: WINDY_API_KEY env var, or windy_key in ~/.strava-proxy/auth.json.
+// ── Weather forecast (Open-Meteo, for ride planning) ──────
+// No API key required.
 async function getForecast(lat, lon) {
-  const key = process.env.WINDY_API_KEY || readAuth().windy_key;
-  if (!key) throw new Error('Missing Windy key — set WINDY_API_KEY or add "windy_key" to ~/.strava-proxy/auth.json');
-  return buildForecast(lat, lon, key);
+  return buildForecast(lat, lon);
 }
 
 // ── HTTP server ────────────────────────────────────────────
@@ -80,7 +78,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  if (url.pathname === '/api/windy') {
+  if (url.pathname === '/api/weather') {
     res.setHeader('Content-Type', 'application/json');
     try {
       const lat = parseFloat(url.searchParams.get('lat'));
@@ -91,7 +89,7 @@ const server = http.createServer(async (req, res) => {
       }
       res.end(JSON.stringify(await getForecast(lat, lon)));
     } catch (err) {
-      console.error('GET /api/windy failed:', err.message);
+      console.error('GET /api/weather failed:', err.message);
       res.end(JSON.stringify({ error: err.message || String(err) }));
     }
     return;
@@ -122,6 +120,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Strava proxy listening on http://localhost:${PORT}`);
   console.log(`  GET /api/strava  → 7-day ride summary for cycling-coach.html`);
-  console.log(`  GET /api/windy   → 48h point forecast (?lat=&lon=)`);
+  console.log(`  GET /api/weather → 48h point forecast (?lat=&lon=)`);
   console.log(`  GET /api/health  → status`);
 });

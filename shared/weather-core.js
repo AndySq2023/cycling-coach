@@ -1,74 +1,80 @@
-// Windy point-forecast shaping — the single source of truth, imported by BOTH backends:
-//   api/windy.js     (hosted, Vercel; key from WINDY_API_KEY)
-//   proxy/server.js  (local proxy; key from WINDY_API_KEY or ~/.strava-proxy/auth.json)
+// Open-Meteo forecast shaping — the single source of truth, imported by BOTH backends:
+//   api/weather.js   (hosted, Vercel)
+//   proxy/server.js  (local proxy)
 //
-// As with strava-core.js, these two carried near-identical copies where only the key
-// lookup differed. The caller resolves its own key and passes it in.
+// Open-Meteo (https://open-meteo.com) is free, keyless, and returns real (unshuffled)
+// forecast data blended from open models (NOAA GFS, DWD ICON, etc.) — switched to it
+// after finding the Windy Point Forecast API's free tier deliberately randomizes data
+// ("testing API version... data is randomly shuffled and slightly modified"); real
+// Windy data requires a €990/year Professional plan.
 
-const WINDY_URL = 'https://api.windy.com/api/point-forecast/v2';
+const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
 export const HOURS_AHEAD = 48; // how far forward to summarise
+const STEP_HOURS = 3; // sampling cadence for the hourly outlook (prompt stays compact)
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-export function windDir(u, v) {
-  // Meteorological "from" direction of a (u east, v north) wind vector, m/s.
-  const deg = (Math.atan2(u, v) * 180 / Math.PI + 180) % 360;
+export function windDir(deg) {
+  // Open-Meteo reports degrees the wind is blowing FROM (meteorological convention).
+  if (deg == null || !Number.isFinite(deg)) return null;
   return COMPASS[Math.round(deg / 45) % 8];
 }
 const round = (n, d = 0) => (n == null || !Number.isFinite(n)) ? null : +n.toFixed(d);
 
-// Compact, ride-relevant forecast for one point. `key` is the Windy API key.
-export async function buildForecast(lat, lon, key) {
-  if (!key) throw new Error('Missing Windy API key.');
+// Compact, ride-relevant forecast for one point. No API key required.
+export async function buildForecast(lat, lon) {
+  const url = `${OPEN_METEO_URL}?latitude=${lat}&longitude=${lon}` +
+    `&hourly=temperature_2m,windspeed_10m,winddirection_10m,windgusts_10m,precipitation` +
+    `&timezone=UTC&forecast_days=3`;
 
-  const res = await fetch(WINDY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      lat, lon,
-      model: 'gfs',
-      parameters: ['wind', 'windGust', 'temp', 'precip'],
-      levels: ['surface'],
-      key,
-    }),
-  });
-  if (!res.ok) throw new Error(`Windy API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Open-Meteo API error (${res.status}): ${(await res.text()).slice(0, 200)}`);
   const d = await res.json();
 
-  const ts = d.ts || [];
-  const U = d['wind_u-surface'] || [];
-  const V = d['wind_v-surface'] || [];
-  const G = d['gust-surface'] || [];
-  const T = d['temp-surface'] || [];
-  const P = d['past3hprecip-surface'] || [];
-  if (!ts.length) throw new Error('Windy returned no forecast timesteps.');
+  const h = d.hourly || {};
+  const times = h.time || [];
+  if (!times.length) throw new Error('Open-Meteo returned no forecast timesteps.');
+
+  // timezone=UTC gives naive "YYYY-MM-DDTHH:mm" strings representing UTC instants.
+  const ts = times.map(t => Date.parse(t + 'Z'));
+  const T = h.temperature_2m || [];
+  const W = h.windspeed_10m || [];
+  const G = h.windgusts_10m || [];
+  const D = h.winddirection_10m || [];
+  const P = h.precipitation || [];
 
   const now = Date.now();
   const horizon = now + HOURS_AHEAD * 3600000;
+
+  let start = ts.findIndex(t => t >= now - 3600000);
+  if (start === -1) start = 0;
+
   const hourly = [];
-  for (let i = 0; i < ts.length; i++) {
-    if (ts[i] < now - 3600000 || ts[i] > horizon) continue;
-    const u = U[i], v = V[i];
-    const speed = (u != null && v != null) ? Math.hypot(u, v) : null;
+  for (let i = start; i < ts.length && ts[i] <= horizon; i += STEP_HOURS) {
+    // Sum precipitation over the preceding (up to) 3h, matching the old "last 3h" semantics.
+    let precip = 0, sawPrecip = false;
+    for (let j = Math.max(0, i - (STEP_HOURS - 1)); j <= i; j++) {
+      if (P[j] != null && Number.isFinite(P[j])) { precip += P[j]; sawPrecip = true; }
+    }
     hourly.push({
       time: new Date(ts[i]).toISOString(),
-      temp_c: round(T[i] != null ? T[i] - 273.15 : null, 1),
-      wind_kph: round(speed != null ? speed * 3.6 : null),
-      gust_kph: round(G[i] != null ? G[i] * 3.6 : null),
-      wind_dir: (u != null && v != null) ? windDir(u, v) : null,
-      precip_mm: round(P[i], 1), // mm over preceding ~3h
+      temp_c: round(T[i]),
+      wind_kph: round(W[i]),
+      gust_kph: round(G[i]),
+      wind_dir: windDir(D[i]),
+      precip_mm: sawPrecip ? round(precip, 1) : null,
     });
   }
   if (!hourly.length) throw new Error('No forecast points within the next 48h.');
 
   const nums = (arr) => arr.filter(n => n != null && Number.isFinite(n));
-  const winds = nums(hourly.map(h => h.wind_kph));
-  const gusts = nums(hourly.map(h => h.gust_kph));
-  const temps = nums(hourly.map(h => h.temp_c));
-  const precipTotal = nums(hourly.map(h => h.precip_mm)).reduce((s, n) => s + n, 0);
+  const winds = nums(hourly.map(x => x.wind_kph));
+  const gusts = nums(hourly.map(x => x.gust_kph));
+  const temps = nums(hourly.map(x => x.temp_c));
+  const precipTotal = nums(hourly.map(x => x.precip_mm)).reduce((s, n) => s + n, 0);
 
   return {
     location: { lat: round(lat, 3), lon: round(lon, 3) },
-    model: 'gfs',
+    model: 'open-meteo',
     now: hourly[0],
     hourly,
     summary: {

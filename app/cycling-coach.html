@@ -2953,7 +2953,7 @@ async function syncStrava(force = false) {
   btn.disabled = false;
 }
 
-// ── WEATHER (Windy point forecast) ─────────────────────────
+// ── WEATHER (Open-Meteo point forecast) ─────────────────────
 // Home location lives in localStorage ('cyclingCoachHome' = "lat,lon"). The coach
 // uses it to plan rides (wind/temp/rain). No location set ⇒ weather is skipped, not errored.
 function getHomeLocation() {
@@ -3009,7 +3009,7 @@ async function syncWeather() {
   status.textContent = '';
 
   try {
-    const res = await coachFetch(`${API.weather}/api/windy?lat=${loc.lat}&lon=${loc.lon}`);
+    const res = await coachFetch(`${API.weather}/api/weather?lat=${loc.lat}&lon=${loc.lon}`);
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     const d = await res.json();
     if (d.error) throw new Error(d.error);
