@@ -3380,6 +3380,13 @@ Tone: Direct, confident, like a coach who knows their data. Conversational but n
 
 Format: Short paragraphs. Use clear structure. Occasionally use metric callouts like [Recovery: 34% ⚠️] inline to highlight key numbers.`;
 
+  // ── Ground-truth date, placed FIRST (not buried at the end) — a live conversation
+  // once saw the model miscompute today's weekday despite this block being present
+  // later in the prompt, so it now gets primacy plus a visual flag. ──
+  const todayISO = new Date().toISOString().slice(0,10);
+  const todayLong = new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+  prompt += `\n\n⚠️ SYSTEM DATE (ground truth — authoritative over anything you compute yourself or see earlier in the conversation): TODAY IS ${todayLong.toUpperCase()} (${todayISO}). NEVER compute day-of-week yourself, your internal calendar is a year out of date — always copy dates from this CALENDAR for the next 28 days: ${calendarTable(28)}.`;
+
   if (athleteData.whoop) {
     const w = athleteData.whoop;
     prompt += `\n\nATHLETE'S CURRENT WHOOP DATA (live, today):`;
@@ -3459,12 +3466,8 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     prompt += `\n\nNo data loaded yet. Ask the athlete to share their WHOOP recovery numbers and recent Strava rides so you can give personalized advice. You can still answer general cycling training questions.`;
   }
 
-  // ── Ground-truth date + "today" resolution (authoritative over chat history) ──
-  const todayISO = new Date().toISOString().slice(0,10);
-  const todayLong = new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
-  prompt += `\n\n=== GROUND TRUTH (authoritative — trust this over anything earlier in the conversation) ===`;
-  prompt += `\nToday is ${todayLong} (${todayISO}).`;
-  prompt += `\nCALENDAR for the next 28 days — copy dates from this list whenever you mention or schedule a day; NEVER compute day-of-week yourself (your internal calendar is a year out of date): ${calendarTable(28)}.`;
+  // ── Today's data grounding (rides/recovery already covered by the SYSTEM DATE block up top) ──
+  prompt += `\n\n=== TODAY'S DATA (${todayISO}) ===`;
   if (athleteData.strava) {
     const ridesToday = (athleteData.strava.all_rides || []).filter(r => r.date === todayISO);
     if (ridesToday.length) {
