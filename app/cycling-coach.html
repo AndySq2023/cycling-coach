@@ -3493,7 +3493,7 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   // claims it can't write the schedule. Two write paths: schedule_set (create/replace
   // the whole week) and schedule_update (patch one existing session).
   prompt += `\n\n=== YOU CAN WRITE TO THE ATHLETE'S SCHEDULE ===
-You are not just a chat box — you have direct write access to the in-app Training Schedule (the "Schedule" tab). When you want to create or change the plan, emit a fenced JSON block and the app applies it instantly. Never tell the athlete you can't write to their schedule — you can.`;
+You are not just a chat box — you have direct write access to the in-app Training Schedule (the "Schedule" tab). When you want to create or change the plan, emit a fenced JSON block and the app applies it instantly. Never tell the athlete you can't write to their schedule — you can. Critically: NEVER say you've changed, fixed, or updated the schedule (or describe what "we agreed") unless the fenced block is in this SAME reply — the app only applies a change when it finds the block; prose alone does nothing, even if you fully intend to add the block next message. If you're not ready to emit it yet, say what you're about to do, not that you've done it.`;
 
   if (trainingPlan.length) {
     const today = new Date().toISOString().slice(0,10);
@@ -3596,6 +3596,14 @@ or, for a ride to a specific place and back:
 {"mode":"out_and_back","destination":"box hill","avoidHills":false}
 \`\`\`
 Rules: ONLY emit a route_request when the athlete explicitly asks for a route in their latest message — never volunteer one. NEVER write a "[Route planned: ...]" line or state route numbers yourself — the app runs the routing tool and posts the real result (with the GPX download) only AFTER it finds your route_request block; a claimed result without the block means no route exists and the athlete gets no GPX. mode is "loop" (round trip from home, sized by durationMin + paceMph) or "out_and_back" (home -> destination -> home, shortest distance). For loop mode, take paceMph from the athlete's real recent Strava average speed for rides at the relevant intensity — the speeds in their data above are already mph, use them directly; never guess a generic number if their data is available. avoidHills true biases away from steep roads; leave it false for out_and_back unless asked. destination is any place name (it gets geocoded — be specific, e.g. "Box Hill, Surrey") or "lat,lon". Put the block at the very end of your reply, no text after it — the app appends the real result to the conversation itself.${home ? '' : ' If no home location is set yet and the athlete hasn\'t mentioned where they live, ask them (city, postcode, or landmark) and set it with a home_set block first, in the same reply if you can.'}`;
+
+  // ── Closing date reinforcement — repeats the SYSTEM DATE block right before the
+  // model answers. Everything above (schedule/resistance/route instructions) sits
+  // between the original ground-truth block and the reply, and a long prompt +
+  // replayed history can still out-pull it (a live conversation drifted a day off
+  // despite the top-of-prompt block being correct) — restating it last, closest to
+  // where generation begins, gives it the strongest recency weight.
+  prompt += `\n\n⚠️ REMINDER — TODAY IS STILL ${todayLong.toUpperCase()} (${todayISO}), regardless of what any earlier message in this conversation said or assumed. Do not treat time as having passed since the previous message unless the CALENDAR above shows it has.`;
 
   return prompt;
 }
@@ -4341,7 +4349,7 @@ async function sendMessage(text) {
       conversationHistory.pop();
     } else {
       const reply = data.content[0].text;
-      const { clean: schedClean, updates, planSet, planAdd } = extractScheduleUpdates(reply);
+      const { clean: schedClean, updates, planSet, planAdd, raw: schedRaw } = extractScheduleUpdates(reply);
       const { clean: notesClean, notes } = extractCoachNotes(schedClean);
       const { clean: resClean, workouts: resWorkouts } = extractResistance(notesClean);
       const { clean: homeClean, homeSet } = extractHomeSet(resClean);
@@ -4350,13 +4358,13 @@ async function sendMessage(text) {
       if (notes) applyCoachNotes(notes);
       if (resWorkouts) applyResistanceSet(resWorkouts);
       appendBubble('coach', clean);
-      // Store the reply WITH its route_request block (display strips it): replayed
-      // history must show the model how past routes were actually triggered, or it
-      // learns to imitate the visible "[Route planned: ...]" result markers instead
-      // of emitting the block — faking a route with invented numbers and no GPX.
-      const stored = routeRequest
-        ? clean + '\n```route_request\n' + JSON.stringify(routeRequest) + '\n```'
-        : clean;
+      // Store the reply WITH its schedule_update/schedule_set/schedule_add/route_request
+      // blocks (display strips them): replayed history must show the model how past
+      // changes were actually made, or it learns to imitate its own past prose
+      // ("I've updated your schedule...") instead of emitting the block — describing a
+      // change without ever applying it. Same fix already in place for route_request.
+      let stored = schedRaw.length ? clean + '\n' + schedRaw.join('\n') : clean;
+      if (routeRequest) stored += '\n```route_request\n' + JSON.stringify(routeRequest) + '\n```';
       if (stored) conversationHistory.push({ role: 'assistant', content: stored });
       // schedule_set replaces the whole week, so it's exclusive; updates + adds can
       // coexist (patch existing sessions AND append new ones in one reply).
@@ -4474,12 +4482,17 @@ Apply all changes using schedule_update blocks. Then give me a brief 2-3 sentenc
 // ── SCHEDULE UPDATE FROM CHAT ──────────────────────────────
 function extractScheduleUpdates(text) {
   const updates = [];
+  const raw = []; // original fenced blocks, verbatim — kept for conversationHistory so the
+  // model sees its own past turns actually DID emit the block, not just prose describing
+  // a change. Without this it anchors on its own history and starts only describing
+  // changes instead of applying them (same class of bug fixed for route_request).
   // Match ```schedule_update ... ``` blocks (single-session patches)
   const re = /```schedule_update\s*([\s\S]*?)```/gi;
   let match;
   while ((match = re.exec(text)) !== null) {
     try {
       updates.push(JSON.parse(match[1].trim()));
+      raw.push(match[0]);
     } catch(e) { console.warn('Bad schedule_update JSON:', e); }
   }
 
@@ -4490,7 +4503,7 @@ function extractScheduleUpdates(text) {
   while ((setMatch = setRe.exec(text)) !== null) {
     try {
       const arr = JSON.parse(setMatch[1].trim());
-      if (Array.isArray(arr) && arr.length) planSet = arr;
+      if (Array.isArray(arr) && arr.length) { planSet = arr; raw.push(setMatch[0]); }
     } catch(e) { console.warn('Bad schedule_set JSON:', e); }
   }
 
@@ -4504,6 +4517,7 @@ function extractScheduleUpdates(text) {
       const arr = JSON.parse(addMatch[1].trim());
       if (Array.isArray(arr)) planAdd.push(...arr);
       else if (arr && typeof arr === 'object') planAdd.push(arr); // tolerate a single object
+      raw.push(addMatch[0]);
     } catch(e) { console.warn('Bad schedule_add JSON:', e); }
   }
 
@@ -4513,7 +4527,7 @@ function extractScheduleUpdates(text) {
     .replace(/```schedule_set[\s\S]*?```/gi, '')
     .replace(/```schedule_add[\s\S]*?```/gi, '')
     .trim();
-  return { clean, updates, planSet, planAdd };
+  return { clean, updates, planSet, planAdd, raw };
 }
 
 // Parse a single ```route_request ... ``` block out of a coach reply. Mirrors
@@ -5374,9 +5388,15 @@ function appendTyping() {
 }
 
 function formatMessage(text) {
-  // History turns can carry a raw ```route_request``` block (kept in storage so the
-  // model remembers how routes get triggered) — never show it to the athlete.
-  let t = escapeHtml(String(text ?? '').replace(/```route_request[\s\S]*?```/gi, '').trim());
+  // History turns can carry raw ```schedule_update```/```schedule_set```/```schedule_add```/
+  // ```route_request``` blocks (kept in storage so the model remembers how changes
+  // actually get triggered) — never show them to the athlete.
+  let t = escapeHtml(String(text ?? '')
+    .replace(/```schedule_update[\s\S]*?```/gi, '')
+    .replace(/```schedule_set[\s\S]*?```/gi, '')
+    .replace(/```schedule_add[\s\S]*?```/gi, '')
+    .replace(/```route_request[\s\S]*?```/gi, '')
+    .trim());
   t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/\[(.*?⚠️.*?)\]/g, '<span class="tag warn">$1</span>');
   t = t.replace(/\[(.*?🔴.*?)\]/g, '<span class="tag bad">$1</span>');
