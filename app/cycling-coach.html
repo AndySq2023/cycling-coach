@@ -1985,8 +1985,14 @@ function startStatePolling() {
 
 // Also re-pull immediately when the tab regains focus, rather than waiting up to 15s —
 // catches anything done on another device while backgrounded.
+// Live Strava data is otherwise only fetched on page load, so a tab left open all day
+// (the normal phone case) kept showing pre-ride numbers everywhere — dashboard, Insights
+// charts and the coach's prompt alike — until it was reloaded or Sync was tapped.
+const LIVE_RESYNC_MS = 5 * 60 * 1000;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') pullState();
+  if (document.visibilityState !== 'visible') return;
+  pullState();
+  if (Date.now() - _lastStravaSync > LIVE_RESYNC_MS) syncStrava(true, true);
 });
 
 function saveChat() {
@@ -2470,7 +2476,14 @@ function weeklyBarSvg(weeks, valOf, opts = {}) {
   const bars = weeks.map((w, i) => {
     const v = valOf(w), partial = w.start === weeks.thisWeek;
     const h = Math.max(0, yOf(0) - yOf(v));
-    return `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.4' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
+    // The current week is still being ridden, so it gets a dashed outline — but it stays
+    // solid enough to read as a real bar, and carries its own "so far" value. A pale
+    // stub next to full weeks looked like the week's rides hadn't landed at all.
+    const bar = `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.7' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
+    if (!partial || !v) return bar;
+    // The partial week is always the last slot, so right-align its label to the plot
+    // edge rather than centring it on the bar (which would run off the viewBox).
+    return bar + `<text x="${W - padR}" y="${(yOf(v) - 6).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--accent)">${fmt(v)}${unit} so far</text>`;
   }).join('');
   const target = targetVal ? `<line x1="${padL}" y1="${yOf(targetVal).toFixed(1)}" x2="${W - padR}" y2="${yOf(targetVal).toFixed(1)}" stroke="var(--danger)" stroke-width="2" stroke-dasharray="6 4"/>
     <text x="${W - padR}" y="${(yOf(targetVal) - 6).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--danger)">${fmt(targetVal)}${unit} · the day</text>` : '';
@@ -2617,8 +2630,10 @@ async function syncWHOOP(force = false) {
 }
 
 // force=true (an explicit user tap on Sync) bypasses the server-side cache; the
-// automatic sync on load is happy with a cached summary.
-async function syncStrava(force = false) {
+// automatic sync on load is happy with a cached summary. quiet=true suppresses the
+// "synced ✓" toast for the automatic refresh when a backgrounded tab comes back.
+let _lastStravaSync = 0;
+async function syncStrava(force = false, quiet = false) {
   const btn = document.getElementById('stravaSyncBtn');
   const status = document.getElementById('strava-sync-status');
   btn.textContent = 'Syncing…';
@@ -2632,6 +2647,7 @@ async function syncStrava(force = false) {
     if (d.error) throw new Error(d.error);
 
     athleteData.strava = d;
+    _lastStravaSync = Date.now();
 
     document.getElementById('disp-lastride').textContent = d.last_ride ? `${d.last_ride.name} (${mi(d.last_ride.distance_km)}mi)` : '—';
     document.getElementById('disp-rides').textContent = d.rides_7d != null ? `${d.rides_7d} rides` : '—';
@@ -2653,7 +2669,7 @@ async function syncStrava(force = false) {
     const bits = ['Strava synced ✓'];
     if (auto.logged) bits.push(`${auto.logged} session${auto.logged > 1 ? 's' : ''} logged`);
     if (auto.unplanned.length) bits.push(`${auto.unplanned.length} unplanned ride${auto.unplanned.length > 1 ? 's' : ''}`);
-    showToast(bits.join(' · '));
+    if (!quiet || bits.length > 1) showToast(bits.join(' · '));
 
     renderDashboard();
     renderCharts();
