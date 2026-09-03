@@ -21,7 +21,7 @@ api/
   weather.js   # → Open-Meteo forecast API (ride-planning weather, no key needed)
   state.js     # → GET/PUT the shared state blob (the app syncs its localStorage here)
 package.json   # root deps for the functions (@vercel/kv)
-vercel.json    # serves the app at "/", gives chat + team 60s to respond
+vercel.json    # serves the app at "/", gives chat 60s to respond
 ```
 
 ## One-time setup in Vercel
@@ -53,9 +53,7 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `WHOOP_CLIENT_ID` | from `~/whoop-mcp/.env` |
 | `WHOOP_CLIENT_SECRET` | from `~/whoop-mcp/.env` |
 | `WHOOP_REFRESH_TOKEN` | from `~/whoop-mcp/.whoop-tokens.json` (seed — migrates to KV on first call) |
-| `APP_PASSWORD` | a password you choose — the app asks for it on first load. **This is now the *master* login** (team owner); members get their own generated passwords (see "Team accounts"). |
-| `MASTER_NAME` | *(optional — teams)* your display name on the Team Report (default "Coach") |
-| `CHAT_DAILY_LIMIT` | *(optional — teams)* coach messages per member per day (default 40; master exempt) |
+| `APP_PASSWORD` | a password you choose — the app asks for it on first load |
 | `GRAPHHOPPER_URL` | *(optional)* `https://graphhopper.com/api/1` for the hosted Directions API, or your own instance's base URL if self-hosting → enables route planning from chat. The hosted service also provides the geocoding used for destinations and coach-set home locations; a self-hosted OSS instance has no geocoder, so those fall back to the coach's approximate coordinates |
 | `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
 | `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
@@ -126,28 +124,6 @@ enter the app password when prompted, and chat + Strava + WHOOP should work. (Re
   see the same schedule, plan and recent conversation. The app pushes on every change and
   pulls on load/focus, so schedule edits made on one device show up on the others.
   KV is required for this (and for WHOOP); without it the bot just runs on empty state.
-
-## Team accounts (multi-user, optional)
-
-The app supports **up to 6 members plus you as master**. Full spec, architecture and
-rollout checklist: **[TEAM.md](TEAM.md)**. Short version:
-
-1. **KV is required** (same Upstash integration as above — roster, per-user state and
-   tokens live there).
-2. Register the OAuth callback with both providers so members can connect their own
-   accounts: **Strava** → add the Vercel domain to *Authorization Callback Domain* AND
-   request an athlete-capacity increase (apps start capped at 1 athlete);
-   **WHOOP** → add `https://<app>.vercel.app/api/oauth` to *Redirect URIs*.
-3. Log in with `APP_PASSWORD` → **👥 Team** tab → **+ Add member** → copy the one-time
-   password and send it to the rider with the URL.
-4. The rider logs in with that password and taps **Connect your Strava / WHOOP** in the
-   data panel. Their row on your Team Report fills in from live data (5-min cache).
-5. Manage from the same tab: reset password, or remove (deletes their plan, chat and
-   connections).
-
-Members chat with the same coach on your Anthropic key — hence `CHAT_DAILY_LIMIT`.
-A member's browser stores their own password under the same `cyclingCoachPw`
-localStorage key; wrong password → the app clears it and re-prompts on reload.
 
 ## Morning briefing
 

@@ -1,46 +1,30 @@
 // Vercel serverless function — hosted port of the local whoop-mcp bridge
 // (localhost:3001 /api/whoop). Calls the WHOOP v2 API with a refresh-token flow
-// and returns the same JSON shape the app expects. Multi-user:
-//   master  → refresh token at KV 'whoop_refresh_token' (seeded once from the
-//             WHOOP_REFRESH_TOKEN env var — the original single-user path)
-//   members → per-user tokens at KV 'whoop_tokens:<userId>', created by the
-//             OAuth connect flow in api/oauth.js. Not connected → { not_connected }.
+// and returns the same JSON shape the app expects. The refresh token lives at KV
+// 'whoop_refresh_token', seeded once from the WHOOP_REFRESH_TOKEN env var.
 //
 // IMPORTANT — WHOOP rotates the refresh token on EVERY refresh and immediately
 // invalidates the old one. Vercel's filesystem is read-only, so the rotated token
 // MUST be persisted in Vercel KV. KV is effectively required for this function.
-import { requireUser } from './_auth.js';
+import { requireAuth } from './_auth.js';
 import { kvGet, kvSet, cached } from './_kv.js';
 
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
-
-function notConnectedError(msg) {
-  const e = new Error(msg);
-  e.notConnected = true;
-  return e;
-}
+const TOKEN_KEY = 'whoop_refresh_token';
 
 // Exchange the stored refresh token for a fresh access token, persisting the
 // rotated refresh token back to KV. Returns the access token.
-async function getAccessToken(userId = 'master') {
+async function getAccessToken() {
   const client_id = process.env.WHOOP_CLIENT_ID;
   const client_secret = process.env.WHOOP_CLIENT_SECRET;
   if (!client_id || !client_secret) {
     throw new Error('Missing WHOOP credentials — set WHOOP_CLIENT_ID and WHOOP_CLIENT_SECRET.');
   }
 
-  let refresh_token;
-  const tokenKey = userId === 'master' ? 'whoop_refresh_token' : `whoop_tokens:${userId}`;
-  if (userId === 'master') {
-    refresh_token = (await kvGet(tokenKey)) || process.env.WHOOP_REFRESH_TOKEN;
-    if (!refresh_token) {
-      throw new Error('Missing WHOOP refresh token — seed KV key "whoop_refresh_token" or set WHOOP_REFRESH_TOKEN.');
-    }
-  } else {
-    const stored = await kvGet(tokenKey);
-    refresh_token = stored?.refresh_token;
-    if (!refresh_token) throw notConnectedError('WHOOP not connected for this athlete yet.');
+  const refresh_token = (await kvGet(TOKEN_KEY)) || process.env.WHOOP_REFRESH_TOKEN;
+  if (!refresh_token) {
+    throw new Error('Missing WHOOP refresh token — seed KV key "whoop_refresh_token" or set WHOOP_REFRESH_TOKEN.');
   }
 
   const res = await fetch(WHOOP_TOKEN_URL, {
@@ -52,10 +36,7 @@ async function getAccessToken(userId = 'master') {
 
   const tok = await res.json();
   // WHOOP rotates the refresh token on every refresh — persist it or the next call fails.
-  if (tok.refresh_token) {
-    // Master's key stores the bare token (legacy shape); member keys store an object.
-    await kvSet(tokenKey, userId === 'master' ? tok.refresh_token : { refresh_token: tok.refresh_token });
-  }
+  if (tok.refresh_token) await kvSet(TOKEN_KEY, tok.refresh_token);
   return tok.access_token;
 }
 
@@ -73,12 +54,12 @@ async function whoopGet(token, pathAndQuery) {
 const SUMMARY_TTL_S = 300;
 
 // Cached entry point — what every caller should use. `force` skips the cache read.
-export async function getWhoopSummary(userId = 'master', force = false) {
-  return cached(`whoop_sum:${userId}`, SUMMARY_TTL_S, () => fetchWhoopSummary(userId), force);
+export async function getWhoopSummary(force = false) {
+  return cached('whoop_sum', SUMMARY_TTL_S, fetchWhoopSummary, force);
 }
 
-async function fetchWhoopSummary(userId = 'master') {
-  const token = await getAccessToken(userId);
+async function fetchWhoopSummary() {
+  const token = await getAccessToken();
   const [profile, recovery, sleep] = await Promise.all([
     whoopGet(token, '/user/profile/basic'),
     whoopGet(token, '/recovery?limit=1'),
@@ -102,18 +83,12 @@ async function fetchWhoopSummary(userId = 'master') {
 }
 
 export default async function handler(req, res) {
-  const user = await requireUser(req, res);
-  if (!user) return;
+  if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
-    res.status(200).json(await getWhoopSummary(user.id, req.query?.fresh === '1'));
+    res.status(200).json(await getWhoopSummary(req.query?.fresh === '1'));
   } catch (err) {
-    // { not_connected } tells the app to show the Connect button instead of an error;
-    // otherwise return { error } (HTTP 200) so the existing handler surfaces it cleanly.
-    if (err?.notConnected) {
-      res.status(200).json({ not_connected: 'whoop', error: err.message });
-      return;
-    }
+    // { error } over HTTP 200 so the existing handler surfaces it cleanly.
     res.status(200).json({ error: err?.message || String(err) });
   }
 }

@@ -1,31 +1,25 @@
-// Vercel serverless function — the web app's sync endpoint for per-user coach state.
-// GET  → returns the caller's { plan, feedback, adaptations, goal, home,
-//        conversationHistory, briefing } PLUS a `user: { id, name, role }` field so
-//        the app knows who it is (the app shows the Team tab only to role 'master').
-// PUT  → replaces the caller's state with the body (a full localStorage snapshot).
+// Vercel serverless function — the web app's sync endpoint for coach state.
+// GET  → returns { plan, feedback, adaptations, goal, home, conversationHistory, briefing }
+// PUT  → replaces the stored state with the body (a full localStorage snapshot).
 //
-// Which blob is read/written is decided by WHO authenticates (requireUser), so a
-// member can never see or overwrite another athlete's plan or conversation.
 // Needs KV configured (KV_REST_API_URL); without it, GET returns empty state and
 // PUT is a silent no-op.
-import { requireUser } from './_auth.js';
+import { requireAuth } from './_auth.js';
 import { getState, setState } from './_state.js';
 import { repairPlanDates } from './_dates.js';
 
 export default async function handler(req, res) {
-  const user = await requireUser(req, res);
-  if (!user) return;
+  if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
   try {
     if (req.method === 'GET') {
-      const state = await getState(user.id);
-      res.status(200).json({ ...state, user: { id: user.id, name: user.name, role: user.role } });
+      res.status(200).json(await getState());
       return;
     }
     if (req.method === 'PUT' || req.method === 'POST') {
       const b = req.body || {};
-      const saved = await setState(user.id, {
+      const saved = await setState({
         // repairPlanDates: an old app bundle can still push a wrong-year plan —
         // heal it at the door so every device pulls corrected dates.
         plan: repairPlanDates(Array.isArray(b.plan) ? b.plan : []),
