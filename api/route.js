@@ -58,7 +58,7 @@
 // return content during research) — verify this against your GraphHopper plan/version
 // with one real request before relying on it, and adjust the dot-keys below if
 // rejected.
-import { requireUser } from './_auth.js';
+import { requireAuth } from './_auth.js';
 import { kvGet, kvSet } from './_kv.js';
 
 const DEFAULT_PROFILE = 'bike'; // swap for a custom cycling profile if you define one server-side
@@ -438,7 +438,7 @@ function cacheKey(p) {
 }
 
 export default async function handler(req, res) {
-  if (!(await requireUser(req, res))) return;
+  if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
     const q = req.method === 'POST' ? (req.body || {}) : (req.query || {});

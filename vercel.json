@@ -4,7 +4,6 @@
     { "source": "/", "destination": "/app/cycling-coach.html" }
   ],
   "functions": {
-    "api/chat.js": { "maxDuration": 60 },
-    "api/team.js": { "maxDuration": 60 }
+    "api/chat.js": { "maxDuration": 60 }
   }
 }

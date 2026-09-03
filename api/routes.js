@@ -1,8 +1,8 @@
-// Vercel serverless function — per-user saved route history, so planned routes follow
-// the athlete between phone and desktop.
+// Vercel serverless function — saved route history, so planned routes follow the
+// athlete between phone and desktop.
 //
-//   GET  /api/routes  → { routes: [...] }  (the caller's saved routes, newest first)
-//   PUT  /api/routes  → replace the caller's list with the body's `routes`
+//   GET  /api/routes  → { routes: [...] }  (saved routes, newest first)
+//   PUT  /api/routes  → replace the stored list with the body's `routes`
 //
 // Deliberately NOT part of the `coach_state` blob (api/state.js). Route geometry is by
 // far the biggest thing the app stores — a single 25-mile route is ~56 KB as raw
@@ -12,11 +12,11 @@
 //   2. the app stores geometry as an encoded polyline (measured 5.6x smaller with
 //      elevation: 56 KB -> 10 KB per route, ~300 KB for 30), so what lands here is
 //      metadata plus one compact string per route.
-// Which blob is read/written is decided by WHO authenticates, so one athlete can never
-// see another's routes. Needs KV; without it GET returns [] and PUT is a silent no-op.
-import { requireUser } from './_auth.js';
+// Needs KV; without it GET returns [] and PUT is a silent no-op.
+import { requireAuth } from './_auth.js';
 import { kvGet, kvSet } from './_kv.js';
 
+const ROUTES_KEY = 'routes:master'; // historical key name, kept so saved routes survive
 const MAX_ROUTES = 30;         // mirrors the app's ROUTES_MAX
 const MAX_GEOM_CHARS = 60000;  // ~25k points encoded — far beyond any real ride, but bounded
 const MAX_TOMBSTONES = 200;    // mirrors the app's ROUTES_TOMBSTONE_MAX
@@ -55,14 +55,12 @@ function unpack(stored) {
 }
 
 export default async function handler(req, res) {
-  const user = await requireUser(req, res);
-  if (!user) return;
+  if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
 
-  const key = `routes:${user.id}`;
   try {
     if (req.method === 'GET') {
-      const { routes, deleted } = unpack(await kvGet(key));
+      const { routes, deleted } = unpack(await kvGet(ROUTES_KEY));
       res.status(200).json({ routes: Array.isArray(routes) ? routes : [], deleted: sanitizeDeleted(deleted) });
       return;
     }
@@ -73,7 +71,7 @@ export default async function handler(req, res) {
         .filter(r => r && r.id && !(r.id in deleted)) // never store a route that's tombstoned
         .slice(0, MAX_ROUTES)
         .map(sanitize);
-      await kvSet(key, { routes: clean, deleted });
+      await kvSet(ROUTES_KEY, { routes: clean, deleted });
       res.status(200).json({ ok: true, count: clean.length, tombstones: Object.keys(deleted).length });
       return;
     }

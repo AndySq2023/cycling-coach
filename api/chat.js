@@ -2,26 +2,16 @@
 // Thin proxy to the Anthropic Messages API using a server-side key. Takes the same
 // { system, messages } the app already sends and returns the same Anthropic response
 // shape ({ content: [{ type: 'text', text }], ... }), so the front-end is unchanged.
-//
-// Cost control: every Claude call spends the master's API credits, so members get a
-// per-day message quota (CHAT_DAILY_LIMIT env var, default 40). The master is exempt.
-// The counter lives in KV; if KV is down the limit is NOT enforced (fail-open) so a
-// KV outage can't lock the team out of the coach.
-import { requireUser } from './_auth.js';
-import { kvIncr } from './_kv.js';
+import { requireAuth } from './_auth.js';
 
 const MODEL = 'claude-opus-4-8';
 const MAX_TOKENS = 4096;
 const ANTHROPIC_VERSION = '2023-06-01';
-const DEFAULT_DAILY_LIMIT = 40;
 
 // ── COST GUARDS ───────────────────────────────────────────────────────────────
-// The daily quota caps how MANY messages a member sends, not how BIG they are —
-// so on its own it bounds nothing: one request can carry a book. These cap the
-// size of a single call, and the daily quota then bounds the day. Deliberately
-// generous: the app's own system prompt (live data + plan + memory) runs ~8-12k
-// chars and a long conversation adds more, so this only stops genuine abuse and
-// runaway loops, never normal coaching use.
+// Cap the size of a single call. Deliberately generous: the app's own system prompt
+// (live data + plan + memory) runs ~8-12k chars and a long conversation adds more,
+// so this only stops genuine abuse and runaway loops, never normal coaching use.
 const MAX_SYSTEM_CHARS = 60000;   // ~15k tokens — the app's prompt is well under
 const MAX_MESSAGES_CHARS = 400000; // ~100k tokens of history
 const MAX_MESSAGES = 400;          // entries; the app rolls at 60
@@ -31,8 +21,7 @@ const charCount = (messages) => messages.reduce(
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
-  const user = await requireUser(req, res);
-  if (!user) return;
+  if (!requireAuth(req, res)) return;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) { res.status(503).json({ error: 'Server missing ANTHROPIC_API_KEY.' }); return; }
@@ -43,8 +32,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Size guards run BEFORE the quota is spent and before the upstream call, so an
-  // oversized request costs nothing — neither credits nor one of the day's messages.
+  // Size guards run BEFORE the upstream call, so an oversized request costs nothing.
   // { error } over HTTP 200 so the app's existing error path surfaces it in the chat.
   if (typeof system === 'string' && system.length > MAX_SYSTEM_CHARS) {
     res.status(200).json({ error: 'That request is too large to send (system prompt). Try clearing some chat history.' });
@@ -53,17 +41,6 @@ export default async function handler(req, res) {
   if (messages.length > MAX_MESSAGES || charCount(messages) > MAX_MESSAGES_CHARS) {
     res.status(200).json({ error: 'That conversation is too long to send. Clear some chat history and try again.' });
     return;
-  }
-
-  if (user.role !== 'master') {
-    const limit = Math.max(1, parseInt(process.env.CHAT_DAILY_LIMIT, 10) || DEFAULT_DAILY_LIMIT);
-    const day = new Date().toISOString().slice(0, 10);
-    const used = await kvIncr(`chat_uses:${user.id}:${day}`, 2 * 86400);
-    if (used != null && used > limit) {
-      // { error } over HTTP 200 so the app's existing error path shows it in the chat.
-      res.status(200).json({ error: `Daily coach-message limit reached (${limit}/day). It resets at midnight UTC — see you tomorrow!` });
-      return;
-    }
   }
 
   try {

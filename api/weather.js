@@ -5,7 +5,7 @@
 //
 // Request:  GET /api/weather?lat=<deg>&lon=<deg>   (behind the x-app-password gate)
 // Response: compact, ride-relevant forecast JSON the app injects into the coach prompt.
-import { requireUser } from './_auth.js';
+import { requireAuth } from './_auth.js';
 import { buildForecast } from '../shared/weather-core.js';
 
 // Forecast shaping is shared with the local proxy — see shared/weather-core.js.
@@ -15,7 +15,7 @@ export async function getForecast(lat, lon) {
 }
 
 export default async function handler(req, res) {
-  if (!(await requireUser(req, res))) return;
+  if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
   try {
     const lat = parseFloat(req.query?.lat);
