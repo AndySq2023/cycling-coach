@@ -1317,6 +1317,12 @@
   .chart-legend { display:flex; gap:14px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); }
   .chart-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
   .chart-note { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:8px; }
+  .ride-row { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid var(--hair); }
+  .ride-row:last-of-type { border-bottom:none; }
+  .ride-when { font-family:'DM Mono',monospace; font-size:12px; color:var(--ink); white-space:nowrap; }
+  .ride-when .tag { font-size:10px; color:var(--acc); margin-left:6px; }
+  .ride-stats { font-family:'DM Mono',monospace; font-size:12px; color:var(--text-mid); display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+  .ride-stats .lead { color:var(--ink); font-weight:600; }
 
   @media (max-width: 720px) {
     .dash-hero { grid-template-columns:1fr; }
@@ -2410,6 +2416,37 @@ function weeklyRideStats(history, nWeeks) {
   return weeks;
 }
 
+// The four cards below all bucket by week, so a single ride never appears on its own —
+// which is exactly how a logged ride can look "missing" from Insights. This lists the
+// rides themselves, newest first, as the check that the data landed.
+function recentRidesCard(history) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const dayMs = 86400000;
+  const rel = ds => {
+    const days = Math.round((Date.parse(todayISO) - Date.parse(ds)) / dayMs);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    return `${days} days ago`;
+  };
+  const when = ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB',
+    { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const rows = [...history].reverse().slice(0, 6).map(r => `
+    <div class="ride-row">
+      <div class="ride-when">${when(r.date)}<span class="tag">${rel(r.date)}</span></div>
+      <div class="ride-stats">
+        <span class="lead">${mi(r.distance_km)} mi</span>
+        ${r.moving_time_min != null ? `<span>${r.moving_time_min} min</span>` : ''}
+        ${r.elevation_m != null ? `<span>${Math.round(r.elevation_m * FT_PER_M)} ft</span>` : ''}
+        ${r.avg_hr != null ? `<span>${r.avg_hr} bpm</span>` : ''}
+      </div>
+    </div>`).join('');
+  return `<div class="dash-card">
+    <div class="dash-card-label">Your last rides · straight from Strava</div>
+    ${rows}
+    <div class="chart-note">The weekly bars below are built from these. Each bar is a week commencing that Monday, so today's ride lands in the current (dashed) week rather than a bar of its own.</div>
+  </div>`;
+}
+
 function renderCharts() {
   const el = document.getElementById('chartsContent');
   if (!el) return;
@@ -2428,6 +2465,7 @@ function renderCharts() {
   }
   const weeks = weeklyRideStats(st.history, 12);
   el.innerHTML = `<div class="chart-grid">
+    ${recentRidesCard(st.history)}
     ${chartDistanceReadiness(weeks)}
     ${chartClimbReadiness(weeks)}
     ${chartCountdownVolume(weeks)}
@@ -2479,7 +2517,7 @@ function weeklyBarSvg(weeks, valOf, opts = {}) {
     // The current week is still being ridden, so it gets a dashed outline — but it stays
     // solid enough to read as a real bar, and carries its own "so far" value. A pale
     // stub next to full weeks looked like the week's rides hadn't landed at all.
-    const bar = `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.7' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
+    const bar = `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.7' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Week commencing ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
     if (!partial || !v) return bar;
     // The partial week is always the last slot, so right-align its label to the plot
     // edge rather than centring it on the bar (which would run off the viewBox).
@@ -2497,7 +2535,7 @@ function weeklyBarSvg(weeks, valOf, opts = {}) {
     avg = `<path d="${line}" fill="none" stroke="var(--text)" stroke-width="2"/>`;
   }
   const xLabels = weeks.map((w, i) => i % 2 === (weeks.length - 1) % 2
-    ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmtWk(w.start)}</text>` : '').join('');
+    ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">w/c ${fmtWk(w.start)}</text>` : '').join('');
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     ${chartYAxis(ticks, yOf, padL, W - padR, t => fmt(t))}
     ${bars}${target}${avg}${xLabels}
