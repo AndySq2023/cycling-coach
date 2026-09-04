@@ -1,5 +1,5 @@
 // Vercel serverless function — the web app's sync endpoint for coach state.
-// GET  → returns { plan, feedback, adaptations, goal, home, conversationHistory, briefing }
+// GET  → returns { plan, feedback, adaptations, goal, ftp, home, conversationHistory, briefing }
 // PUT  → replaces the stored state with the body (a full localStorage snapshot).
 //
 // Needs KV configured (KV_REST_API_URL); without it, GET returns empty state and
@@ -26,6 +26,9 @@ export default async function handler(req, res) {
         feedback: b.feedback && typeof b.feedback === 'object' ? b.feedback : {},
         adaptations: b.adaptations && typeof b.adaptations === 'object' ? b.adaptations : {},
         goal: b.goal || null,
+        // FTP in watts. Bounded to a plausible human range so a bad client can't
+        // poison the zones every session intensity is derived from.
+        ftp: (Number.isFinite(+b.ftp) && +b.ftp >= 60 && +b.ftp <= 600) ? Math.round(+b.ftp) : null,
         home: b.home || null,
         // Durable coach memory. Bounded here too so a bad client can't grow the blob.
         coachNotes: Array.isArray(b.coachNotes)

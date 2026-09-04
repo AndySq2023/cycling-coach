@@ -1456,6 +1456,19 @@
         </div>
       </div>
 
+      <!-- THRESHOLD POWER -->
+      <div>
+        <div class="data-section-label">Threshold power (FTP)</div>
+        <div class="notes-hint">The watts you could hold for about an hour. It's the number every training zone is a share of — set it and "tempo" or "threshold" stop being vague words.</div>
+        <div style="display:flex;gap:6px;">
+          <input class="data-textarea" id="ftpInput" type="number" min="60" max="600" step="1"
+            style="flex:1;margin:0;font-family:'DM Mono',monospace;" placeholder="watts, e.g. 210"
+            onkeydown="if(event.key==='Enter')saveFtp()" />
+          <button class="load-btn icon" onclick="saveFtp()" title="Save FTP">✓</button>
+        </div>
+        <div id="ftpZones"></div>
+      </div>
+
       <!-- GOALS -->
       <div>
         <div class="data-section-label">Your Goal</div>
@@ -1646,7 +1659,23 @@
 
 <script>
 // ── STATE ──────────────────────────────────────────────────
-let athleteData = { whoop: null, strava: null, weather: null, goal: null };
+let athleteData = { whoop: null, strava: null, weather: null, goal: null, ftp: null };
+
+// Hoisted above init(): init() calls loadFtp(), and a const declared further down the
+// file is still in its temporal dead zone at that point (same trap as STATE_POLL_MS).
+const FTP_KEY = 'cyclingCoachFtp';
+
+// Coggan's 7 zones as a share of FTP. The top zone is open-ended (sprints).
+const FTP_ZONES = [
+  ['1 · Recovery',   0,    0.55],
+  ['2 · Endurance',  0.56, 0.75],
+  ['3 · Tempo',      0.76, 0.90],
+  ['4 · Threshold',  0.91, 1.05],
+  ['5 · VO2 max',    1.06, 1.20],
+  ['6 · Anaerobic',  1.21, 1.50],
+  ['7 · Sprint',     1.51, null],
+];
+
 let conversationHistory = [];
 let panelOpen = false;
 let currentTab = 'today';
@@ -1755,6 +1784,7 @@ function pushState() {
         feedback: sessionFeedback,
         adaptations: adaptationNotes,
         goal: athleteData.goal || null,
+        ftp: athleteData.ftp || null,
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
         resistance: resistanceLib,
@@ -1843,6 +1873,16 @@ async function pullState() {
       localStorage.setItem('cyclingCoachGoal', s.goal);
       const gi = document.getElementById('goalInput'); if (gi) gi.value = s.goal;
     }
+    // 'ftp' in s (not a truthy check) so clearing it on one device clears it here too.
+    if ('ftp' in s) {
+      const v = Number.isFinite(+s.ftp) && +s.ftp > 0 ? Math.round(+s.ftp) : null;
+      if (v !== athleteData.ftp) {
+        athleteData.ftp = v;
+        if (v) localStorage.setItem(FTP_KEY, String(v)); else localStorage.removeItem(FTP_KEY);
+        const fi = document.getElementById('ftpInput'); if (fi) fi.value = v || '';
+        renderFtpZones();
+      }
+    }
     // Adopt the server's memory. Guarded on non-empty: a device that hasn't synced yet
     // must never wipe facts another device already learned.
     if (Array.isArray(s.coachNotes) && s.coachNotes.length) {
@@ -1924,6 +1964,7 @@ async function coachFetch(url, options = {}) {
     document.getElementById('goalInput').value = savedGoal;
     athleteData.goal = savedGoal;
   }
+  loadFtp();
 
   // Restore saved route history (Routes tab), then merge in anything planned on another
   // device (hosted only — pullRoutes is a no-op on local dev).
@@ -2808,6 +2849,52 @@ async function syncWeather() {
 
   btn.textContent = '⚡ Sync weather';
   btn.disabled = false;
+}
+
+// ── THRESHOLD POWER (FTP) & ZONES ──────────────────────────
+// FTP = the power you could hold for roughly an hour. Entered by hand for now: every
+// honest way to measure it (a 20-min test x0.95, a ramp test x0.75 off best 1-min, or
+// the best 20-min effort already sitting in the ride history) needs a maximal effort
+// recorded by a power meter, and the history holds exactly one metered ride so far.
+// Once a few hard 20-minute efforts have accumulated this can be estimated instead.
+function loadFtp() {
+  const v = parseInt(localStorage.getItem(FTP_KEY), 10);
+  athleteData.ftp = Number.isFinite(v) && v > 0 ? v : null;
+  const el = document.getElementById('ftpInput');
+  if (el && athleteData.ftp) el.value = athleteData.ftp;
+  renderFtpZones();
+}
+
+function renderFtpZones() {
+  const el = document.getElementById('ftpZones');
+  if (!el) return;
+  const ftp = athleteData.ftp;
+  if (!ftp) { el.innerHTML = ''; return; }
+  const rows = FTP_ZONES.map(([name, lo, hi]) => {
+    const range = hi == null ? `${Math.round(ftp * lo)}W +` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`;
+    return `<div class="metric-row"><span class="metric-label">${name}</span><span class="metric-value">${range}</span></div>`;
+  }).join('');
+  el.innerHTML = `<div style="margin-top:10px;">${rows}</div>
+    <div class="notes-hint" style="margin-top:8px;">Worth retesting every 6–8 weeks, or after a solid block — FTP drifts, and stale zones make every session the wrong intensity.</div>`;
+}
+
+function saveFtp() {
+  const raw = document.getElementById('ftpInput').value.trim();
+  if (!raw) {
+    athleteData.ftp = null;
+    localStorage.removeItem(FTP_KEY);
+    renderFtpZones();
+    pushState();
+    showToast('FTP cleared');
+    return;
+  }
+  const v = Math.round(+raw);
+  if (!Number.isFinite(v) || v < 60 || v > 600) { showToast('FTP should be between 60 and 600 watts'); return; }
+  athleteData.ftp = v;
+  localStorage.setItem(FTP_KEY, String(v));
+  renderFtpZones();
+  pushState();
+  showToast(`FTP set to ${v}W ✓`);
 }
 
 function saveGoal() {
