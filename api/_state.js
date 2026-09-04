@@ -13,6 +13,7 @@ function emptyState() {
     feedback: {},        // sessionFeedback keyed by session id
     adaptations: {},     // adaptationNotes keyed by session id
     goal: null,          // free-text athlete goal
+    ftp: null,           // functional threshold power in watts, manually set
     home: null,          // "lat,lon" for weather, or null
     coachNotes: [],      // durable facts the coach remembers about the athlete
     resistance: [],      // coach-authored strength sessions (Resistance tab)

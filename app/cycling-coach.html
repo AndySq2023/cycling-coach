@@ -1317,6 +1317,12 @@
   .chart-legend { display:flex; gap:14px; font-family:'DM Mono',monospace; font-size:11px; color:var(--text-muted); }
   .chart-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
   .chart-note { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:8px; }
+  .ride-row { display:flex; align-items:baseline; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid var(--hair); }
+  .ride-row:last-of-type { border-bottom:none; }
+  .ride-when { font-family:'DM Mono',monospace; font-size:12px; color:var(--ink); white-space:nowrap; }
+  .ride-when .tag { font-size:10px; color:var(--acc); margin-left:6px; }
+  .ride-stats { font-family:'DM Mono',monospace; font-size:12px; color:var(--text-mid); display:flex; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+  .ride-stats .lead { color:var(--ink); font-weight:600; }
 
   @media (max-width: 720px) {
     .dash-hero { grid-template-columns:1fr; }
@@ -1448,6 +1454,19 @@
           <button class="load-btn" id="weatherSyncBtn" style="flex:1;" onclick="syncWeather()">⚡ Sync weather</button>
           <button class="load-btn icon" onclick="useMyLocation()" title="Use this device's location">📍</button>
         </div>
+      </div>
+
+      <!-- THRESHOLD POWER -->
+      <div>
+        <div class="data-section-label">Threshold power (FTP)</div>
+        <div class="notes-hint">The watts you could hold for about an hour. It's the number every training zone is a share of — set it and "tempo" or "threshold" stop being vague words.</div>
+        <div style="display:flex;gap:6px;">
+          <input class="data-textarea" id="ftpInput" type="number" min="60" max="600" step="1"
+            style="flex:1;margin:0;font-family:'DM Mono',monospace;" placeholder="watts, e.g. 210"
+            onkeydown="if(event.key==='Enter')saveFtp()" />
+          <button class="load-btn icon" onclick="saveFtp()" title="Save FTP">✓</button>
+        </div>
+        <div id="ftpZones"></div>
       </div>
 
       <!-- GOALS -->
@@ -1640,7 +1659,23 @@
 
 <script>
 // ── STATE ──────────────────────────────────────────────────
-let athleteData = { whoop: null, strava: null, weather: null, goal: null };
+let athleteData = { whoop: null, strava: null, weather: null, goal: null, ftp: null };
+
+// Hoisted above init(): init() calls loadFtp(), and a const declared further down the
+// file is still in its temporal dead zone at that point (same trap as STATE_POLL_MS).
+const FTP_KEY = 'cyclingCoachFtp';
+
+// Coggan's 7 zones as a share of FTP. The top zone is open-ended (sprints).
+const FTP_ZONES = [
+  ['1 · Recovery',   0,    0.55],
+  ['2 · Endurance',  0.56, 0.75],
+  ['3 · Tempo',      0.76, 0.90],
+  ['4 · Threshold',  0.91, 1.05],
+  ['5 · VO2 max',    1.06, 1.20],
+  ['6 · Anaerobic',  1.21, 1.50],
+  ['7 · Sprint',     1.51, null],
+];
+
 let conversationHistory = [];
 let panelOpen = false;
 let currentTab = 'today';
@@ -1749,6 +1784,7 @@ function pushState() {
         feedback: sessionFeedback,
         adaptations: adaptationNotes,
         goal: athleteData.goal || null,
+        ftp: athleteData.ftp || null,
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
         resistance: resistanceLib,
@@ -1837,6 +1873,16 @@ async function pullState() {
       localStorage.setItem('cyclingCoachGoal', s.goal);
       const gi = document.getElementById('goalInput'); if (gi) gi.value = s.goal;
     }
+    // 'ftp' in s (not a truthy check) so clearing it on one device clears it here too.
+    if ('ftp' in s) {
+      const v = Number.isFinite(+s.ftp) && +s.ftp > 0 ? Math.round(+s.ftp) : null;
+      if (v !== athleteData.ftp) {
+        athleteData.ftp = v;
+        if (v) localStorage.setItem(FTP_KEY, String(v)); else localStorage.removeItem(FTP_KEY);
+        const fi = document.getElementById('ftpInput'); if (fi) fi.value = v || '';
+        renderFtpZones();
+      }
+    }
     // Adopt the server's memory. Guarded on non-empty: a device that hasn't synced yet
     // must never wipe facts another device already learned.
     if (Array.isArray(s.coachNotes) && s.coachNotes.length) {
@@ -1918,6 +1964,7 @@ async function coachFetch(url, options = {}) {
     document.getElementById('goalInput').value = savedGoal;
     athleteData.goal = savedGoal;
   }
+  loadFtp();
 
   // Restore saved route history (Routes tab), then merge in anything planned on another
   // device (hosted only — pullRoutes is a no-op on local dev).
@@ -2410,6 +2457,37 @@ function weeklyRideStats(history, nWeeks) {
   return weeks;
 }
 
+// The four cards below all bucket by week, so a single ride never appears on its own —
+// which is exactly how a logged ride can look "missing" from Insights. This lists the
+// rides themselves, newest first, as the check that the data landed.
+function recentRidesCard(history) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const dayMs = 86400000;
+  const rel = ds => {
+    const days = Math.round((Date.parse(todayISO) - Date.parse(ds)) / dayMs);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    return `${days} days ago`;
+  };
+  const when = ds => new Date(ds + 'T12:00:00Z').toLocaleDateString('en-GB',
+    { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const rows = [...history].reverse().slice(0, 6).map(r => `
+    <div class="ride-row">
+      <div class="ride-when">${when(r.date)}<span class="tag">${rel(r.date)}</span></div>
+      <div class="ride-stats">
+        <span class="lead">${mi(r.distance_km)} mi</span>
+        ${r.moving_time_min != null ? `<span>${r.moving_time_min} min</span>` : ''}
+        ${r.elevation_m != null ? `<span>${Math.round(r.elevation_m * FT_PER_M)} ft</span>` : ''}
+        ${r.avg_hr != null ? `<span>${r.avg_hr} bpm</span>` : ''}
+      </div>
+    </div>`).join('');
+  return `<div class="dash-card">
+    <div class="dash-card-label">Your last rides · straight from Strava</div>
+    ${rows}
+    <div class="chart-note">The weekly bars below are built from these. Each bar is a week commencing that Monday, so today's ride lands in the current (dashed) week rather than a bar of its own.</div>
+  </div>`;
+}
+
 function renderCharts() {
   const el = document.getElementById('chartsContent');
   if (!el) return;
@@ -2428,6 +2506,7 @@ function renderCharts() {
   }
   const weeks = weeklyRideStats(st.history, 12);
   el.innerHTML = `<div class="chart-grid">
+    ${recentRidesCard(st.history)}
     ${chartDistanceReadiness(weeks)}
     ${chartClimbReadiness(weeks)}
     ${chartCountdownVolume(weeks)}
@@ -2479,7 +2558,7 @@ function weeklyBarSvg(weeks, valOf, opts = {}) {
     // The current week is still being ridden, so it gets a dashed outline — but it stays
     // solid enough to read as a real bar, and carries its own "so far" value. A pale
     // stub next to full weeks looked like the week's rides hadn't landed at all.
-    const bar = `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.7' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Wk of ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
+    const bar = `<rect x="${(xMid(i) - barW / 2).toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="var(--accent)" opacity="${partial ? '0.7' : '0.85'}"${partial ? ' stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"' : ''}><title>Week commencing ${fmtWk(w.start)}${partial ? ' (so far)' : ''} · ${fmt(v)}${unit} · ${w.rides} ride${w.rides === 1 ? '' : 's'}</title></rect>`;
     if (!partial || !v) return bar;
     // The partial week is always the last slot, so right-align its label to the plot
     // edge rather than centring it on the bar (which would run off the viewBox).
@@ -2497,7 +2576,7 @@ function weeklyBarSvg(weeks, valOf, opts = {}) {
     avg = `<path d="${line}" fill="none" stroke="var(--text)" stroke-width="2"/>`;
   }
   const xLabels = weeks.map((w, i) => i % 2 === (weeks.length - 1) % 2
-    ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">${fmtWk(w.start)}</text>` : '').join('');
+    ? `<text x="${xMid(i).toFixed(1)}" y="${H - padB + 16}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text-muted)">w/c ${fmtWk(w.start)}</text>` : '').join('');
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     ${chartYAxis(ticks, yOf, padL, W - padR, t => fmt(t))}
     ${bars}${target}${avg}${xLabels}
@@ -2770,6 +2849,52 @@ async function syncWeather() {
 
   btn.textContent = '⚡ Sync weather';
   btn.disabled = false;
+}
+
+// ── THRESHOLD POWER (FTP) & ZONES ──────────────────────────
+// FTP = the power you could hold for roughly an hour. Entered by hand for now: every
+// honest way to measure it (a 20-min test x0.95, a ramp test x0.75 off best 1-min, or
+// the best 20-min effort already sitting in the ride history) needs a maximal effort
+// recorded by a power meter, and the history holds exactly one metered ride so far.
+// Once a few hard 20-minute efforts have accumulated this can be estimated instead.
+function loadFtp() {
+  const v = parseInt(localStorage.getItem(FTP_KEY), 10);
+  athleteData.ftp = Number.isFinite(v) && v > 0 ? v : null;
+  const el = document.getElementById('ftpInput');
+  if (el && athleteData.ftp) el.value = athleteData.ftp;
+  renderFtpZones();
+}
+
+function renderFtpZones() {
+  const el = document.getElementById('ftpZones');
+  if (!el) return;
+  const ftp = athleteData.ftp;
+  if (!ftp) { el.innerHTML = ''; return; }
+  const rows = FTP_ZONES.map(([name, lo, hi]) => {
+    const range = hi == null ? `${Math.round(ftp * lo)}W +` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`;
+    return `<div class="metric-row"><span class="metric-label">${name}</span><span class="metric-value">${range}</span></div>`;
+  }).join('');
+  el.innerHTML = `<div style="margin-top:10px;">${rows}</div>
+    <div class="notes-hint" style="margin-top:8px;">Worth retesting every 6–8 weeks, or after a solid block — FTP drifts, and stale zones make every session the wrong intensity.</div>`;
+}
+
+function saveFtp() {
+  const raw = document.getElementById('ftpInput').value.trim();
+  if (!raw) {
+    athleteData.ftp = null;
+    localStorage.removeItem(FTP_KEY);
+    renderFtpZones();
+    pushState();
+    showToast('FTP cleared');
+    return;
+  }
+  const v = Math.round(+raw);
+  if (!Number.isFinite(v) || v < 60 || v > 600) { showToast('FTP should be between 60 and 600 watts'); return; }
+  athleteData.ftp = v;
+  localStorage.setItem(FTP_KEY, String(v));
+  renderFtpZones();
+  pushState();
+  showToast(`FTP set to ${v}W ✓`);
 }
 
 function saveGoal() {

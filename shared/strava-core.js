@@ -35,6 +35,17 @@ export function normalizeActivity(a) {
     avg_hr: a.average_heartrate != null ? Math.round(a.average_heartrate) : null,
     max_hr: a.max_heartrate != null ? Math.round(a.max_heartrate) : null,
     suffer_score: num(a.suffer_score),
+    // Power, ONLY from a real power meter. Strava also estimates watts (and kJ) from
+    // speed/gradient for every ride, but those read ~50W low and aren't comparable
+    // with metered rides — so they're dropped here rather than gated downstream.
+    // Non-null watts therefore means "measured"; the history simply starts at the
+    // first metered ride (2026-09-03).
+    ...(a.device_watts === true ? {
+      avg_watts: num(a.average_watts),
+      weighted_avg_watts: num(a.weighted_average_watts),
+      max_watts: num(a.max_watts),
+      kilojoules: num(a.kilojoules),
+    } : { avg_watts: null, weighted_avg_watts: null, max_watts: null, kilojoules: null }),
     sport_type: a.sport_type || a.type || '',
   };
 }
@@ -141,8 +152,10 @@ export async function buildStravaSummary(token) {
 
   const strip = ({ id, moving_time_s, sport_type, ...keep }) => keep;
   // Chart-only series, oldest → newest. Never inject this into a prompt.
-  const lean = ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score }) =>
-    ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score });
+  const lean = ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score,
+                 avg_watts, weighted_avg_watts, max_watts, kilojoules }) =>
+    ({ date, distance_km, moving_time_min, elevation_m, avg_speed_kph, avg_hr, max_hr, suffer_score,
+       avg_watts, weighted_avg_watts, max_watts, kilojoules });
   return {
     last_ride: rides7.length ? strip(rides7[0]) : null,
     last_ride_detail,
