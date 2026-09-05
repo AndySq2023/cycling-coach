@@ -29,6 +29,13 @@ export default async function handler(req, res) {
         // FTP in watts. Bounded to a plausible human range so a bad client can't
         // poison the zones every session intensity is derived from.
         ftp: (Number.isFinite(+b.ftp) && +b.ftp >= 60 && +b.ftp <= 600) ? Math.round(+b.ftp) : null,
+        // Every value FTP has been set to — the 3-month tracker on Insights plots it.
+        ftpLog: Array.isArray(b.ftpLog)
+          ? b.ftpLog
+              .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && Number.isFinite(+e.ftp) && +e.ftp >= 60 && +e.ftp <= 600)
+              .map(e => ({ date: e.date, ftp: Math.round(+e.ftp) }))
+              .slice(-60)
+          : [],
         home: b.home || null,
         // Durable coach memory. Bounded here too so a bad client can't grow the blob.
         coachNotes: Array.isArray(b.coachNotes)

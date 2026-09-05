@@ -14,6 +14,7 @@ function emptyState() {
     adaptations: {},     // adaptationNotes keyed by session id
     goal: null,          // free-text athlete goal
     ftp: null,           // functional threshold power in watts, manually set
+    ftpLog: [],          // [{ date, ftp }] — every value it's been set to, for the tracker
     home: null,          // "lat,lon" for weather, or null
     coachNotes: [],      // durable facts the coach remembers about the athlete
     resistance: [],      // coach-authored strength sessions (Resistance tab)
