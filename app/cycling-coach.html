@@ -1664,6 +1664,12 @@ let athleteData = { whoop: null, strava: null, weather: null, goal: null, ftp: n
 // Hoisted above init(): init() calls loadFtp(), and a const declared further down the
 // file is still in its temporal dead zone at that point (same trap as STATE_POLL_MS).
 const FTP_KEY = 'cyclingCoachFtp';
+// Every value FTP has ever been set to, [{ date, ftp }] oldest → newest. FTP is a
+// moving estimate, not a fact, so the useful thing is the trend and how it lines up
+// with what the rides actually show — hence a log rather than one number.
+const FTP_LOG_KEY = 'cyclingCoachFtpLog';
+const FTP_LOG_MAX = 60;
+let ftpLog = [];
 
 // Coggan's 7 zones as a share of FTP. The top zone is open-ended (sprints).
 const FTP_ZONES = [
@@ -1785,6 +1791,7 @@ function pushState() {
         adaptations: adaptationNotes,
         goal: athleteData.goal || null,
         ftp: athleteData.ftp || null,
+        ftpLog,
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
         resistance: resistanceLib,
@@ -1881,6 +1888,15 @@ async function pullState() {
         if (v) localStorage.setItem(FTP_KEY, String(v)); else localStorage.removeItem(FTP_KEY);
         const fi = document.getElementById('ftpInput'); if (fi) fi.value = v || '';
         renderFtpZones();
+      }
+    }
+    // Array-present rather than non-empty, so a deliberate clear propagates.
+    if (Array.isArray(s.ftpLog)) {
+      const next = normalizeFtpLog(s.ftpLog);
+      if (JSON.stringify(next) !== JSON.stringify(ftpLog)) {
+        ftpLog = next;
+        localStorage.setItem(FTP_LOG_KEY, JSON.stringify(ftpLog));
+        if (currentTab === 'charts') renderCharts();
       }
     }
     // Adopt the server's memory. Guarded on non-empty: a device that hasn't synced yet
@@ -2488,6 +2504,103 @@ function recentRidesCard(history) {
   </div>`;
 }
 
+// ── FTP TRACKER — 3 months ────────────────────────────────
+// FTP will move around while the data builds, so this watches two things on one set
+// of axes: the number as you've set it (step line — it only changes when you change
+// it), and what each metered ride actually demanded (dots = normalised power).
+//
+// The read: NP is what a ride cost you in FTP terms. A long ride whose dot sits above
+// the line means you held more than your stated threshold for longer than threshold
+// should be holdable — the setting is low. Dots clustered well below it say nothing
+// either way; easy rides are meant to be easy.
+//
+// Estimated-watts rides never appear: shared/strava-core.js drops power for rides
+// without a meter, so a dot on this chart is always something a meter measured.
+const FTP_TRACK_DAYS = 91;
+
+function chartFtpTrend(history) {
+  const label = 'Threshold power · 3 months';
+  const today = new Date().toISOString().slice(0, 10);
+  const t1 = Date.parse(today + 'T12:00:00Z');
+  const t0 = t1 - FTP_TRACK_DAYS * 86400000;
+  const at = ds => Date.parse(ds + 'T12:00:00Z');
+
+  const log = ftpLog.filter(e => at(e.date) >= t0);
+  // A setting made before the window still defines where the line starts.
+  const prior = ftpLog.filter(e => at(e.date) < t0).slice(-1);
+  const pts = [...prior, ...log]; // xOf clamps the prior entry to the window's left edge
+  const rides = (history || []).filter(r => at(r.date) >= t0 && r.weighted_avg_watts != null);
+
+  if (!pts.length && !rides.length) {
+    return chartCardShell(label, '', '',
+      `<div style="padding:22px 0;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);">
+         Set your FTP in My Data and this starts tracking it.</div>`, '');
+  }
+
+  const vals = [...pts.map(p => p.ftp), ...rides.map(r => r.weighted_avg_watts)];
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max(15, (hi - lo) * 0.25);
+  const ymin = Math.max(0, Math.floor((lo - pad) / 10) * 10), ymax = Math.ceil((hi + pad) / 10) * 10;
+
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 16, padB = 30;
+  const xOf = t => padL + ((t - t0) / (t1 - t0)) * (W - padL - padR);
+  const yOf = v => padT + (1 - (v - ymin) / (ymax - ymin || 1)) * (H - padT - padB);
+  const { ticks } = chartTicks(ymin, ymax, 4);
+
+  // Step line: FTP holds its value until the day it's changed, then jumps.
+  let d = '';
+  pts.forEach((p, i) => {
+    const x = xOf(Math.max(t0, at(p.date)));
+    if (i === 0) d = `M ${x.toFixed(1)} ${yOf(p.ftp).toFixed(1)}`;
+    else d += ` L ${x.toFixed(1)} ${yOf(pts[i - 1].ftp).toFixed(1)} L ${x.toFixed(1)} ${yOf(p.ftp).toFixed(1)}`;
+  });
+  if (pts.length) d += ` L ${xOf(t1).toFixed(1)} ${yOf(pts[pts.length - 1].ftp).toFixed(1)}`;
+
+  const marks = pts.map(p => `<circle cx="${xOf(Math.max(t0, at(p.date))).toFixed(1)}" cy="${yOf(p.ftp).toFixed(1)}" r="3.5"
+      fill="var(--bg)" stroke="var(--text)" stroke-width="2"><title>FTP set to ${p.ftp}W on ${p.date}</title></circle>`).join('');
+
+  const cur = pts.length ? pts[pts.length - 1].ftp : null;
+  const dots = rides.map(r => {
+    const above = cur != null && r.weighted_avg_watts > cur;
+    return `<circle cx="${xOf(at(r.date)).toFixed(1)}" cy="${yOf(r.weighted_avg_watts).toFixed(1)}" r="4.5"
+      fill="var(--accent)" fill-opacity="${above ? 0.95 : 0.45}"><title>${r.date} · ${r.moving_time_min}min · NP ${r.weighted_avg_watts}W (avg ${r.avg_watts}W)</title></circle>`;
+  }).join('');
+
+  // Month ticks across the window.
+  // Walk months from the one t0 falls in — stepping from t0 itself skips the final
+  // month whenever t1 lands before t0's day-of-month (no "Sep" tick on 5 Sep).
+  const xLabels = [];
+  const m = new Date(t0);
+  m.setUTCDate(1);
+  for (; Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), 1, 12) <= t1; m.setUTCMonth(m.getUTCMonth() + 1)) {
+    const first = Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), 1, 12);
+    if (first < t0) continue;
+    xLabels.push(`<text x="${xOf(first).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-family="DM Mono,monospace"
+      font-size="10" fill="var(--text-muted)">${new Date(first).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`);
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, v => Math.round(v) + 'W')}
+    ${d ? `<path d="${d}" fill="none" stroke="var(--text)" stroke-width="2"/>` : ''}
+    ${marks}${dots}${xLabels.join('')}
+  </svg>`;
+
+  const head = cur != null
+    ? `<div class="chart-big">${cur}<span class="u">W · your FTP now</span></div>
+       <span class="chart-delta">${rides.length} metered ride${rides.length === 1 ? '' : 's'} to judge it by</span>`
+    : `<div class="chart-big">—<span class="u">W · FTP not set</span></div>`;
+  const legend = `<span><i style="background:var(--text)"></i>FTP as set</span><span><i style="background:var(--accent)"></i>normalised power per ride</span>`;
+
+  const overs = cur != null ? rides.filter(r => r.weighted_avg_watts > cur && r.moving_time_min >= 30) : [];
+  const note = !rides.length
+    ? 'No metered rides in the window yet. Dots appear as rides with a power meter come in — until then the line is just the number you typed.'
+    : overs.length
+      ? `${overs.length} ride${overs.length === 1 ? '' : 's'} of 30min+ sat above your ${cur}W setting — you held more than your stated threshold for longer than threshold should be holdable, so the number is probably low. Nudge it up rather than testing during a taper.`
+      : `Dots are each metered ride's normalised power — what the ride cost you. Sustained rides landing above the line mean the setting is low; easy rides below it mean nothing either way. Retest properly every 6-8 weeks.`;
+
+  return chartCardShell(label, head, legend, svg, note);
+}
+
 function renderCharts() {
   const el = document.getElementById('chartsContent');
   if (!el) return;
@@ -2507,6 +2620,7 @@ function renderCharts() {
   const weeks = weeklyRideStats(st.history, 12);
   el.innerHTML = `<div class="chart-grid">
     ${recentRidesCard(st.history)}
+    ${chartFtpTrend(st.history)}
     ${chartDistanceReadiness(weeks)}
     ${chartClimbReadiness(weeks)}
     ${chartCountdownVolume(weeks)}
@@ -2862,7 +2976,33 @@ function loadFtp() {
   athleteData.ftp = Number.isFinite(v) && v > 0 ? v : null;
   const el = document.getElementById('ftpInput');
   if (el && athleteData.ftp) el.value = athleteData.ftp;
+  ftpLog = normalizeFtpLog(safeParse(localStorage.getItem(FTP_LOG_KEY)));
+  // A value set before the log existed would otherwise never appear on the chart.
+  if (athleteData.ftp && !ftpLog.length) recordFtp(athleteData.ftp);
   renderFtpZones();
+}
+
+function safeParse(raw) { try { return JSON.parse(raw); } catch (e) { return null; } }
+
+function normalizeFtpLog(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && Number.isFinite(+e.ftp) && +e.ftp >= 60 && +e.ftp <= 600)
+    .map(e => ({ date: e.date, ftp: Math.round(+e.ftp) }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-FTP_LOG_MAX);
+}
+
+// One entry per value, not per save: re-saving the same number is a no-op, and
+// changing your mind twice in a day overwrites rather than stacking two points.
+function recordFtp(v) {
+  const today = new Date().toISOString().slice(0, 10);
+  const last = ftpLog[ftpLog.length - 1];
+  if (last && last.ftp === v) return;
+  if (last && last.date === today) ftpLog[ftpLog.length - 1] = { date: today, ftp: v };
+  else ftpLog.push({ date: today, ftp: v });
+  ftpLog = ftpLog.slice(-FTP_LOG_MAX);
+  localStorage.setItem(FTP_LOG_KEY, JSON.stringify(ftpLog));
 }
 
 function renderFtpZones() {
@@ -2892,9 +3032,36 @@ function saveFtp() {
   if (!Number.isFinite(v) || v < 60 || v > 600) { showToast('FTP should be between 60 and 600 watts'); return; }
   athleteData.ftp = v;
   localStorage.setItem(FTP_KEY, String(v));
+  recordFtp(v);
   renderFtpZones();
+  if (currentTab === 'charts') renderCharts();
   pushState();
   showToast(`FTP set to ${v}W ✓`);
+}
+
+// The zone block the coach prompt gets. Empty string when FTP is unset, so the coach
+// stays on HR and RPE instead of inventing watt targets from a number that doesn't
+// exist. Shares FTP_ZONES with the My Data readout, so prompt and UI can never drift.
+//
+// It also states plainly what power data exists. The old version gave zones with no
+// word on availability, and the coach settled into insisting the athlete had no power
+// meter even while watts sat in the ride data above it.
+function buildZoneText(ftp) {
+  if (!ftp) return '';
+  const rows = FTP_ZONES.map(([name, lo, hi]) =>
+    `\n  ${name}: ${hi == null ? `${Math.round(ftp * lo)}W and above` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`}`).join('');
+
+  const metered = (athleteData.strava?.history || []).filter(r => r.avg_watts != null);
+  const last = metered[metered.length - 1];
+  const availability = metered.length
+    ? `\n\nThe athlete HAS a power meter. ${metered.length} ride${metered.length === 1 ? '' : 's'} in the last 90 days recorded real watts` +
+      `${last ? ` (most recently ${last.date}: avg ${last.avg_watts}W, normalised ${last.weighted_avg_watts}W)` : ''}.` +
+      ` Reference watts and zones directly in your advice. NEVER tell the athlete they have no power data — any ride shown with watts was measured by a meter.` +
+      ` Rides shown WITHOUT watts predate the meter; judge those on HR and pace rather than assuming the power was zero.`
+    : `\n\nThe power meter is new and no ride has recorded watts yet. Give these zones as targets to ride to, but coach from HR, pace and RPE — you cannot yet check what the athlete actually produced.`;
+
+  return `\n\nTRAINING ZONES (from FTP ${ftp}W, the athlete's own setting):${rows}` + availability +
+    `\n\nFTP is a working estimate while the power data builds — treat it as approximate, and say so if a ride's numbers suggest it is off.`;
 }
 
 function saveGoal() {
@@ -3228,7 +3395,7 @@ function briefingCardHtml() {
 }
 
 function buildSystemPrompt() {
-  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), heart rate and RPE-based training zones, and volume/load methodology.
+  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), ${athleteData.ftp ? 'power-based zones (FTP), heart rate' : 'heart rate'} and RPE-based training zones, and volume/load methodology.
 
 Your job is to give the athlete personalized, actionable coaching advice based on their real WHOOP recovery data and Strava training history. Be specific — reference their actual numbers. Never give generic advice.
 
@@ -3291,6 +3458,7 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       });
     }
   }
+  prompt += buildZoneText(athleteData.ftp);
   if (athleteData.weather) {
     const wx = athleteData.weather;
     const n = wx.now || {};
@@ -3480,6 +3648,7 @@ Use these EXACT day/date pairs in order — copy them, never compute dates or da
   if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
   if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
   if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${mi(athleteData.strava.total_km_7d)}mi, ${athleteData.strava.total_moving_time_h_7d}h`;
+  context += buildZoneText(athleteData.ftp);
 
   if (Object.keys(sessionFeedback).length > 0) {
     context += `\n\nRecent session feedback (use to calibrate difficulty):`;
@@ -3504,7 +3673,9 @@ Use these EXACT day/date pairs in order — copy them, never compute dates or da
   "duration": 90,
   "intensity": "low",
   "description": "One concise sentence describing the session.",
-  "targets": "e.g. HR 130-145bpm, Zone 2",
+  "targets": ${athleteData.ftp
+    ? `"e.g. 118-158W (Zone 2), HR 130-145bpm — give a watt range from the zones above AND an HR range"`
+    : `"e.g. HR 130-145bpm, Zone 2"`},
   "tips": ["short tip", "short tip"],
   "bands": false
 }
