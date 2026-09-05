@@ -3039,6 +3039,31 @@ function saveFtp() {
   showToast(`FTP set to ${v}W ✓`);
 }
 
+// The zone block the coach prompt gets. Empty string when FTP is unset, so the coach
+// stays on HR and RPE instead of inventing watt targets from a number that doesn't
+// exist. Shares FTP_ZONES with the My Data readout, so prompt and UI can never drift.
+//
+// It also states plainly what power data exists. The old version gave zones with no
+// word on availability, and the coach settled into insisting the athlete had no power
+// meter even while watts sat in the ride data above it.
+function buildZoneText(ftp) {
+  if (!ftp) return '';
+  const rows = FTP_ZONES.map(([name, lo, hi]) =>
+    `\n  ${name}: ${hi == null ? `${Math.round(ftp * lo)}W and above` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`}`).join('');
+
+  const metered = (athleteData.strava?.history || []).filter(r => r.avg_watts != null);
+  const last = metered[metered.length - 1];
+  const availability = metered.length
+    ? `\n\nThe athlete HAS a power meter. ${metered.length} ride${metered.length === 1 ? '' : 's'} in the last 90 days recorded real watts` +
+      `${last ? ` (most recently ${last.date}: avg ${last.avg_watts}W, normalised ${last.weighted_avg_watts}W)` : ''}.` +
+      ` Reference watts and zones directly in your advice. NEVER tell the athlete they have no power data — any ride shown with watts was measured by a meter.` +
+      ` Rides shown WITHOUT watts predate the meter; judge those on HR and pace rather than assuming the power was zero.`
+    : `\n\nThe power meter is new and no ride has recorded watts yet. Give these zones as targets to ride to, but coach from HR, pace and RPE — you cannot yet check what the athlete actually produced.`;
+
+  return `\n\nTRAINING ZONES (from FTP ${ftp}W, the athlete's own setting):${rows}` + availability +
+    `\n\nFTP is a working estimate while the power data builds — treat it as approximate, and say so if a ride's numbers suggest it is off.`;
+}
+
 function saveGoal() {
   athleteData.goal = document.getElementById('goalInput').value.trim();
   if (athleteData.goal) {
@@ -3370,7 +3395,7 @@ function briefingCardHtml() {
 }
 
 function buildSystemPrompt() {
-  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), heart rate and RPE-based training zones, and volume/load methodology.
+  let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), ${athleteData.ftp ? 'power-based zones (FTP), heart rate' : 'heart rate'} and RPE-based training zones, and volume/load methodology.
 
 Your job is to give the athlete personalized, actionable coaching advice based on their real WHOOP recovery data and Strava training history. Be specific — reference their actual numbers. Never give generic advice.
 
@@ -3433,6 +3458,7 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       });
     }
   }
+  prompt += buildZoneText(athleteData.ftp);
   if (athleteData.weather) {
     const wx = athleteData.weather;
     const n = wx.now || {};
@@ -3622,6 +3648,7 @@ Use these EXACT day/date pairs in order — copy them, never compute dates or da
   if (athleteData.goal) context += `\n\nAthletes goal: ${athleteData.goal}`;
   if (athleteData.whoop) context += `\n\nToday's recovery: ${athleteData.whoop.recovery_score}% | HRV: ${athleteData.whoop.hrv}ms | RHR: ${athleteData.whoop.rhr}bpm`;
   if (athleteData.strava) context += `\n\nLast 7 days: ${athleteData.strava.rides_7d} rides, ${mi(athleteData.strava.total_km_7d)}mi, ${athleteData.strava.total_moving_time_h_7d}h`;
+  context += buildZoneText(athleteData.ftp);
 
   if (Object.keys(sessionFeedback).length > 0) {
     context += `\n\nRecent session feedback (use to calibrate difficulty):`;
@@ -3646,7 +3673,9 @@ Use these EXACT day/date pairs in order — copy them, never compute dates or da
   "duration": 90,
   "intensity": "low",
   "description": "One concise sentence describing the session.",
-  "targets": "e.g. HR 130-145bpm, Zone 2",
+  "targets": ${athleteData.ftp
+    ? `"e.g. 118-158W (Zone 2), HR 130-145bpm — give a watt range from the zones above AND an HR range"`
+    : `"e.g. HR 130-145bpm, Zone 2"`},
   "tips": ["short tip", "short tip"],
   "bands": false
 }
