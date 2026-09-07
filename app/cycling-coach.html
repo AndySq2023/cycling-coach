@@ -2518,6 +2518,15 @@ function recentRidesCard(history) {
 // without a meter, so a dot on this chart is always something a meter measured.
 const FTP_TRACK_DAYS = 91;
 
+// Variability index — normalised power over average power. NP punishes surges, so a
+// stop-start ride (junctions, traffic, long coasting descents) reports an NP far above
+// anything the rider actually held: a 3h town ride can show avg 128W but NP 203W, VI
+// 1.58. Only rides steady enough for NP to mean something count as evidence about FTP;
+// the rest are drawn hollow and excluded from the "your FTP looks low" read.
+const VI_STEADY_MAX = 1.25;
+const vi = r => (r.avg_watts > 0 ? r.weighted_avg_watts / r.avg_watts : 1);
+const isSteady = r => r.moving_time_min >= 30 && vi(r) <= VI_STEADY_MAX;
+
 function chartFtpTrend(history) {
   const label = 'Threshold power · 3 months';
   const today = new Date().toISOString().slice(0, 10);
@@ -2561,9 +2570,10 @@ function chartFtpTrend(history) {
 
   const cur = pts.length ? pts[pts.length - 1].ftp : null;
   const dots = rides.map(r => {
-    const above = cur != null && r.weighted_avg_watts > cur;
+    const solid = isSteady(r);
     return `<circle cx="${xOf(at(r.date)).toFixed(1)}" cy="${yOf(r.weighted_avg_watts).toFixed(1)}" r="4.5"
-      fill="var(--accent)" fill-opacity="${above ? 0.95 : 0.45}"><title>${r.date} · ${r.moving_time_min}min · NP ${r.weighted_avg_watts}W (avg ${r.avg_watts}W)</title></circle>`;
+      fill="${solid ? 'var(--accent)' : 'var(--bg)'}" fill-opacity="${solid ? 0.9 : 1}"
+      stroke="var(--accent)" stroke-width="${solid ? 0 : 1.5}"><title>${r.date} · ${r.moving_time_min}min · NP ${r.weighted_avg_watts}W (avg ${r.avg_watts}W) · VI ${vi(r).toFixed(2)}${solid ? '' : ' — stop-start, NP inflated'}</title></circle>`;
   }).join('');
 
   // Month ticks across the window.
@@ -2589,14 +2599,16 @@ function chartFtpTrend(history) {
     ? `<div class="chart-big">${cur}<span class="u">W · your FTP now</span></div>
        <span class="chart-delta">${rides.length} metered ride${rides.length === 1 ? '' : 's'} to judge it by</span>`
     : `<div class="chart-big">—<span class="u">W · FTP not set</span></div>`;
-  const legend = `<span><i style="background:var(--text)"></i>FTP as set</span><span><i style="background:var(--accent)"></i>normalised power per ride</span>`;
+  const legend = `<span><i style="background:var(--text)"></i>FTP as set</span><span><i style="background:var(--accent)"></i>steady ride (NP means something)</span><span><i style="background:transparent;box-shadow:inset 0 0 0 1.5px var(--accent)"></i>stop-start (NP inflated)</span>`;
 
-  const overs = cur != null ? rides.filter(r => r.weighted_avg_watts > cur && r.moving_time_min >= 30) : [];
+  const overs = cur != null ? rides.filter(r => isSteady(r) && r.weighted_avg_watts > cur) : [];
+  const choppy = rides.filter(r => !isSteady(r) && r.moving_time_min >= 30).length;
   const note = !rides.length
     ? 'No metered rides in the window yet. Dots appear as rides with a power meter come in — until then the line is just the number you typed.'
-    : overs.length
-      ? `${overs.length} ride${overs.length === 1 ? '' : 's'} of 30min+ sat above your ${cur}W setting — you held more than your stated threshold for longer than threshold should be holdable, so the number is probably low. Nudge it up rather than testing during a taper.`
-      : `Dots are each metered ride's normalised power — what the ride cost you. Sustained rides landing above the line mean the setting is low; easy rides below it mean nothing either way. Retest properly every 6-8 weeks.`;
+    : (overs.length
+      ? `${overs.length} steady ride${overs.length === 1 ? '' : 's'} of 30min+ sat above your ${cur}W setting — you held more than your stated threshold for longer than threshold should be holdable, so the number is probably low. Nudge it up rather than testing during a taper.`
+      : `Dots are each metered ride's normalised power — what the ride cost you. Steady rides landing above the line mean the setting is low; easy rides below it mean nothing either way. Retest properly every 6-8 weeks.`)
+      + (choppy ? ` ${choppy} hollow dot${choppy === 1 ? '' : 's'}: stop-start riding, where coasting at junctions inflates NP well above what you actually held, so those aren't evidence either way.` : '');
 
   return chartCardShell(label, head, legend, svg, note);
 }
