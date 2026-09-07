@@ -22,6 +22,11 @@ export function num(...vals) {
   return null;
 }
 
+export function round(v) {
+  const n = num(v);
+  return n == null ? null : Math.round(n);
+}
+
 export function normalizeActivity(a) {
   return {
     id: a.id,
@@ -40,11 +45,13 @@ export function normalizeActivity(a) {
     // with metered rides — so they're dropped here rather than gated downstream.
     // Non-null watts therefore means "measured"; the history simply starts at the
     // first metered ride (2026-09-03).
+    // Rounded: Strava reports avg watts to a decimal, and a tenth of a watt is noise
+    // in every place this is shown or reasoned about.
     ...(a.device_watts === true ? {
-      avg_watts: num(a.average_watts),
-      weighted_avg_watts: num(a.weighted_average_watts),
-      max_watts: num(a.max_watts),
-      kilojoules: num(a.kilojoules),
+      avg_watts: round(a.average_watts),
+      weighted_avg_watts: round(a.weighted_average_watts),
+      max_watts: round(a.max_watts),
+      kilojoules: round(a.kilojoules),
     } : { avg_watts: null, weighted_avg_watts: null, max_watts: null, kilojoules: null }),
     sport_type: a.sport_type || a.type || '',
   };
@@ -56,6 +63,9 @@ export function normalizeActivity(a) {
 export function buildRideDetail(a) {
   const hr = (v) => (v != null && Number.isFinite(v)) ? Math.round(v) : null;
   const secs = (e) => num(e.moving_time, e.elapsed_time);
+  // Same rule as normalizeActivity: watts only from a real meter. One ride is one
+  // meter, so the activity-level flag governs its laps and segment efforts too.
+  const watts = (e) => a.device_watts === true ? hr(num(e.average_watts)) : null;
 
   const laps = (a.laps || []).length > 1
     ? a.laps.map((l, i) => ({
@@ -64,6 +74,7 @@ export function buildRideDetail(a) {
         time_s: secs(l),
         avg_hr: hr(l.average_heartrate),
         max_hr: hr(l.max_heartrate),
+        avg_watts: watts(l),
       }))
     : [];
 
@@ -92,12 +103,15 @@ export function buildRideDetail(a) {
       distance_km: +((v[0].distance || 0) / 1000).toFixed(1),
       efforts: v
         .sort((x, y) => (x.start_index ?? 0) - (y.start_index ?? 0))
-        .map(e => ({ time_s: secs(e), avg_hr: hr(e.average_heartrate) })),
+        .map(e => ({ time_s: secs(e), avg_hr: hr(e.average_heartrate), avg_watts: watts(e) })),
     }));
 
   return {
     avg_hr: hr(a.average_heartrate),
     max_hr: hr(a.max_heartrate),
+    avg_watts: watts(a),
+    weighted_avg_watts: a.device_watts === true ? hr(num(a.weighted_average_watts)) : null,
+    max_watts: a.device_watts === true ? hr(num(a.max_watts)) : null,
     laps,
     repeated_segments,
   };
