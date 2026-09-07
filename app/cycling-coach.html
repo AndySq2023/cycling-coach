@@ -2495,6 +2495,7 @@ function recentRidesCard(history) {
         ${r.moving_time_min != null ? `<span>${r.moving_time_min} min</span>` : ''}
         ${r.elevation_m != null ? `<span>${Math.round(r.elevation_m * FT_PER_M)} ft</span>` : ''}
         ${r.avg_hr != null ? `<span>${r.avg_hr} bpm</span>` : ''}
+        ${r.avg_watts != null ? `<span class="lead">${r.avg_watts}W<span style="opacity:0.6"> · NP ${r.weighted_avg_watts}W</span></span>` : ''}
       </div>
     </div>`).join('');
   return `<div class="dash-card">
@@ -3445,6 +3446,13 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       prompt += `\n  Distance: ${mi(s.last_ride.distance_km)}mi, Moving time: ${s.last_ride.moving_time_min}min`;
       prompt += `\n  Elevation: ${s.last_ride.elevation_m}m, Avg speed: ${mph(s.last_ride.avg_speed_kph)} mph`;
       if (s.last_ride.avg_hr != null) prompt += `\n  Avg HR: ${s.last_ride.avg_hr}bpm, Max HR: ${s.last_ride.max_hr}bpm`;
+      if (s.last_ride.avg_watts != null) {
+        prompt += `\n  Power (measured): avg ${s.last_ride.avg_watts}W, normalised ${s.last_ride.weighted_avg_watts}W, max ${s.last_ride.max_watts}W, ${s.last_ride.kilojoules}kJ of work`;
+        // NP over avg says how punchy the ride was. Without this the coach reads a high
+        // NP off a stop-start ride as a hard effort, when it's mostly coasting.
+        const v = s.last_ride.avg_watts > 0 ? s.last_ride.weighted_avg_watts / s.last_ride.avg_watts : 1;
+        prompt += `\n  Variability ${v.toFixed(2)} — ${v > 1.25 ? 'stop-start riding, so normalised power overstates what was actually held' : 'steady riding, so normalised power is a fair read of the effort'}`;
+      }
     }
     if (s.last_ride_detail) {
       const d = s.last_ride_detail;
@@ -3452,21 +3460,21 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       if (d.laps?.length) {
         prompt += `\n\nRecorded laps on the most recent ride:`;
         d.laps.forEach(l => {
-          prompt += `\n- Lap ${l.lap}: ${mi(l.distance_km)}mi in ${ms(l.time_s)}${l.avg_hr != null ? ` @ avg ${l.avg_hr}bpm (max ${l.max_hr})` : ''}`;
+          prompt += `\n- Lap ${l.lap}: ${mi(l.distance_km)}mi in ${ms(l.time_s)}${l.avg_hr != null ? ` @ avg ${l.avg_hr}bpm (max ${l.max_hr})` : ''}${l.avg_watts != null ? ` @ ${l.avg_watts}W` : ''}`;
         });
       }
       if (d.repeated_segments?.length) {
-        prompt += `\n\nSEGMENT SPLITS from the most recent ride (live from Strava). These are Strava segments the athlete rode more than once in the ride — on a loop course, pass 1 vs pass 2 IS the lap-1 vs lap-2 comparison. The longest segment ≈ the full loop. Use these to assess pacing (even/negative splits) and HR drift; you don't need to ask the athlete for lap times.`;
+        prompt += `\n\nSEGMENT SPLITS from the most recent ride (live from Strava). These are Strava segments the athlete rode more than once in the ride — on a loop course, pass 1 vs pass 2 IS the lap-1 vs lap-2 comparison. The longest segment ≈ the full loop. Use these to assess pacing (even/negative splits) and HR drift; you don't need to ask the athlete for lap times. Where watts are shown, compare power pass to pass as well — rising HR at falling power is fatigue, and holding power on a later pass is the stronger result.`;
         d.repeated_segments.forEach(g => {
           prompt += `\n- ${g.name} (${mi(g.distance_km)}mi): ` + g.efforts.map((e, i) =>
-            `pass ${i + 1}: ${ms(e.time_s)}${e.avg_hr != null ? ` @ ${e.avg_hr}bpm` : ''}`).join(' → ');
+            `pass ${i + 1}: ${ms(e.time_s)}${e.avg_hr != null ? ` @ ${e.avg_hr}bpm` : ''}${e.avg_watts != null ? ` @ ${e.avg_watts}W` : ''}`).join(' → ');
         });
       }
     }
     if (s.all_rides?.length > 1) {
       prompt += `\n\nAll rides this week:`;
       s.all_rides.forEach((r) => {
-        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev${r.avg_hr != null ? ` | avg HR ${r.avg_hr}` : ''}`;
+        prompt += `\n- ${r.date} | ${r.name} | ${mi(r.distance_km)}mi | ${r.moving_time_min}min | ${r.elevation_m}m elev${r.avg_hr != null ? ` | avg HR ${r.avg_hr}` : ''}${r.avg_watts != null ? ` | avg ${r.avg_watts}W, NP ${r.weighted_avg_watts}W` : ''}`;
       });
     }
   }
@@ -3923,6 +3931,7 @@ function describeActual(a) {
   if (a.distance_mi) parts.push(`${a.distance_mi}mi`);
   if (a.avg_hr) parts.push(`avg HR ${a.avg_hr}`);
   if (a.max_hr) parts.push(`max HR ${a.max_hr}`);
+  if (a.avg_watts) parts.push(`avg ${a.avg_watts}W`);
   if (a.notes) parts.push(`"${a.notes}"`);
   if (a.source === 'strava') parts.push('via Strava');
   return parts.join(' · ');
@@ -3936,13 +3945,16 @@ function aggregateRidesByDate(rides) {
   (rides || []).forEach(r => {
     if (!r || !r.date) return;
     const d = byDate[r.date] || (byDate[r.date] = {
-      date: r.date, mins: 0, km: 0, hrSum: 0, hrMins: 0, max_hr: 0, count: 0
+      date: r.date, mins: 0, km: 0, hrSum: 0, hrMins: 0, max_hr: 0, wSum: 0, wMins: 0, count: 0
     });
     const mins = r.moving_time_min || 0;
     d.mins += mins;
     d.km += r.distance_km || 0;
     if (r.avg_hr && mins) { d.hrSum += r.avg_hr * mins; d.hrMins += mins; }
     if (r.max_hr) d.max_hr = Math.max(d.max_hr, r.max_hr);
+    // Weighted by duration like HR, and only over the rides that actually have watts —
+    // a pre-meter ride in the same day must not dilute the average towards zero.
+    if (r.avg_watts && mins) { d.wSum += r.avg_watts * mins; d.wMins += mins; }
     d.count++;
   });
   return byDate;
@@ -3991,6 +4003,7 @@ function autoLogRidesFromStrava(rides) {
       distance_mi: take('distance_mi', mi(d.km)) || 0,
       avg_hr:      take('avg_hr', d.hrMins ? Math.round(d.hrSum / d.hrMins) : 0) || 0,
       max_hr:      take('max_hr', d.max_hr) || 0,
+      avg_watts:   take('avg_watts', d.wMins ? Math.round(d.wSum / d.wMins) : 0) || 0,
       notes:       existing?.notes || ''
     };
     if (auto) actual.source = 'strava';
@@ -5311,6 +5324,10 @@ function openEditModal(sessionId) {
               <div class="rpe-label" style="margin-bottom:6px">Max HR (bpm)</div>
               <input class="data-input" id="actualMaxHr" type="number" min="0" max="230" placeholder="157">
             </div>
+            <div style="flex:1">
+              <div class="rpe-label" style="margin-bottom:6px">Avg power (W)</div>
+              <input class="data-input" id="actualAvgWatts" type="number" min="0" max="600" placeholder="205">
+            </div>
           </div>
           <div>
             <div class="rpe-label" style="margin-bottom:6px">Notes</div>
@@ -5337,6 +5354,7 @@ function openEditModal(sessionId) {
   document.getElementById('actualDistance').value = a.distance_mi || '';
   document.getElementById('actualAvgHr').value = a.avg_hr || '';
   document.getElementById('actualMaxHr').value = a.max_hr || '';
+  document.getElementById('actualAvgWatts').value = a.avg_watts || '';
   document.getElementById('actualNotes').value = a.notes || '';
 
   setEditMode('planned');
@@ -5371,10 +5389,11 @@ function saveEditModal() {
     distance_mi: parseFloat(document.getElementById('actualDistance').value) || 0,
     avg_hr:      parseInt(document.getElementById('actualAvgHr').value) || 0,
     max_hr:      parseInt(document.getElementById('actualMaxHr').value) || 0,
+    avg_watts:   parseInt(document.getElementById('actualAvgWatts').value) || 0,
     notes:       document.getElementById('actualNotes').value.trim()
   };
   const id = trainingPlan[idx].id;
-  const hasActual = actual.duration || actual.distance_mi || actual.avg_hr || actual.max_hr || actual.notes;
+  const hasActual = actual.duration || actual.distance_mi || actual.avg_hr || actual.max_hr || actual.avg_watts || actual.notes;
   if (hasActual) {
     sessionFeedback[id] = { ...(sessionFeedback[id] || {}), actual, timestamp: sessionFeedback[id]?.timestamp || Date.now() };
   } else if (sessionFeedback[id]?.actual) {
