@@ -3052,28 +3052,49 @@ function saveFtp() {
   showToast(`FTP set to ${v}W ✓`);
 }
 
+// Where the watts in this prompt came from. This is deliberately NOT part of
+// buildZoneText: it used to live there, and buildZoneText returns '' when FTP is unset,
+// so with a blank FTP the coach lost every word about provenance and fell back on its
+// own prior that Strava guesses watts — it told the athlete "you don't run a power
+// meter" while measured watts sat in the ride data directly above. Provenance depends
+// on the meter, not on whether a threshold number has been typed in, so it is gated on
+// metered rides alone and always reaches the prompt. Same trap as the schedule-write
+// block that was once gated behind `if (trainingPlan.length)`: never hide a capability
+// or a fact behind an unrelated setting.
+function buildPowerText() {
+  const st = athleteData.strava || {};
+  // history is the 90-day chart array; all_rides is the 7-day subset. Prefer history,
+  // fall back to the week so a stale backend with no `history` field still gets this.
+  const hist = (st.history || []).filter(r => r.avg_watts != null);
+  const week = (st.all_rides || []).filter(r => r.avg_watts != null);
+  const metered = hist.length ? hist : week;
+  if (!metered.length) return '';
+  const last = metered[metered.length - 1];
+  const window = hist.length ? `in the last ${st.history_days || 90} days` : 'this week';
+
+  return `\n\nPOWER DATA — WHERE THESE WATTS CAME FROM (read before you say anything about power):` +
+    `\nThe athlete HAS a power meter. ${metered.length} ride${metered.length === 1 ? '' : 's'} ${window} recorded real watts` +
+    `${last ? ` (most recently ${last.date}: avg ${last.avg_watts}W, normalised ${last.weighted_avg_watts}W)` : ''}.` +
+    ` EVERY watt and kJ figure anywhere in this prompt was recorded by that meter. Strava also estimates watts from speed and gradient for every ride, but those are dropped at source and can never reach you — so a number being here is proof it was measured.` +
+    ` NEVER describe these as estimated, modelled, guessed or "not real", and NEVER tell the athlete they have no power meter. Read and reference the watts directly.` +
+    ` Rides shown WITHOUT watts predate the meter; judge those on HR and pace rather than assuming the power was zero.` +
+    (athleteData.ftp ? '' : `\nFTP is not set in My Data, so there are no watt zones to quote — set intensity by HR and RPE, but still read and discuss the measured watts, and tell the athlete that entering FTP unlocks zones.`);
+}
+
 // The zone block the coach prompt gets. Empty string when FTP is unset, so the coach
 // stays on HR and RPE instead of inventing watt targets from a number that doesn't
 // exist. Shares FTP_ZONES with the My Data readout, so prompt and UI can never drift.
-//
-// It also states plainly what power data exists. The old version gave zones with no
-// word on availability, and the coach settled into insisting the athlete had no power
-// meter even while watts sat in the ride data above it.
+// What power data EXISTS is buildPowerText's job, not this one's — see the note there.
 function buildZoneText(ftp) {
   if (!ftp) return '';
   const rows = FTP_ZONES.map(([name, lo, hi]) =>
     `\n  ${name}: ${hi == null ? `${Math.round(ftp * lo)}W and above` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`}`).join('');
 
   const metered = (athleteData.strava?.history || []).filter(r => r.avg_watts != null);
-  const last = metered[metered.length - 1];
-  const availability = metered.length
-    ? `\n\nThe athlete HAS a power meter. ${metered.length} ride${metered.length === 1 ? '' : 's'} in the last 90 days recorded real watts` +
-      `${last ? ` (most recently ${last.date}: avg ${last.avg_watts}W, normalised ${last.weighted_avg_watts}W)` : ''}.` +
-      ` Reference watts and zones directly in your advice. NEVER tell the athlete they have no power data — any ride shown with watts was measured by a meter.` +
-      ` Rides shown WITHOUT watts predate the meter; judge those on HR and pace rather than assuming the power was zero.`
-    : `\n\nThe power meter is new and no ride has recorded watts yet. Give these zones as targets to ride to, but coach from HR, pace and RPE — you cannot yet check what the athlete actually produced.`;
+  const unmetered = metered.length ? '' :
+    `\n\nNo ride has recorded watts yet. Give these zones as targets to ride to, but coach from HR, pace and RPE — you cannot yet check what the athlete actually produced.`;
 
-  return `\n\nTRAINING ZONES (from FTP ${ftp}W, the athlete's own setting):${rows}` + availability +
+  return `\n\nTRAINING ZONES (from FTP ${ftp}W, the athlete's own setting):${rows}` + unmetered +
     `\n\nFTP is a working estimate while the power data builds — treat it as approximate, and say so if a ride's numbers suggest it is off.`;
 }
 
@@ -3478,6 +3499,8 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       });
     }
   }
+  // Provenance first, then zones: buildPowerText is ungated, buildZoneText needs FTP.
+  prompt += buildPowerText();
   prompt += buildZoneText(athleteData.ftp);
   if (athleteData.weather) {
     const wx = athleteData.weather;
