@@ -3525,9 +3525,19 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
   // Durable memory. These survive long after the raw conversation below has been rolled
   // away, so they are the only thing standing between the coach and re-asking the
   // athlete something they already told it months ago.
+  //
+  // They are also the highest-authority text in the prompt ("treat as true") and the
+  // last thing before the conversation, so they win on recency too — which is exactly
+  // how a stale one does damage. A note folded in before the power meter arrived, "Has
+  // no power meter — Strava power figures are estimates only", had the coach dismissing
+  // measured watts as guesses for days, straight past the POWER DATA block above saying
+  // the opposite. Deleting that note fixed the symptom; the PRECEDENCE line below fixes
+  // the class, because the same thing is waiting to happen to FTP, the route-builder
+  // limits, or anything else here that time overtakes.
   if (coachNotes.length) {
     prompt += `\n\nWHAT YOU ALREADY KNOW ABOUT THIS ATHLETE (long-term memory — carried over from earlier conversations, treat as true unless they correct you, and never re-ask something answered here):`;
     coachNotes.forEach(n => { prompt += `\n- ${n}`; });
+    prompt += `\nPRECEDENCE — these notes were written in the past and some will have gone stale. Where a note contradicts the live WHOOP, Strava, power or weather data above, THE LIVE DATA WINS: treat the note as out of date, and never cite one as a reason to doubt, downgrade or explain away a number the app has just measured. If a note is clearly obsolete, say so in a clause and move on.`;
   }
   if (!athleteData.whoop && !athleteData.strava) {
     prompt += `\n\nNo data loaded yet. Ask the athlete to share their WHOOP recovery numbers and recent Strava rides so you can give personalized advice. You can still answer general cycling training questions.`;
