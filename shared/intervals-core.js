@@ -212,9 +212,11 @@ export async function buildIntervalsSummary(athleteId, apiKey) {
     // Non-empty means CTL/ATL/Form above are inflated — treat them as an upper bound.
     duplicates,
     // Chart-only series, mirroring how strava-core ships `history`.
+    // `load` is that day's training load (0 on rest days). The app needs it to work out
+    // a typical ride's cost and project fitness forward at a target riding frequency.
     trend: rows
       .filter(r => r.ctl != null)
-      .map(r => ({ date: r.id, ctl: round(r.ctl, 1), atl: round(r.atl, 1) })),
+      .map(r => ({ date: r.id, ctl: round(r.ctl, 1), atl: round(r.atl, 1), load: round(r.ctlLoad) })),
     updated: new Date().toISOString(),
   };
 }
