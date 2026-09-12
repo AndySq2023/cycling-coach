@@ -17,6 +17,7 @@ import os from 'node:os';
 // This file owns ONLY credential handling (~/.strava-proxy/auth.json) and the HTTP surface.
 import { buildStravaSummary } from '../shared/strava-core.js';
 import { buildForecast } from '../shared/weather-core.js';
+import { buildIntervalsSummary } from '../shared/intervals-core.js';
 
 const PORT = Number(process.env.PORT) || 3002; // env override lets a second copy run for testing
 
@@ -106,6 +107,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // intervals.icu needs no OAuth — just the athlete id and a read-only API key.
+  // Taken from auth.json (intervals_athlete_id / intervals_api_key) so local dev
+  // needs no launchd env-var edit, with env vars as an override.
+  if (url.pathname === '/api/intervals') {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const auth = readAuth();
+      const athleteId = process.env.INTERVALS_ATHLETE_ID || auth.intervals_athlete_id;
+      const apiKey = process.env.INTERVALS_API_KEY || auth.intervals_api_key;
+      if (!athleteId || !apiKey) {
+        throw new Error('Missing intervals.icu credentials — add intervals_athlete_id and intervals_api_key to ~/.strava-proxy/auth.json.');
+      }
+      res.end(JSON.stringify(await buildIntervalsSummary(athleteId, apiKey)));
+    } catch (err) {
+      console.error('GET /api/intervals failed:', err.message);
+      res.end(JSON.stringify({ error: err.message || String(err) }));
+    }
+    return;
+  }
+
   if (url.pathname === '/api/health') {
     res.setHeader('Content-Type', 'application/json');
     const auth = readAuth();
@@ -121,5 +142,6 @@ server.listen(PORT, () => {
   console.log(`Strava proxy listening on http://localhost:${PORT}`);
   console.log(`  GET /api/strava  → 7-day ride summary for cycling-coach.html`);
   console.log(`  GET /api/weather → 48h point forecast (?lat=&lon=)`);
+  console.log(`  GET /api/intervals → intervals.icu fitness/power summary`);
   console.log(`  GET /api/health  → status`);
 });

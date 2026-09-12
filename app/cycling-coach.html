@@ -1421,6 +1421,47 @@
         <button class="load-btn" id="stravaSyncBtn" onclick="syncStrava(true)">⚡ Sync from Strava</button>
       </div>
 
+      <!-- INTERVALS.ICU -->
+      <div>
+        <div class="data-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>intervals.icu — Fitness &amp; Power</span>
+          <span id="intervals-sync-status" style="font-size:10px;color:var(--text-muted);font-family:'DM Mono',monospace;font-weight:400;letter-spacing:0;text-transform:none;"></span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Fitness (CTL)</span>
+          <span class="metric-value" id="disp-ctl">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Fatigue (ATL)</span>
+          <span class="metric-value" id="disp-atl">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Form</span>
+          <span class="metric-value" id="disp-form">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">FTP (set / est)</span>
+          <span class="metric-value" id="disp-ftp-icu">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Best 20min (90d)</span>
+          <span class="metric-value" id="disp-pc20">—</span>
+        </div>
+        <div class="metric-row">
+          <span class="metric-label">Best 5min (90d)</span>
+          <span class="metric-value" id="disp-pc5">—</span>
+        </div>
+        <div class="metric-row" id="row-icu-coverage" style="display:none;">
+          <span class="metric-label">* Bests based on</span>
+          <span class="metric-value warn" id="disp-icu-coverage">—</span>
+        </div>
+        <div class="metric-row" id="row-icu-dupes" style="display:none;">
+          <span class="metric-label">⚠️ Duplicate rides</span>
+          <span class="metric-value bad" id="disp-icu-dupes">—</span>
+        </div>
+        <button class="load-btn" id="intervalsSyncBtn" onclick="syncIntervals(true)">⚡ Sync from intervals.icu</button>
+      </div>
+
       <!-- WEATHER -->
       <div>
         <div class="data-section-label" style="display:flex;align-items:center;justify-content:space-between;">
@@ -1659,7 +1700,7 @@
 
 <script>
 // ── STATE ──────────────────────────────────────────────────
-let athleteData = { whoop: null, strava: null, weather: null, goal: null, ftp: null };
+let athleteData = { whoop: null, strava: null, weather: null, intervals: null, goal: null, ftp: null };
 
 // Hoisted above init(): init() calls loadFtp(), and a const declared further down the
 // file is still in its temporal dead zone at that point (same trap as STATE_POLL_MS).
@@ -1753,8 +1794,8 @@ const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);          //
 const IS_LOCAL = location.protocol === 'file:'
   || ['localhost', '127.0.0.1'].includes(location.hostname);
 const API = IS_LOCAL
-  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002' }
-  : { chat: '', whoop: '', strava: '', weather: '' };
+  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002', intervals: 'http://localhost:3002' }
+  : { chat: '', whoop: '', strava: '', weather: '', intervals: '' };
 
 function getAppPassword() {
   let pw = localStorage.getItem('cyclingCoachPw');
@@ -2020,6 +2061,7 @@ async function coachFetch(url, options = {}) {
   // Pull live WHOOP + Strava on load so the coach never runs on stale/empty data
   const whoopReady = syncWHOOP();
   const stravaReady = syncStrava();
+  const intervalsReady = syncIntervals();
   // Weather: prefill saved home location and sync it (no-op if no location is set yet)
   const home = getHomeLocation();
   if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
@@ -2027,7 +2069,7 @@ async function coachFetch(url, options = {}) {
   // Morning briefing (replaces the old Telegram cron): only once the live data it has to
   // be grounded in has landed, so it never briefs blind. Failures are non-fatal — the
   // day stays unmarked and the next open retries.
-  Promise.allSettled([whoopReady, stravaReady, weatherReady]).then(maybeMorningBriefing);
+  Promise.allSettled([whoopReady, stravaReady, intervalsReady, weatherReady]).then(maybeMorningBriefing);
   // Pull the server copy (hosted only) so schedule edits made on another device while
   // this one was closed show up. No-op on local dev.
   pullState();
@@ -2924,6 +2966,83 @@ function useMyLocation() {
   );
 }
 
+// ── INTERVALS.ICU LIVE SYNC ────────────────────────────────
+// Fitness (CTL), fatigue (ATL), form and the power profile. Sits ALONGSIDE Strava
+// rather than replacing it: Strava is the ride log, intervals.icu is the modelled
+// load on top of it. force=true bypasses the server-side cache.
+async function syncIntervals(force = false) {
+  const btn = document.getElementById('intervalsSyncBtn');
+  const status = document.getElementById('intervals-sync-status');
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  status.textContent = '';
+
+  try {
+    const res = await coachFetch(API.intervals + '/api/intervals' + (force ? '?fresh=1' : ''));
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    athleteData.intervals = d;
+
+    const f = d.fitness || {};
+    const p = d.power || {};
+    const pc = d.power_curve || {};
+
+    document.getElementById('disp-ctl').textContent = f.ctl != null ? f.ctl : '—';
+    document.getElementById('disp-atl').textContent = f.atl != null ? f.atl : '—';
+
+    // Form is the one number here that carries a judgement: deeply negative means
+    // buried, strongly positive means fresh (or detrained). Colour it like recovery.
+    const formEl = document.getElementById('disp-form');
+    formEl.textContent = f.form != null ? (f.form > 0 ? '+' : '') + f.form : '—';
+    if (f.form != null) {
+      formEl.className = 'metric-value ' + (f.form > -10 ? 'good' : f.form > -25 ? 'warn' : 'bad');
+    }
+
+    document.getElementById('disp-ftp-icu').textContent =
+      p.ftp != null || p.eftp != null ? `${p.ftp ?? '—'} / ${p.eftp ?? '—'}W` : '—';
+    // The curve only covers rides the API can expose (direct uploads — Strava-sourced
+    // rides are withheld), so while that feed is young it is a sample, not a best.
+    const cov = d.power_curve_coverage || {};
+    const provisional = !!cov.provisional;
+    const pcTxt = (v) => v == null ? '—' : v + 'W' + (provisional ? '*' : '');
+    document.getElementById('disp-pc20').textContent = pcTxt(pc['20m']);
+    document.getElementById('disp-pc5').textContent = pcTxt(pc['5m']);
+
+    const covRow = document.getElementById('row-icu-coverage');
+    covRow.style.display = provisional ? '' : 'none';
+    if (provisional) {
+      document.getElementById('disp-icu-coverage').textContent =
+        `${cov.rides} ride${cov.rides === 1 ? '' : 's'} — not a true best yet`;
+    }
+
+    // Two feeds into one intervals.icu account double-count the ride, which inflates
+    // CTL/ATL and drags Form down. Surface it rather than quietly showing wrong numbers.
+    const dupes = d.duplicates || [];
+    const dupeRow = document.getElementById('row-icu-dupes');
+    dupeRow.style.display = dupes.length ? '' : 'none';
+    if (dupes.length) {
+      const days = dupes.map(x => x.date.slice(8) + '/' + x.date.slice(5, 7)).join(', ');
+      document.getElementById('disp-icu-dupes').textContent = `${dupes.length} day${dupes.length > 1 ? 's' : ''} (${days})`;
+    }
+
+    const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    status.textContent = `synced ${now}`;
+    status.style.color = 'var(--accent)';
+    if (force) showToast('intervals.icu synced ✓');
+    renderDashboard();
+  } catch (err) {
+    status.textContent = 'sync failed';
+    status.style.color = 'var(--danger)';
+    showToast(IS_LOCAL ? '⚠️ Could not reach the local proxy for intervals.icu (localhost:3002).' : '⚠️ intervals.icu sync failed. Check /api/intervals (creds) in Vercel.', true);
+    console.error(err);
+  }
+
+  btn.textContent = '⚡ Sync from intervals.icu';
+  btn.disabled = false;
+}
+
 async function syncWeather() {
   const btn = document.getElementById('weatherSyncBtn');
   const status = document.getElementById('weather-sync-status');
@@ -3454,6 +3573,49 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     if (w.sleep_duration_h != null) prompt += `\nSleep duration: ${w.sleep_duration_h}h`;
     if (w.spo2 != null)           prompt += `\nSpO2: ${w.spo2}%`;
     if (w.strain != null)         prompt += `\nStrain: ${w.strain}`;
+  }
+  if (athleteData.intervals) {
+    const iv = athleteData.intervals;
+    const f = iv.fitness || {};
+    const p = iv.power || {};
+    const pc = iv.power_curve || {};
+    prompt += `\n\nATHLETE'S INTERVALS.ICU DATA (modelled training load, live):`;
+    if (f.ctl != null) prompt += `\nFitness (CTL, 42-day load): ${f.ctl}`;
+    if (f.atl != null) prompt += `\nFatigue (ATL, 7-day load): ${f.atl}`;
+    if (f.form != null) {
+      // Spell out the band — the raw number means nothing without the convention,
+      // and the coach was inventing its own thresholds when given a bare figure.
+      const band = f.form > 5 ? 'fresh/detraining' : f.form > -10 ? 'ready to train hard'
+        : f.form > -25 ? 'carrying real fatigue' : 'deeply fatigued — back off';
+      prompt += `\nForm (CTL-ATL, i.e. TSB): ${f.form > 0 ? '+' : ''}${f.form} — ${band}`;
+    }
+    if (f.ramp_rate != null) prompt += `\nRamp rate: ${f.ramp_rate} CTL/week${f.ramp_rate > 7 ? ' (steep — injury/overreach risk)' : ''}`;
+    if (p.ftp != null || p.eftp != null) {
+      prompt += `\nFTP: ${p.ftp ?? '?'}W set by the athlete, ${p.eftp ?? '?'}W estimated by intervals.icu from ride data`;
+      if (p.ftp != null && p.eftp != null && Math.abs(p.eftp - p.ftp) >= 10) {
+        prompt += ` — the gap means the set FTP is ${p.eftp > p.ftp ? 'STALE and probably too low' : 'probably too high'}, worth flagging`;
+      }
+    }
+    if (p.w_prime != null) prompt += `\nW' (anaerobic capacity): ${p.w_prime}J, max power ${p.p_max ?? '?'}W`;
+    if (Array.isArray(p.zones)) {
+      prompt += `\nPower zones (watts): ` + p.zones.map(z => `${z.name} ${z.min_w}-${z.max_w ?? '∞'}`).join(', ');
+      prompt += `\nWhen prescribing a session, give targets in WATTS from these zones, not RPE alone.`;
+    }
+    if (pc['5s'] != null) {
+      const cov = iv.power_curve_coverage || {};
+      if (cov.provisional) {
+        // Without this the coach reads a one-ride sample as a collapse in threshold
+        // power and starts diagnosing overtraining that hasn't happened.
+        prompt += `\nPower bests from only ${cov.rides} ride(s): 5s ${pc['5s']}W, 1min ${pc['1m']}W, 5min ${pc['5m']}W, 20min ${pc['20m']}W, 60min ${pc['60m']}W`;
+        prompt += `\n⚠️ These are NOT 90-day bests and NOT evidence of current form. The power-meter feed into intervals.icu is new, so the curve covers only the handful of rides uploaded from the head unit so far — the rest of the training history still counts towards CTL/ATL above but its power data is not visible here. Do NOT interpret low numbers as lost fitness, do NOT compare them to the FTP figures, and do not comment on them unless asked.`;
+      } else {
+        prompt += `\n90-day best power: 5s ${pc['5s']}W, 1min ${pc['1m']}W, 5min ${pc['5m']}W, 20min ${pc['20m']}W, 60min ${pc['60m']}W`;
+      }
+    }
+    if (Array.isArray(iv.duplicates) && iv.duplicates.length) {
+      prompt += `\n\n⚠️ DATA QUALITY WARNING: ${iv.duplicates.length} day(s) in the last 30 have the SAME ride recorded twice (${iv.duplicates.map(x => x.date).join(', ')}) — two feeds into intervals.icu (Strava sync plus a head-unit upload). intervals.icu has summed both training loads, so the CTL, ATL and Form above are INFLATED: real fatigue is lower and real form is HIGHER (less negative) than shown. Treat those figures as an upper bound on fatigue, do NOT prescribe rest purely on the strength of them, and mention the duplication once so it can be fixed at source.`;
+    }
+    prompt += `\nNOTE: intervals.icu ingests the same Strava rides listed below — do NOT treat these as two separate training blocks. Strava is the ride log; intervals.icu is the modelled load on top of it.`;
   }
   if (athleteData.strava) {
     const s = athleteData.strava;
@@ -4412,8 +4574,8 @@ async function sendMessage(text) {
 
   // Ensure the coach has live WHOOP + Strava before it answers — covers a fast first
   // message sent before auto-sync finishes — so it never asks for data the app has.
-  if (!athleteData.whoop || !athleteData.strava) {
-    await Promise.allSettled([syncWHOOP(), syncStrava()]);
+  if (!athleteData.whoop || !athleteData.strava || !athleteData.intervals) {
+    await Promise.allSettled([syncWHOOP(), syncStrava(), syncIntervals()]);
   }
 
   try {
