@@ -68,7 +68,8 @@ Chat and WHOOP still require Claude Desktop to be running; Strava does not.
 | Schedule updates from chat | ✅ Complete | Coach emits fenced `schedule_update` JSON blocks mid-conversation; app patches plan in place |
 | Per-session edit modal | ✅ Complete | Manual override of type, duration, intensity, targets, description |
 | Strava ↔ schedule reconciliation | ✅ Complete | "Sync & Update Schedule" compares recent Strava rides to plan and applies corrections via coach |
-| Resistance band workouts | ✅ Complete | Three focus areas (Legs, Core, Upper); Claude generates JSON workout; can be added to schedule |
+| Resistance band workouts | ✅ Complete | Prescribed against the five bands actually owned (colour + kg), with choke, anchor, tempo and RIR; coach picks the two session days |
+| Strength logging | ✅ Complete | Per-set reps achieved + session RPE; load = RPE × minutes; fed back into the prompt so the coach progresses from real numbers |
 | Strava proxy (launchd) | ✅ Complete | Auto-starts on login, KeepAlive respawn, logs to `proxy/proxy.log` |
 | Mobile layout | 🚧 Partial | Data panel hidden below 600px (`@media`); chat and tabs usable but not optimised for small screens |
 | Strava lookback > 7 days | ❌ Missing | Proxy hardcodes `after = now - 7d`, single page (`per_page=50`); no pagination; 42-day window discussed but not implemented |

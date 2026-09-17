@@ -53,6 +53,14 @@ export default async function handler(req, res) {
         // Coach-authored resistance sessions (Resistance tab). Bounded so a bad client
         // can't grow the blob; the app re-normalizes shape on read.
         resistance: Array.isArray(b.resistance) ? b.resistance.slice(0, 20) : [],
+        // Logged strength sessions. Two sessions a week means ~100 a year, so the
+        // 200 cap is roughly two years of history — bounded because, unlike the
+        // library, this only ever grows, and every device pulls the whole blob.
+        strengthLog: Array.isArray(b.strengthLog)
+          ? b.strengthLog
+              .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date))
+              .slice(-200)
+          : [],
         conversationHistory: Array.isArray(b.conversationHistory) ? b.conversationHistory : [],
         // Today's morning briefing — shared across devices so it's generated once and
         // every device shows the same weather read and plan, not a fresh AI call each.

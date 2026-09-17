@@ -40,10 +40,39 @@ function extractFunction(src, name) {
   throw new Error(`Unbalanced braces while extracting ${name}().`);
 }
 
+// Pull a top-level `const NAME = [...]` / `= {...}` out by bracket-matching. Some pure
+// functions are only pure given a lookup table declared beside them (the band
+// inventory, the anchor list) — without these the function would have to be rewritten
+// to take them as arguments purely to be testable, which is the tail wagging the dog.
+function extractConst(src, name) {
+  const re = new RegExp(`const\\s+${name}\\s*=`);
+  const m = re.exec(src);
+  if (!m) throw new Error(`Constant ${name} not found in the app script.`);
+  // Scan to the terminating semicolon at nesting depth zero. Depth alone isn't
+  // enough: the anchor table's values contain parentheses inside string literals,
+  // so quotes have to be skipped or the counter desynchronises.
+  let i = m.index + m[0].length, depth = 0, quote = null;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (c === '\\\\') i++;
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    else if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    else if (c === ';' && depth === 0) return src.slice(m.index, i + 1);
+  }
+  throw new Error(`Unterminated declaration while extracting ${name}.`);
+}
+
 // Evaluate the named functions together (so they can call each other) and return them.
-export function loadAppFunctions(names) {
+// `consts` are declared first so the functions can close over them.
+export function loadAppFunctions(names, consts = []) {
   const src = scriptBody();
+  const decls = consts.map(n => extractConst(src, n)).join('\n');
   const defs = names.map(n => extractFunction(src, n)).join('\n\n');
-  const factory = new Function(`${defs}\nreturn { ${names.join(', ')} };`);
+  const factory = new Function(`${decls}\n${defs}\nreturn { ${names.join(', ')} };`);
   return factory();
 }
