@@ -953,9 +953,23 @@
     margin-top: 3px;
     display: inline-block;
   }
-  .band-color-badge.light { background: rgba(74,158,255,0.15); color: var(--band-easy); border: 1px solid rgba(74,158,255,0.3); }
-  .band-color-badge.medium { background: rgba(224,137,43,0.14); color: var(--warn); border: 1px solid rgba(224,137,43,0.35); }
-  .band-color-badge.heavy { background: rgba(214,74,58,0.12); color: var(--danger); border: 1px solid rgba(214,74,58,0.35); }
+  /* One badge per band the athlete owns, tinted to the actual rubber so the card
+     matches what's in the pile. Ordered lightest to heaviest. */
+  .band-color-badge.yellow { background: rgba(224,183,43,0.16); color: #D9A520; border: 1px solid rgba(224,183,43,0.4); }
+  .band-color-badge.red    { background: rgba(214,74,58,0.12);  color: var(--danger); border: 1px solid rgba(214,74,58,0.35); }
+  .band-color-badge.black  { background: rgba(140,140,150,0.16); color: var(--text-muted); border: 1px solid rgba(140,140,150,0.4); }
+  .band-color-badge.purple { background: rgba(126,87,194,0.16); color: #9575CD; border: 1px solid rgba(126,87,194,0.4); }
+  .band-color-badge.green  { background: rgba(67,160,71,0.14);  color: #66BB6A; border: 1px solid rgba(67,160,71,0.4); }
+
+  /* Setup line under an exercise: anchor, choke and tempo. Muted — it's reference
+     you read once at the start of a set, not something to scan past the cue. */
+  .exercise-setup {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    line-height: 1.5;
+  }
+  .exercise-setup .sep { opacity: 0.4; margin: 0 4px; }
 
   .bands-action-row {
     padding: 12px 16px;
@@ -1027,6 +1041,42 @@
     gap: 18px;
     animation: slideIn 0.2s ease;
   }
+  /* Taller than the ride-feedback modal and scrollable: a session is 6-8 exercises
+     and each one needs a row of set boxes, so this never fits on a phone screen. */
+  .strength-modal { max-height: 88vh; overflow-y: auto; gap: 14px; }
+  .slog-ex {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+  }
+  .slog-ex:first-of-type { border-top: none; padding-top: 0; }
+  .slog-ex-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .slog-ex-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .slog-ex-target { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+  .slog-sets { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* Reps achieved, one box per prescribed set. Bare number entry beats a stepper
+     here — you're typing it with one hand between sets, not fiddling with +/-. */
+  .slog-set {
+    width: 52px;
+    padding: 6px 4px;
+    text-align: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .slog-set:focus { outline: none; border-color: var(--accent); }
+  .slog-set::placeholder { color: var(--text-muted); opacity: 0.5; }
+  .slog-row { display: flex; gap: 10px; }
+  .slog-row > div { flex: 1; }
+
   .modal-title {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-size: 16px;
@@ -1714,6 +1764,38 @@
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="strengthModal">
+  <div class="feedback-modal strength-modal">
+    <div>
+      <div class="modal-title">Log Strength Session</div>
+      <div class="modal-subtitle" id="slogTitle"></div>
+    </div>
+
+    <div id="slogExercises"></div>
+
+    <div class="slog-row">
+      <div>
+        <div class="rpe-label" style="margin-bottom:6px;">Session RPE 1&ndash;10</div>
+        <input class="slog-set" id="slogRpe" style="width:100%" type="number" min="1" max="10" placeholder="7">
+      </div>
+      <div>
+        <div class="rpe-label" style="margin-bottom:6px;">Minutes</div>
+        <input class="slog-set" id="slogDuration" style="width:100%" type="number" min="1" max="180" placeholder="45">
+      </div>
+    </div>
+
+    <div>
+      <div class="rpe-label" style="margin-bottom:6px;">Notes (optional)</div>
+      <textarea class="data-textarea" id="slogNotes" rows="2" placeholder="What felt easy, what you had to drop a band on..."></textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="gen-btn secondary" onclick="closeStrengthModal()">Cancel</button>
+      <button class="gen-btn primary" onclick="submitStrengthLog()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── STATE ──────────────────────────────────────────────────
 let athleteData = { whoop: null, strava: null, weather: null, intervals: null, goal: null, ftp: null };
@@ -1783,6 +1865,58 @@ const ROUTES_TOMBSTONE_MAX = 200;
 let resistanceLib = [];
 const RESISTANCE_KEY = 'cyclingCoachResistance';
 const RESISTANCE_MAX = 20;
+
+// ── BAND INVENTORY ─────────────────────────────────────────
+// The athlete's actual bands. Every one is a 208cm loop ("power band" / pull-up
+// assist style) — there are no tube bands, handles, ankle straps or door anchor, so
+// a prescription can only ever name one of these five. Width is what sets the
+// resistance; the colour is just how you tell them apart in the pile.
+// Yellow is BackBaller (2080x6x4.5mm, 5-15lb). The other four are the Core Gain
+// set of 4 — every figure below is the manufacturer's own printed weight guide.
+// All Core Gain bands are 4.5mm thick; only the width differs, and width is what
+// sets the resistance. NOTE: Core Gain's own artwork prints "4.4cm" on the red
+// band's diagram, which is a copy-paste of the green band's callout — red is
+// plainly 1.3cm in the group shot, and a 7-15kg band cannot be as wide as a 56kg
+// one. 13mm is correct.
+const BAND_INVENTORY = [
+  { id: 'yellow', label: 'Yellow', widthMm: 4.5, minKg: 2,  maxKg: 7  },
+  { id: 'red',    label: 'Red',    widthMm: 13,  minKg: 7,  maxKg: 15 },
+  { id: 'black',  label: 'Black',  widthMm: 22,  minKg: 10, maxKg: 30 },
+  { id: 'purple', label: 'Purple', widthMm: 32,  minKg: 15, maxKg: 40 },
+  { id: 'green',  label: 'Green',  widthMm: 44,  minKg: 22, maxKg: 56 },
+];
+const BAND_IDS = BAND_INVENTORY.map(b => b.id);
+function bandById(id) { return BAND_INVENTORY.find(b => b.id === id) || null; }
+
+// How far the band is shortened. Halving the working length roughly doubles the
+// tension at a given stretch, so choke is a progression step in its own right —
+// it sits between "more reps" and "next band up" on the ladder below.
+const BAND_CHOKES = ['full', 'choked', 'doubled'];
+
+// Where a band can be anchored. There is no door anchor and no pull-up bar, so the
+// list is body + the Peloton. Anchoring to the bike is what makes overhead pulling
+// possible at all: raise the handlebars, loop the band over the stem, then kneel or
+// sit on the floor and the anchor is above your head.
+// Frame, stem and stabiliser bars ONLY — never the pedals, flywheel or screen — and
+// pull along the bike's long axis so 60kg of bike can't tip or creep.
+const BAND_ANCHORS = {
+  'none':          'No anchor — band held in both hands (pull-aparts, dislocates)',
+  'foot':          'Standing on the band, one or both feet',
+  'feet-seated':   'Seated on the floor, band round both feet',
+  'back':          'Band across the upper back, ends in the hands (press-ups, floor press)',
+  'peloton-low':   'Peloton front/rear stabiliser bar — ankle height',
+  'peloton-mid':   'Peloton frame or seat post — hip to chest height',
+  'peloton-high':  'Peloton handlebars raised, athlete kneeling/seated — overhead',
+};
+const ANCHOR_IDS = Object.keys(BAND_ANCHORS);
+
+// Logged strength sessions, newest last. This is the record the coach progresses
+// you from: without per-set reps there is no way to know whether last week's
+// prescription was too easy, so `sets` holds what was actually achieved, not what
+// was asked for. Synced through coach_state like the library itself.
+let strengthLog = [];
+const STRENGTH_KEY = 'cyclingCoachStrengthLog';
+const STRENGTH_MAX = 200;
 
 let feedbackTargetId = null; // which session we're logging
 
@@ -1863,6 +1997,7 @@ function pushState() {
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
         resistance: resistanceLib,
+        strengthLog,
         conversationHistory: conversationHistory.slice(-120),
         // Mirror whatever's cached locally (or null) so other devices adopt the same
         // briefing instead of generating their own.
@@ -1993,6 +2128,14 @@ async function pullState() {
       localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib));
       if (currentTab === 'bands') renderResistanceLib();
     }
+    // Same for logged strength sessions. Array-present rather than non-empty, so
+    // deleting a mis-logged session on one device propagates instead of being
+    // resurrected by the next pull.
+    if (Array.isArray(s.strengthLog)) {
+      strengthLog = s.strengthLog.slice(-STRENGTH_MAX);
+      localStorage.setItem(STRENGTH_KEY, JSON.stringify(strengthLog));
+      if (currentTab === 'bands') renderResistanceLib();
+    }
     // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
     if (serverHistoryDiffers(s.conversationHistory)) {
       conversationHistory = s.conversationHistory;
@@ -2074,6 +2217,7 @@ async function coachFetch(url, options = {}) {
 
   // Restore coach-authored resistance sessions (Resistance tab)
   loadResistance();
+  loadStrengthLog();
 
   // Restore chat history
   const savedChat = localStorage.getItem('cyclingCoachChat');
@@ -4116,9 +4260,54 @@ Besides the ride schedule, you have direct write access to the in-app Resistance
   }
   prompt += `\n\nTo save one or more full sessions, include this block at the very end of your reply (no text after it):
 \`\`\`resistance_set
-{"workouts":[{"name":"Monday — Glutes & Core","focus":"One sentence on why this matters for cycling.","duration":35,"category":"legs","day":"Monday","exercises":[{"name":"Banded glute bridge","sets":3,"reps":"15","band":"Medium","cue":"Drive through heels, squeeze at top."}]}]}
+{"workouts":[{"name":"Session A — Upper (horizontal)","focus":"One sentence on why this matters.","duration":45,"category":"upper","exercises":[{"name":"Seated row","sets":3,"reps":"12-15","band":"black","choke":"full","anchor":"feet-seated","rir":2,"tempo":"3s down, 1s squeeze","cue":"Ribs down, drive the elbows past your sides."}]}]}
 \`\`\`
-Rules: "workouts" is the COMPLETE library — include every session you want kept, because this REPLACES all saved resistance sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). Give each exercise a name, sets, reps, band (Light/Medium/Heavy) and a short cue. After the block, briefly tell the athlete what you saved.`;
+Rules: "workouts" is the COMPLETE library — include every session you want kept, because this REPLACES all saved resistance sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). After the block, briefly tell the athlete what you saved.
+
+Every exercise needs: name, sets, reps (a target RANGE like "12-15"), band, choke, anchor, rir, tempo, cue.`;
+
+  // ── The athlete's real kit, and what can actually be done with it ──
+  prompt += `\n\n=== THE ATHLETE'S BANDS (these five, and nothing else) ===
+Every band is a 208cm loop ("power band" / pull-up assist style). There are NO tube bands, NO handles, NO ankle straps, NO door anchor and NO pull-up bar. Never prescribe an exercise that needs kit not listed here, and never invent a band that isn't on this list.`;
+  BAND_INVENTORY.forEach(b => {
+    prompt += `\n- "${b.id}" — ${b.label}, ${b.widthMm}mm wide, ${b.minKg}–${b.maxKg}kg`;
+  });
+  prompt += `\n\nANCHORS — the "anchor" field must be one of these ids:`;
+  Object.entries(BAND_ANCHORS).forEach(([id, desc]) => { prompt += `\n- "${id}": ${desc}`; });
+  prompt += `\nThe Peloton is the only fixed anchor. "peloton-high" is what makes overhead pulling possible — handlebars raised, band over the stem, athlete kneeling or sitting on the floor — so kneeling lat pulldowns and straight-arm pullovers ARE available. Anchor to the frame, stem post or stabiliser bars ONLY: never the pedals, flywheel or screen. Cue pulling along the bike's long axis so it can't tip or creep.
+
+CHOKE — "full", "choked" (band shortened, roughly doubles tension) or "doubled" (folded in two).
+
+HOW BAND RESISTANCE BEHAVES: tension is HIGHEST at full contraction and near zero at full stretch — the opposite of a barbell, and unhelpfully the stretched position is where most of the growth stimulus lives. So bands are excellent for rows, pull-aparts, face pulls, lateral raises and triceps, and weak for chest at the stretch. Compensate with a 2–3s eccentric, a 1–2s pause at peak contraction, and choking the band so there is still tension at the bottom. Put that in the tempo field, not just the cue.
+
+PROGRESSION LADDER — there is no plate to add, so progress strictly in this order, and only once the athlete hit the TOP of the rep range at the prescribed RIR:
+1. more reps within the range  2. an extra set  3. choke the band shorter  4. next band up  5. slower eccentric or longer pause.
+Never jump two rungs at once. A band jump is large (each width roughly doubles tension), so when the band goes up the reps drop back to the BOTTOM of the range.`;
+
+  // ── Placing the two sessions in the week ──
+  prompt += `\n\n=== WHERE THE STRENGTH SESSIONS GO ===
+You choose the two days each week — the athlete has delegated that to you. Apply these in order:
+1. Non-ride days only.
+2. Never the day before the long ride, or the day before any high-intensity session.
+3. Prefer at least 48h between the two sessions.
+4. Prefer the day AFTER a hard or long ride — the work is upper-body only, so tired legs are irrelevant and the upper body is fresh.
+5. If WHOOP recovery is red (<34%), move the session to the next eligible day rather than dropping it — a missed week costs lean mass, which is the whole point of this block.
+6. If only one eligible day exists, schedule one and say so explicitly.
+Because the work is upper-body and core ONLY, it barely interferes with cycling: don't protect ride days from it beyond the rules above.`;
+
+  // ── What was actually lifted, so progression is real rather than guessed ──
+  if (strengthLog.length) {
+    prompt += `\n\n=== LOGGED STRENGTH SESSIONS (most recent last) ===
+This is what the athlete ACTUALLY did — progress them from these numbers, not from what you last prescribed.`;
+    strengthLog.slice(-6).forEach(e => {
+      prompt += `\n• ${e.date} — ${e.name}${e.durationMin ? `, ${e.durationMin}min` : ''}${e.sessionRpe ? `, session RPE ${e.sessionRpe}/10` : ''}${e.load ? `, load ${e.load}AU` : ''}`;
+      (e.exercises || []).forEach(ex => {
+        const sets = (ex.sets || []).map(st => st.rir != null ? `${st.reps}@${st.rir}RIR` : `${st.reps}`).join(', ');
+        prompt += `\n    ${ex.name} [${ex.band}${ex.choke && ex.choke !== 'full' ? `/${ex.choke}` : ''}]: ${sets || 'not logged'}`;
+      });
+      if (e.notes) prompt += `\n    note: ${e.notes}`;
+    });
+  }
 
   // ── COACH MEMORY (durable facts the coach maintains itself) ──────────────
   prompt += `\n\n=== YOU CAN REMEMBER THINGS LONG-TERM ===
@@ -4625,10 +4814,14 @@ async function submitFeedback() {
 }
 
 // ── RESISTANCE BANDS ───────────────────────────────────────
+// The three generator buttons. Unlike the chat coach these run a standalone prompt
+// with no athlete context, so they can only ever produce a generic session — they
+// are the "give me something now" path, not the programme. The kit constraints are
+// injected below so a generated workout is at least always performable.
 const bandCategoryPrompts = {
-  legs: 'Legs & Glutes — cycling-specific resistance band workout focusing on glute activation, hip flexors, quad strength, and hamstring balance. These muscles are the powerhouse of cycling.',
-  core: 'Core & Hip Stability — resistance band workout for cycling core strength: anti-rotation, hip stabilisers, lower back endurance, and lateral hip strength to improve pedalling efficiency.',
-  upper: 'Upper Body & Mobility — resistance band workout for cyclists focusing on shoulder stability, back tension relief, hip flexor opening, and thoracic mobility.'
+  legs: 'Legs & Glutes — glute activation, hip flexors, quad strength and hamstring balance.',
+  core: 'Core & Hip Stability — anti-rotation, hip stabilisers, lower back endurance and lateral hip strength.',
+  upper: 'Upper Body & Mobility — shoulder stability, mid-back strength, thoracic mobility and arms.'
 };
 
 async function selectBandCategory(cat, btn) {
@@ -4640,25 +4833,40 @@ async function selectBandCategory(cat, btn) {
   content.innerHTML = `<div class="bands-empty"><div style="font-size:32px"><span class="spinner" style="width:32px;height:32px;border-width:3px"></span></div><p>Generating workout…</p></div>`;
 
   const focusDesc = bandCategoryPrompts[cat];
+  const bandList = BAND_INVENTORY.map(b => `  "${b.id}" — ${b.label}, ${b.widthMm}mm, ${b.minKg}–${b.maxKg}kg`).join('\n');
+  const anchorList = Object.entries(BAND_ANCHORS).map(([id, d]) => `  "${id}": ${d}`).join('\n');
 
-  const prompt = `You are an expert cycling strength coach. Generate a resistance band workout for: ${focusDesc}.
+  const prompt = `You are an expert strength coach. Generate a resistance band workout for: ${focusDesc}
+
+THE ATHLETE'S KIT — five 208cm loop bands and nothing else. No tube bands, no handles, no ankle straps, no door anchor, no pull-up bar. Never prescribe an exercise needing kit not listed here.
+${bandList}
+
+ANCHORS — "anchor" must be one of these ids:
+${anchorList}
+The Peloton is the only fixed anchor; "peloton-high" (handlebars raised, band over the stem, athlete kneeling on the floor) is what makes overhead pulling possible. Frame, stem and stabiliser bars only — never the pedals, flywheel or screen.
+
+Band tension is HIGHEST at full contraction and near zero at full stretch, so favour rows, pull-aparts, face pulls, lateral raises and triceps work, and use a 2–3s eccentric plus a pause at peak contraction to compensate elsewhere.
 
 Return ONLY valid JSON — no markdown, no prose. Format:
 {
   "name": "Workout name",
-  "focus": "One sentence on why this matters for cyclists",
-  "duration": 30,
+  "focus": "One sentence on why this matters",
+  "duration": 45,
   "exercises": [
     {
       "name": "Exercise name",
       "sets": 3,
       "reps": "12-15",
-      "band": "Light|Medium|Heavy",
+      "band": "black",
+      "choke": "full",
+      "anchor": "feet-seated",
+      "rir": 2,
+      "tempo": "3s down, 1s squeeze",
       "cue": "One coaching cue"
     }
   ]
 }
-Include 6-8 exercises. Band resistance: Light = easy activation, Medium = main work, Heavy = strength.`;
+Include 6-8 exercises. "choke" is "full", "choked" (band shortened, roughly doubles tension) or "doubled". "reps" is a target range. "rir" is reps in reserve, 0-5.`;
 
   try {
     const res = await coachFetch(API.chat + '/api/chat', {
@@ -4682,24 +4890,36 @@ Include 6-8 exercises. Band resistance: Light = easy activation, Medium = main w
   }
 }
 
+// One exercise row, shared by the generated workout and the saved library so the two
+// can never drift apart in how a prescription reads.
+function renderExerciseRow(ex, i) {
+  const b = bandById(ex.band);
+  const setup = [];
+  if (ex.anchor && ex.anchor !== 'none') setup.push(escapeHtml(BAND_ANCHORS[ex.anchor] || ex.anchor));
+  if (ex.choke && ex.choke !== 'full') setup.push(escapeHtml(ex.choke));
+  if (ex.tempo) setup.push(escapeHtml(ex.tempo));
+  const setsReps = ex.sets && ex.reps ? `${ex.sets}\u00d7${escapeHtml(String(ex.reps))}`
+                                      : escapeHtml(String(ex.reps || ex.sets || ''));
+  return `
+    <div class="exercise-item">
+      <div class="exercise-num">${String(i + 1).padStart(2, '0')}</div>
+      <div class="exercise-info">
+        <div class="exercise-name">${escapeHtml(ex.name)}</div>
+        ${ex.cue ? `<div class="exercise-cue">${escapeHtml(ex.cue)}</div>` : ''}
+        ${setup.length ? `<div class="exercise-setup">${setup.join('<span class="sep">\u00b7</span>')}</div>` : ''}
+      </div>
+      <div class="exercise-sets">
+        ${setsReps}${ex.rir != null && ex.rir !== '' ? `<br><span style="font-size:9px;color:var(--text-muted)">${ex.rir} RIR</span>` : ''}
+        <br>
+        <span class="band-color-badge ${b ? b.id : 'yellow'}">${b ? `${b.label} \u00b7 ${b.minKg}\u2013${b.maxKg}kg` : escapeHtml(String(ex.band || ''))}</span>
+      </div>
+    </div>`;
+}
+
 function renderBandWorkout(w) {
   const content = document.getElementById('bandsContent');
 
-  const bandClass = { 'Light': 'light', 'Medium': 'medium', 'Heavy': 'heavy' };
-
-  let exHtml = w.exercises.map((ex, i) => `
-    <div class="exercise-item">
-      <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
-      <div class="exercise-info">
-        <div class="exercise-name">${escapeHtml(ex.name)}</div>
-        <div class="exercise-cue">${escapeHtml(ex.cue)}</div>
-      </div>
-      <div class="exercise-sets">
-        ${ex.sets}×${ex.reps}
-        <br>
-        <span class="band-color-badge ${bandClass[ex.band] || 'medium'}">${ex.band}</span>
-      </div>
-    </div>`).join('');
+  const exHtml = w.exercises.map(renderExerciseRow).join('');
 
   content.innerHTML = `
     <div class="bands-workout-card">
@@ -4767,6 +4987,46 @@ function saveResistance() {
   pushState(); // mirror to the shared blob so other devices pick it up
 }
 
+// ── STRENGTH LOG ───────────────────────────────────────────
+// What was actually lifted. The library says what to do; this says what happened,
+// and it is the only thing that makes progression possible rather than guessed.
+function loadStrengthLog() {
+  try { strengthLog = JSON.parse(localStorage.getItem(STRENGTH_KEY)) || []; }
+  catch (e) { strengthLog = []; }
+}
+
+function saveStrengthLog() {
+  strengthLog = strengthLog.slice(-STRENGTH_MAX);
+  try { localStorage.setItem(STRENGTH_KEY, JSON.stringify(strengthLog)); }
+  catch (e) { console.warn('Could not persist strength log:', e); }
+  pushState();
+}
+
+// Session load in arbitrary units — Foster's session-RPE method (RPE x minutes).
+// Deliberately the same shape as a ride's training load so the two are comparable
+// and can eventually be summed into one fatigue picture. Volume load (band kg x
+// reps) would be the better hypertrophy signal but needs each band's force measured
+// at its working length, which is a calibration step the athlete hasn't done.
+function strengthLoad(sessionRpe, durationMin) {
+  const r = +sessionRpe, d = +durationMin;
+  if (!Number.isFinite(r) || !Number.isFinite(d) || r <= 0 || d <= 0) return null;
+  return Math.round(r * d);
+}
+
+// Total reps per band, heaviest band first — the quickest read on whether the last
+// few weeks actually got harder or just longer.
+function strengthVolumeByBand(entries) {
+  const totals = {};
+  entries.forEach(e => (e.exercises || []).forEach(ex => {
+    const reps = (ex.sets || []).reduce((n, st) => n + (+st.reps || 0), 0);
+    if (reps) totals[ex.band] = (totals[ex.band] || 0) + reps;
+  }));
+  return BAND_INVENTORY
+    .filter(b => totals[b.id])
+    .map(b => ({ ...b, reps: totals[b.id] }))
+    .reverse();
+}
+
 // Coerce a coach-supplied workout into the stored shape. Tolerant of missing fields so
 // a slightly-off JSON block still lands something useful rather than throwing.
 function normalizeResistanceWorkout(w, i) {
@@ -4774,7 +5034,16 @@ function normalizeResistanceWorkout(w, i) {
     name: String(ex?.name || 'Exercise').slice(0, 80),
     sets: ex?.sets != null ? ex.sets : '',
     reps: ex?.reps != null ? String(ex.reps) : '',
-    band: ['Light','Medium','Heavy'].includes(ex?.band) ? ex.band : 'Medium',
+    // A band is one of the five the athlete owns, named by colour. An unrecognised
+    // value falls back to the lightest rather than the middle: too light wastes a
+    // set, too heavy on a detrained shoulder costs weeks.
+    band: BAND_IDS.includes(ex?.band) ? ex.band : 'yellow',
+    choke: BAND_CHOKES.includes(ex?.choke) ? ex.choke : 'full',
+    anchor: ANCHOR_IDS.includes(ex?.anchor) ? ex.anchor : 'none',
+    // Reps in reserve — the intensity dial that actually drives hypertrophy here,
+    // since band load can't be dialled finely enough to prescribe by weight.
+    rir: Number.isFinite(+ex?.rir) ? Math.max(0, Math.min(5, Math.round(+ex.rir))) : 2,
+    tempo: String(ex?.tempo || '').slice(0, 20),
     cue:  String(ex?.cue || '').slice(0, 200),
   })) : [];
   return {
@@ -4801,6 +5070,101 @@ function applyResistanceSet(workouts) {
   showToast(`Coach saved ${resistanceLib.length} session${resistanceLib.length === 1 ? '' : 's'} to Resistance ✓`);
 }
 
+// ── LOGGING A STRENGTH SESSION ─────────────────────────────
+// Which library workout is being logged. Null when the modal is closed.
+let _slogWorkoutId = null;
+
+// Last time this workout was logged — what the athlete actually hit becomes the
+// placeholder in each set box, so the target you're chasing is the number in front
+// of you rather than something to go hunting for.
+function lastLogFor(workoutId) {
+  for (let i = strengthLog.length - 1; i >= 0; i--) {
+    if (String(strengthLog[i].workoutId) === String(workoutId)) return strengthLog[i];
+  }
+  return null;
+}
+
+function openStrengthModal(id) {
+  const w = resistanceLib.find(x => String(x.id) === String(id));
+  if (!w) return;
+  _slogWorkoutId = w.id;
+
+  const prev = lastLogFor(w.id);
+  document.getElementById('slogTitle').textContent = prev
+    ? `${w.name} \u00b7 last logged ${prev.date}`
+    : `${w.name} \u00b7 first time`;
+
+  document.getElementById('slogExercises').innerHTML = w.exercises.map((ex, i) => {
+    const b = bandById(ex.band);
+    const nSets = Math.max(1, Math.min(8, +ex.sets || 3));
+    const prevEx = prev?.exercises?.find(p => p.name === ex.name);
+    const boxes = Array.from({ length: nSets }, (_, si) => {
+      const was = prevEx?.sets?.[si]?.reps;
+      return `<input class="slog-set" data-ex="${i}" data-set="${si}" type="number"
+                     min="0" max="100" inputmode="numeric"
+                     placeholder="${was != null ? was : '\u2013'}">`;
+    }).join('');
+    return `
+      <div class="slog-ex">
+        <div class="slog-ex-head">
+          <span class="slog-ex-name">${escapeHtml(ex.name)}</span>
+          <span class="slog-ex-target">${b ? b.label : ''} \u00b7 ${escapeHtml(String(ex.reps || ''))}</span>
+        </div>
+        <div class="slog-sets">${boxes}</div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('slogRpe').value = '';
+  document.getElementById('slogDuration').value = w.duration || '';
+  document.getElementById('slogNotes').value = '';
+  document.getElementById('strengthModal').classList.remove('hidden');
+}
+
+function closeStrengthModal() {
+  _slogWorkoutId = null;
+  document.getElementById('strengthModal').classList.add('hidden');
+}
+
+function submitStrengthLog() {
+  const w = resistanceLib.find(x => String(x.id) === String(_slogWorkoutId));
+  if (!w) return closeStrengthModal();
+
+  // Collect reps per exercise. An exercise with no reps entered at all is dropped
+  // rather than stored as zeros — a blank row means "didn't do it", and logging it
+  // as 0 reps would tell the coach you failed the set.
+  const exercises = w.exercises.map((ex, i) => {
+    const sets = Array.from(document.querySelectorAll(`.slog-set[data-ex="${i}"]`))
+      .map(inp => inp.value.trim())
+      .filter(v => v !== '')
+      .map(v => ({ reps: Math.max(0, Math.min(100, Math.round(+v))) }))
+      .filter(st => Number.isFinite(st.reps));
+    return sets.length ? { name: ex.name, band: ex.band, choke: ex.choke, sets } : null;
+  }).filter(Boolean);
+
+  if (!exercises.length) {
+    showToast('Nothing logged — enter reps for at least one exercise', true);
+    return;
+  }
+
+  const sessionRpe = +document.getElementById('slogRpe').value || null;
+  const durationMin = +document.getElementById('slogDuration').value || null;
+
+  strengthLog.push({
+    date: new Date().toISOString().slice(0, 10),
+    workoutId: w.id,
+    name: w.name,
+    durationMin,
+    sessionRpe,
+    load: strengthLoad(sessionRpe, durationMin),
+    notes: document.getElementById('slogNotes').value.trim().slice(0, 400),
+    exercises,
+  });
+  saveStrengthLog();
+  closeStrengthModal();
+  renderResistanceLib();
+  showToast('Session logged \u2713');
+}
+
 function deleteResistanceWorkout(id) {
   resistanceLib = resistanceLib.filter(w => String(w.id) !== String(id));
   saveResistance();
@@ -4821,21 +5185,8 @@ function renderResistanceLib() {
   if (!list) return;
   if (!resistanceLib.length) { list.innerHTML = ''; return; }
 
-  const bandClass = { 'Light': 'light', 'Medium': 'medium', 'Heavy': 'heavy' };
   list.innerHTML = resistanceLib.map(w => {
-    const exHtml = w.exercises.map((ex, i) => `
-      <div class="exercise-item">
-        <div class="exercise-num">${String(i+1).padStart(2,'0')}</div>
-        <div class="exercise-info">
-          <div class="exercise-name">${escapeHtml(ex.name)}</div>
-          ${ex.cue ? `<div class="exercise-cue">${escapeHtml(ex.cue)}</div>` : ''}
-        </div>
-        <div class="exercise-sets">
-          ${ex.sets && ex.reps ? `${ex.sets}×${ex.reps}` : escapeHtml(String(ex.reps || ex.sets || ''))}
-          <br>
-          <span class="band-color-badge ${bandClass[ex.band] || 'medium'}">${ex.band}</span>
-        </div>
-      </div>`).join('');
+    const exHtml = w.exercises.map(renderExerciseRow).join('');
     return `
     <div class="bands-workout-card">
       <div class="bands-workout-header">
@@ -4853,7 +5204,8 @@ function renderResistanceLib() {
       <div class="exercise-list">${exHtml}</div>
       <div class="bands-action-row">
         <button class="gen-btn secondary" onclick="deleteResistanceWorkout('${w.id}')">🗑 Remove</button>
-        <button class="gen-btn primary" onclick="addLibWorkoutToSchedule('${w.id}')">+ Add to Schedule</button>
+        <button class="gen-btn secondary" onclick="addLibWorkoutToSchedule('${w.id}')">+ Schedule</button>
+        <button class="gen-btn primary" onclick="openStrengthModal('${w.id}')">✓ Log session</button>
       </div>
     </div>`;
   }).join('');
