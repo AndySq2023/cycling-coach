@@ -49,7 +49,7 @@ async function whoopGet(token, pathAndQuery) {
 }
 
 // Recovery/sleep are computed once when you wake, so they barely move during the day —
-// but each uncached call is 3 WHOOP requests plus a token refresh. 5 minutes keeps it
+// but each uncached call is 4 WHOOP requests plus a token refresh. 5 minutes keeps it
 // live-feeling while collapsing repeat loads.
 const SUMMARY_TTL_S = 300;
 
@@ -60,10 +60,15 @@ export async function getWhoopSummary(force = false) {
 
 async function fetchWhoopSummary() {
   const token = await getAccessToken();
-  const [profile, recovery, sleep] = await Promise.all([
+  const [profile, recovery, sleep, body] = await Promise.all([
     whoopGet(token, '/user/profile/basic'),
     whoopGet(token, '/recovery?limit=1'),
     whoopGet(token, '/activity/sleep?limit=1'),
+    // Weight reaches WHOOP from the Hume scales via the WHOOP app, and this is the
+    // only endpoint that carries it. Nothing else in the summary depends on it, so a
+    // failure here must not take recovery and sleep down with it — swallow it and
+    // report weight as null rather than failing the whole fetch.
+    whoopGet(token, '/user/measurement/body').catch(() => null),
   ]);
 
   const rec = recovery.records?.[0]?.score ?? {};
@@ -79,6 +84,10 @@ async function fetchWhoopSummary() {
     sleep_efficiency: slpScore.sleep_efficiency_percentage != null ? Math.round(slpScore.sleep_efficiency_percentage) : null,
     sleep_duration_h: durationMs != null ? +(durationMs / 3600000).toFixed(1) : null,
     strain: rec.strain ?? null,
+    // Current weight in kg. A snapshot, NOT a dated series: WHOOP exposes only the
+    // latest measurement, so plotting a trend towards a target means logging this
+    // value app-side over time the way ftpLog already does for FTP.
+    weight_kg: body?.weight_kilogram != null ? +(+body.weight_kilogram).toFixed(1) : null,
   };
 }
 
