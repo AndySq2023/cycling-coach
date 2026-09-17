@@ -1386,6 +1386,10 @@
           <span class="metric-value" id="disp-sleepdur">—</span>
         </div>
         <div class="metric-row">
+          <span class="metric-label">Weight</span>
+          <span class="metric-value" id="disp-weight">—</span>
+        </div>
+        <div class="metric-row">
           <span class="metric-label">SpO2</span>
           <span class="metric-value" id="disp-spo2">—</span>
         </div>
@@ -1508,6 +1512,18 @@
           <button class="load-btn icon" onclick="saveFtp()" title="Save FTP">✓</button>
         </div>
         <div id="ftpZones"></div>
+      </div>
+
+      <!-- WEIGHT -->
+      <div>
+        <div class="data-section-label">Weight</div>
+        <div class="notes-hint">Comes from WHOOP automatically when the scales sync. Type it here on any day it doesn't come through — one point per day, and the chart needs the history to show a trend.</div>
+        <div style="display:flex;gap:6px;">
+          <input class="data-textarea" id="weightInput" type="number" min="30" max="300" step="0.1"
+            style="flex:1;margin:0;font-family:'DM Mono',monospace;" placeholder="kg, e.g. 98.5"
+            onkeydown="if(event.key==='Enter')saveWeight()" />
+          <button class="load-btn icon" onclick="saveWeight()" title="Log weight">✓</button>
+        </div>
       </div>
 
       <!-- GOALS -->
@@ -1712,6 +1728,16 @@ const FTP_LOG_KEY = 'cyclingCoachFtpLog';
 const FTP_LOG_MAX = 60;
 let ftpLog = [];
 
+// Daily weight, [{ date, kg }] oldest → newest. WHOOP exposes only the CURRENT
+// measurement (fed in from the Hume scales via the WHOOP app), never a dated series —
+// so a trend towards the target exists only if the app records each day's value as it
+// arrives. Same shape and the same reasoning as ftpLog.
+const WEIGHT_LOG_KEY = 'cyclingCoachWeightLog';
+// ~6 months of daily entries: enough to cover a September-to-March run at the ski
+// date without the synced state blob growing without bound.
+const WEIGHT_LOG_MAX = 200;
+let weightLog = [];
+
 // Coggan's 7 zones as a share of FTP. The top zone is open-ended (sprints).
 const FTP_ZONES = [
   ['1 · Recovery',   0,    0.55],
@@ -1833,6 +1859,7 @@ function pushState() {
         goal: athleteData.goal || null,
         ftp: athleteData.ftp || null,
         ftpLog,
+        weightLog,
         home: localStorage.getItem('cyclingCoachHome') || null,
         coachNotes,
         resistance: resistanceLib,
@@ -1940,6 +1967,18 @@ async function pullState() {
         if (currentTab === 'charts') renderCharts();
       }
     }
+    // Array-present rather than non-empty, matching ftpLog: a deliberate clear propagates.
+    if (Array.isArray(s.weightLog)) {
+      const next = normalizeWeightLog(s.weightLog);
+      if (JSON.stringify(next) !== JSON.stringify(weightLog)) {
+        weightLog = next;
+        localStorage.setItem(WEIGHT_LOG_KEY, JSON.stringify(weightLog));
+        const lastW = weightLog[weightLog.length - 1];
+        const disp = document.getElementById('disp-weight');
+        if (disp) disp.textContent = lastW ? lastW.kg + ' kg' : '—';
+        if (currentTab === 'charts') renderCharts();
+      }
+    }
     // Adopt the server's memory. Guarded on non-empty: a device that hasn't synced yet
     // must never wipe facts another device already learned.
     if (Array.isArray(s.coachNotes) && s.coachNotes.length) {
@@ -2022,6 +2061,7 @@ async function coachFetch(url, options = {}) {
     athleteData.goal = savedGoal;
   }
   loadFtp();
+  loadWeight();
 
   // Restore saved route history (Routes tab), then merge in anything planned on another
   // device (hosted only — pullRoutes is a no-op on local dev).
@@ -2490,6 +2530,9 @@ const GOAL = {
   rideLoad: 50,      // a solid hour, not a spin round the block
   ftpTarget: 290,    // from ~269 estimated — a realistic 3-month ask at that consistency
   since: '2026-09-13',
+  // Ski season, not an FTP block: the goal is to hold fitness and arrive lighter.
+  weightTargetKg: 95,
+  skiDate: '2027-03-01',  // the weight trend is projected to this date
 };
 const FT_PER_M = 3.28084;
 
@@ -2785,6 +2828,145 @@ function chartFitnessTrend(iv) {
   return chartCardShell(label, head, legend, svg, note);
 }
 
+// Chart — is the weight actually coming down? Every logged morning against the target,
+// with the recent slope carried forward to the ski date, so "will I get there" has a
+// visible answer instead of a feeling.
+//
+// The window is anchored to 1 January rather than a rolling N days, unlike every other
+// chart here: weight moves over a season, not a training block, and the whole year on
+// one axis makes a spring plateau legible next to autumn progress. It costs some
+// empty space on the left until the log fills up — that emptiness is honest, and it
+// beats a window that quietly crops the months you're trying to compare against.
+const WEIGHT_TREND_DAYS = 28;   // window the projection's slope is fitted over
+function chartWeightTrend() {
+  const today = new Date().toISOString().slice(0, 10);
+  const t1 = Date.parse(today + 'T12:00:00Z');
+  // 1 January of the current year, in the same midday-UTC frame as every other date here.
+  const t0 = Date.UTC(new Date(t1).getUTCFullYear(), 0, 1, 12);
+  const label = `Weight · ${new Date(t0).getUTCFullYear()} to the ski trip`;
+  const at = ds => Date.parse(ds + 'T12:00:00Z');
+  // The x-axis runs to the ski date so the projection has somewhere to land; once that
+  // date passes it collapses back to today rather than drawing a backwards axis.
+  const tEnd = Math.max(t1 + 86400000, at(GOAL.skiDate));
+
+  const pts = weightLog.filter(e => at(e.date) >= t0);
+  if (!pts.length) {
+    return chartCardShell(label, '', '',
+      `<div style="padding:22px 0;font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);">
+         Sync WHOOP, or log a weight in My Data, and this starts tracking it.</div>`, '');
+  }
+
+  const vals = [...pts.map(p => p.kg), GOAL.weightTargetKg];
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max(1.5, (hi - lo) * 0.25);
+  const ymin = Math.floor(lo - pad), ymax = Math.ceil(hi + pad);
+
+  const W = 720, H = 240, padL = 46, padR = 16, padT = 16, padB = 30;
+  const xOf = t => padL + ((t - t0) / (tEnd - t0)) * (W - padL - padR);
+  const yOf = v => padT + (1 - (v - ymin) / (ymax - ymin || 1)) * (H - padT - padB);
+  const { ticks } = chartTicks(ymin, ymax, 4);
+
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'} ${xOf(at(p.date)).toFixed(1)} ${yOf(p.kg).toFixed(1)}`).join(' ');
+  const dots = pts.map(p => `<circle cx="${xOf(at(p.date)).toFixed(1)}" cy="${yOf(p.kg).toFixed(1)}" r="2.5"
+      fill="var(--text)"><title>${p.kg}kg on ${p.date}</title></circle>`).join('');
+
+  // Least-squares slope over the recent window, carried forward to the ski date. Two
+  // points a day apart would give a wild gradient, so this stays hidden until there's
+  // a week of spread behind it — a projection off noise is worse than no projection.
+  const recent = pts.filter(p => at(p.date) >= t1 - WEIGHT_TREND_DAYS * 86400000);
+  const spanDays = recent.length > 1
+    ? (at(recent[recent.length - 1].date) - at(recent[0].date)) / 86400000 : 0;
+  let projLine = '', note = '';
+  if (recent.length > 2 && spanDays >= 7) {
+    const xs = recent.map(p => (at(p.date) - t1) / 86400000);
+    const ys = recent.map(p => p.kg);
+    const mx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const den = xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+    const slope = den ? xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / den : 0;  // kg/day
+    const nowFit = my - slope * mx;
+    const tSki = at(GOAL.skiDate);
+    const daysToSki = (tSki - t1) / 86400000;
+    const projected = nowFit + slope * daysToSki;
+    const perWeek = slope * 7;
+
+    // Stop the DRAWN line where it would leave the plot — at the target on the way
+    // down, or at the y-range edge on the way up. A slope steep enough to reach 88kg
+    // by March otherwise scribbles straight through the month labels on its way off
+    // the bottom. The figure quoted in the note is still the true projection to the
+    // ski date; only the ink is clipped.
+    const valAt = t => nowFit + slope * ((t - t1) / 86400000);
+    const tFor = v => t1 + ((v - nowFit) / slope) * 86400000;
+    let tLineEnd = tSki;
+    if (slope < 0) {
+      const floor = Math.max(GOAL.weightTargetKg, ymin);
+      if (valAt(tSki) < floor) tLineEnd = Math.min(tSki, tFor(floor));
+    } else if (slope > 0 && valAt(tSki) > ymax) {
+      tLineEnd = Math.min(tSki, tFor(ymax));
+    }
+    tLineEnd = Math.max(t1, tLineEnd);
+    projLine = `<line x1="${xOf(t1).toFixed(1)}" y1="${yOf(nowFit).toFixed(1)}" x2="${xOf(tLineEnd).toFixed(1)}" y2="${yOf(valAt(tLineEnd)).toFixed(1)}"
+        stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.9"><title>At the last ${Math.round(spanDays)} days' rate: ${projected.toFixed(1)}kg by ${GOAL.skiDate}</title></line>`;
+    // Reaching the target has a date attached, and that date is more use than the
+    // endpoint weight — "95kg around mid-November" is actionable in a way that
+    // "87.1kg by March" is not.
+    const hitsTarget = slope < 0 && projected <= GOAL.weightTargetKg;
+    const hitDate = hitsTarget
+      ? new Date(tFor(GOAL.weightTargetKg)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })
+      : null;
+    // A slope of -0.004 rounds to "-0.00kg/week", which reads as a typo. Flatten
+    // anything that rounds to zero so a plateau prints as +0.00, not minus nothing.
+    const pw = +perWeek.toFixed(2) === 0 ? 0 : +perWeek.toFixed(2);
+    note = perWeek > -0.01
+      ? `Not trending down over the last ${Math.round(spanDays)} days (${pw >= 0 ? '+' : ''}${pw.toFixed(2)}kg/week), so the dashed line is flat or rising and the target isn't reached on this trajectory.`
+      : `Trending ${perWeek.toFixed(2)}kg/week. ${hitsTarget
+          ? `At that rate ${GOAL.weightTargetKg}kg arrives around ${hitDate}, comfortably before the ${GOAL.skiDate} trip.`
+          : `Carried forward that's ${projected.toFixed(1)}kg by ${GOAL.skiDate} — ${(projected - GOAL.weightTargetKg).toFixed(1)}kg short of the target.`} A fitted slope is not a promise: it assumes the last ${Math.round(spanDays)} days repeat.`;
+  } else {
+    note = `Only ${pts.length} logged day${pts.length === 1 ? '' : 's'} so far. The trend line appears once there's about a week of points — until then there's nothing to project from, and a single reading says nothing about direction.`;
+  }
+
+  // Month ticks, same walk as the FTP chart: start from the 1st of t0's month so the
+  // final month isn't skipped when tEnd lands before t0's day-of-month. This axis can
+  // span two calendar years, so January carries its year — otherwise it reads
+  // "Jan Feb … Dec Jan Feb" with no way to tell the two Januaries apart.
+  const monthTick = ms => {
+    const dt = new Date(ms);
+    const mon = dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
+    return dt.getUTCMonth() === 0 ? `${mon} ${String(dt.getUTCFullYear()).slice(-2)}` : mon;
+  };
+  const xLabels = [];
+  const m = new Date(t0);
+  m.setUTCDate(1);
+  for (; Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), 1, 12) <= tEnd; m.setUTCMonth(m.getUTCMonth() + 1)) {
+    const first = Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), 1, 12);
+    if (first < t0) continue;
+    xLabels.push(`<text x="${xOf(first).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-family="DM Mono,monospace"
+      font-size="10" fill="var(--text-muted)">${monthTick(first)}</text>`);
+  }
+
+  const targetLine = `<line x1="${padL}" y1="${yOf(GOAL.weightTargetKg).toFixed(1)}" x2="${W - padR}" y2="${yOf(GOAL.weightTargetKg).toFixed(1)}"
+      stroke="var(--danger)" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="${W - padR}" y="${(yOf(GOAL.weightTargetKg) - 6).toFixed(1)}" text-anchor="end" font-family="DM Mono,monospace" font-size="10" fill="var(--danger)">${GOAL.weightTargetKg}kg · the target</text>`;
+  const skiLine = at(GOAL.skiDate) <= t1 ? '' : `<line x1="${xOf(at(GOAL.skiDate)).toFixed(1)}" y1="${padT}" x2="${xOf(at(GOAL.skiDate)).toFixed(1)}" y2="${H - padB}"
+      stroke="var(--text-muted)" stroke-width="1" stroke-dasharray="2 4" opacity="0.7"><title>Skiing — ${GOAL.skiDate}</title></line>`;
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${chartYAxis(ticks, yOf, padL, W - padR, v => v.toFixed(0) + 'kg')}
+    ${targetLine}${skiLine}${projLine}
+    <path d="${d}" fill="none" stroke="var(--text)" stroke-width="2"/>
+    ${dots}${xLabels.join('')}
+  </svg>`;
+
+  const cur = pts[pts.length - 1];
+  const gap = +(cur.kg - GOAL.weightTargetKg).toFixed(1);
+  const head = `<div class="chart-big">${cur.kg}<span class="u">kg</span></div>
+    <span class="chart-delta">${gap > 0 ? `${gap}kg to go` : 'at target'} · ${pts.length} logged day${pts.length === 1 ? '' : 's'}</span>`;
+  const legend = `<span><i style="background:var(--text)"></i>logged weight</span><span><i style="background:var(--accent)"></i>trend to the ski date</span><span><i style="background:var(--danger)"></i>${GOAL.weightTargetKg}kg target</span>`;
+
+  return chartCardShell(label, head, legend, svg, note);
+}
+
 function renderCharts() {
   const el = document.getElementById('chartsContent');
   if (!el) return;
@@ -2793,18 +2975,24 @@ function renderCharts() {
     const msg = st
       ? 'This Strava backend doesn&#39;t return ride history yet — restart the proxy (or redeploy), then sync again.'
       : 'Sync Strava and I\'ll chart how often you\'re riding, and where that takes your fitness.';
-    el.innerHTML = `
+    // The weight chart is built from weightLog alone and owes Strava nothing, so it
+    // still renders here — otherwise the headline goal metric would vanish behind a
+    // "sync Strava" card on any device whose ride history hasn't loaded.
+    el.innerHTML = `<div class="chart-grid">
+      ${chartWeightTrend()}
       <div class="dash-card" style="text-align:center;padding:40px 20px;">
         <div style="font-size:26px;margin-bottom:10px;">📊</div>
         <div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text-muted);max-width:420px;margin:0 auto;">${msg}</div>
         <div style="margin-top:16px;"><button class="dash-btn primary" onclick="syncStrava(true)">⚡ Sync Strava</button></div>
-      </div>`;
+      </div>
+    </div>`;
     return;
   }
   const weeks = weeklyRideStats(st.history, 12);
   // Ordered by what the athlete can act on: show up, then watch fitness follow, then
   // check whether threshold power moved. The old event-readiness cards are gone.
   el.innerHTML = `<div class="chart-grid">
+    ${chartWeightTrend()}
     ${chartConsistency(weeks)}
     ${chartFitnessTrend(athleteData.intervals)}
     ${chartFtpTrend(st.history)}
@@ -2913,6 +3101,14 @@ async function syncWHOOP(force = false) {
     document.getElementById('disp-sleep').textContent = d.sleep_efficiency != null ? d.sleep_efficiency + '%' : '—';
     document.getElementById('disp-sleepdur').textContent = d.sleep_duration_h != null ? d.sleep_duration_h + 'h' : '—';
     document.getElementById('disp-spo2').textContent = d.spo2 != null ? d.spo2 + '%' : '—';
+    // WHOOP carries only today's weight, so each sync is the single chance to capture
+    // it. Push immediately when it moves — otherwise an auto-logged weight would sit
+    // on this device until some unrelated save happened to flush state.
+    if (d.weight_kg != null && recordWeight(d.weight_kg)) pushState();
+    // Falls back to the last logged value so a manually typed weight still shows on a
+    // day WHOOP returns nothing (e.g. the token lacks read:body_measurement).
+    const lastW = weightLog[weightLog.length - 1];
+    document.getElementById('disp-weight').textContent = lastW ? lastW.kg + ' kg' : '—';
 
     const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
     status.textContent = `synced ${now}`;
@@ -3188,6 +3384,61 @@ function recordFtp(v) {
   else ftpLog.push({ date: today, ftp: v });
   ftpLog = ftpLog.slice(-FTP_LOG_MAX);
   localStorage.setItem(FTP_LOG_KEY, JSON.stringify(ftpLog));
+}
+
+function normalizeWeightLog(arr) {
+  if (!Array.isArray(arr)) return [];
+  const byDate = new Map();
+  arr
+    .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && Number.isFinite(+e.kg) && +e.kg >= 30 && +e.kg <= 300)
+    // Last entry for a day wins, so two devices logging the same morning collapse to
+    // one point instead of stacking two.
+    .forEach(e => byDate.set(e.date, { date: e.date, kg: +(+e.kg).toFixed(1) }));
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-WEIGHT_LOG_MAX);
+}
+
+// Unlike recordFtp, an unchanged value is NOT skipped: FTP is a setting, so re-saving
+// the same number says nothing — but a weight that holds steady for a week is exactly
+// the signal this chart exists to show. One point per day; today's is overwritten.
+// Returns true when the log actually changed, so callers know whether to sync.
+function recordWeight(kg) {
+  const v = +(+kg).toFixed(1);
+  if (!Number.isFinite(v) || v < 30 || v > 300) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  const last = weightLog[weightLog.length - 1];
+  if (last && last.date === today) {
+    if (last.kg === v) return false;
+    weightLog[weightLog.length - 1] = { date: today, kg: v };
+  } else {
+    weightLog.push({ date: today, kg: v });
+  }
+  weightLog = weightLog.slice(-WEIGHT_LOG_MAX);
+  localStorage.setItem(WEIGHT_LOG_KEY, JSON.stringify(weightLog));
+  return true;
+}
+
+function loadWeight() {
+  weightLog = normalizeWeightLog(safeParse(localStorage.getItem(WEIGHT_LOG_KEY)));
+  const last = weightLog[weightLog.length - 1];
+  const el = document.getElementById('weightInput');
+  if (el && last) el.placeholder = `${last.kg} kg`;
+  const disp = document.getElementById('disp-weight');
+  if (disp && last) disp.textContent = `${last.kg} kg`;
+}
+
+function saveWeight() {
+  const raw = document.getElementById('weightInput').value.trim();
+  if (!raw) { showToast('Enter a weight in kg'); return; }
+  const v = +(+raw).toFixed(1);
+  if (!Number.isFinite(v) || v < 30 || v > 300) { showToast('Weight should be between 30 and 300 kg'); return; }
+  recordWeight(v);
+  const el = document.getElementById('weightInput');
+  el.value = '';
+  el.placeholder = `${v} kg`;
+  document.getElementById('disp-weight').textContent = `${v} kg`;
+  if (currentTab === 'charts') renderCharts();
+  pushState();
+  showToast(`Weight logged: ${v} kg ✓`);
 }
 
 function renderFtpZones() {
@@ -3626,6 +3877,22 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
     if (w.sleep_duration_h != null) prompt += `\nSleep duration: ${w.sleep_duration_h}h`;
     if (w.spo2 != null)           prompt += `\nSpO2: ${w.spo2}%`;
     if (w.strain != null)         prompt += `\nStrain: ${w.strain}`;
+  }
+  // Weight against the target. The single number is what the scales last said; the
+  // 4-week direction is the part that answers "is this working", and it exists only
+  // because recordWeight logs each day's value as it arrives.
+  if (weightLog.length) {
+    const lastW = weightLog[weightLog.length - 1];
+    const gap = +(lastW.kg - GOAL.weightTargetKg).toFixed(1);
+    prompt += `\n\nWEIGHT: ${lastW.kg}kg (logged ${lastW.date}). Target ${GOAL.weightTargetKg}kg for skiing on ${GOAL.skiDate} — ${gap > 0 ? `${gap}kg to lose` : 'already at or under target'}.`;
+    const cutoff = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
+    const prior = weightLog.filter(e => e.date <= cutoff).slice(-1)[0];
+    if (prior) {
+      const d28 = +(lastW.kg - prior.kg).toFixed(1);
+      prompt += ` Over the last 4 weeks: ${d28 > 0 ? '+' : ''}${d28}kg (from ${prior.kg}kg on ${prior.date}).`;
+    } else {
+      prompt += ` Not enough logged history yet for a 4-week trend — do NOT infer a direction from a single reading.`;
+    }
   }
   if (athleteData.intervals) {
     const iv = athleteData.intervals;

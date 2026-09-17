@@ -1,5 +1,5 @@
 // Vercel serverless function — the web app's sync endpoint for coach state.
-// GET  → returns { plan, feedback, adaptations, goal, ftp, home, conversationHistory, briefing }
+// GET  → returns { plan, feedback, adaptations, goal, ftp, ftpLog, weightLog, home, conversationHistory, briefing }
 // PUT  → replaces the stored state with the body (a full localStorage snapshot).
 //
 // Needs KV configured (KV_REST_API_URL); without it, GET returns empty state and
@@ -35,6 +35,15 @@ export default async function handler(req, res) {
               .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && Number.isFinite(+e.ftp) && +e.ftp >= 60 && +e.ftp <= 600)
               .map(e => ({ date: e.date, ftp: Math.round(+e.ftp) }))
               .slice(-60)
+          : [],
+        // Daily weight — the weight tracker on Insights plots it against the target.
+        // Bounded here too: WHOOP can auto-log one point a day indefinitely, so an
+        // unbounded array would grow the blob every device pulls on every focus.
+        weightLog: Array.isArray(b.weightLog)
+          ? b.weightLog
+              .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date) && Number.isFinite(+e.kg) && +e.kg >= 30 && +e.kg <= 300)
+              .map(e => ({ date: e.date, kg: +(+e.kg).toFixed(1) }))
+              .slice(-200)
           : [],
         home: b.home || null,
         // Durable coach memory. Bounded here too so a bad client can't grow the blob.
