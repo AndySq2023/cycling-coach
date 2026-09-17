@@ -56,6 +56,22 @@ Claude Desktop must be running for chat and WHOOP. Strava is independent (launch
 - **Routes tab** — successful `route_request`s are saved to localStorage (`cyclingCoachRoutes`, capped at 30, coords rounded to 5dp) and listed with a Leaflet/OSM map (lazy-loaded from the unpkg CDN — the app's only third-party dependency) plus GPX re-download. Per-device only: route points are deliberately NOT pushed into the `coach_state` KV blob (they'd bloat every sync), so saved routes don't yet follow you between devices.
 - **`handleRouteRequest()`** / **`extractRouteRequest()`** — the chat equivalent of the schedule_update mechanism, but for routes: the coach emits a `route_request` fenced block (only when the athlete asks for a route — never volunteered, and never a route/distance itself, it has no map data), the app strips it, calls `/api/route` with the athlete's home location, shows the real miles/ft-ascent/duration with a ⬇ GPX button (`pointsToGPX()`), and records the result in `conversationHistory` so the coach remembers it next turn. Units protocol is imperial (`paceMph` in, `distance_mi`/`ascent_ft` out). Destinations and `home_set` places are geocoded server-side (GraphHopper Geocoding, LLM coords as fallback). The morning briefing deliberately never plans a route — its ask forbids the block, and `generateMorningBriefing()` strips any stray `route_request`/`home_set` rather than executing it. Requires `GRAPHHOPPER_URL`; see DEPLOY.md.
 
+## Strength / resistance programme
+
+The Resistance ("Strength") tab is built around the athlete's actual kit, and the constraint is the design: **five 208cm loop bands and nothing else** — no tube bands, handles, ankle straps, door anchor or pull-up bar. `BAND_INVENTORY` in `app/cycling-coach.html` holds the five with their manufacturer weight guides (yellow 2–7kg through green 22–56kg); a prescription names a band id, never an adjective. An unrecognised band falls back to the *lightest*, not the middle — guessing heavy on a detrained shoulder costs weeks.
+
+`BAND_ANCHORS` enumerates where a band can be rigged. The Peloton is the only fixed anchor, and `peloton-high` (handlebars raised, band over the stem, athlete kneeling) is what makes overhead pulling possible — without it there is no lat work available at all. Frame, stem and stabiliser bars only.
+
+Two data structures, deliberately separate:
+- **`resistanceLib`** — what to do. Coach-authored sessions written from chat via a ```` ```resistance_set ```` block, exercise-level (`band`, `choke`, `anchor`, `rir`, `tempo`, `cue`). Replaces the whole library each time, same semantics as `schedule_set`.
+- **`strengthLog`** — what actually happened. Per-set reps achieved, session RPE, duration, notes. This is the only thing that makes progression real rather than guessed, so `buildSystemPrompt()` feeds the last six entries back to the coach and tells it to progress from those numbers, not from what it last prescribed. Bounded at `STRENGTH_MAX` 200 (~2 years at two sessions a week) and synced through `coach_state`.
+
+`strengthLoad()` is Foster's session-RPE method (RPE × minutes, arbitrary units) — the same shape as a ride's training load so the two can eventually be summed into one fatigue picture. Volume load (band kg × reps) would be the better hypertrophy signal but needs each band's force measured at its working length, which hasn't been done.
+
+The coach picks the two session days itself (rules in `buildSystemPrompt()`): non-ride days, never before the long ride, ≥48h apart, preferring the day *after* a hard ride — the work is upper-body and core only, so tired legs are irrelevant.
+
+The three category buttons (`selectBandCategory()`) are a separate, older path: a standalone prompt with no athlete context, so it can only produce a generic session. It gets the kit constraints injected so its output is at least always performable, but the chat route is the one with the full picture.
+
 ## Schedule update protocol
 
 The coach can mutate the training plan mid-conversation. Claude is instructed to emit a fenced block:
