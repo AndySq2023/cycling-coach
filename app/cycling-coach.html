@@ -1893,6 +1893,13 @@ function bandById(id) { return BAND_INVENTORY.find(b => b.id === id) || null; }
 // it sits between "more reps" and "next band up" on the ladder below.
 const BAND_CHOKES = ['full', 'choked', 'doubled'];
 
+// Sessions saved before the bands were real name a band "Light", "Medium" or
+// "Heavy". Map them onto colours rather than letting them fall to the default, so
+// an old session keeps the relative ordering it was written with. All three land in
+// the lower half of the ladder: a legacy "Heavy" was an adjective, not a promise,
+// and erring light costs one easy set where erring heavy costs weeks.
+const LEGACY_BAND_MAP = { Light: 'yellow', Medium: 'red', Heavy: 'black' };
+
 // Where a band can be anchored. There is no door anchor and no pull-up bar, so the
 // list is body + the Peloton. Anchoring to the bike is what makes overhead pulling
 // possible at all: raise the handlebars, loop the band over the stem, then kneel or
@@ -2124,7 +2131,7 @@ async function pullState() {
     // Adopt the coach's resistance library from another device. Array-present (not just
     // non-empty) so a deliberate clear on one device propagates too.
     if (Array.isArray(s.resistance)) {
-      resistanceLib = s.resistance.slice(0, RESISTANCE_MAX);
+      resistanceLib = s.resistance.slice(0, RESISTANCE_MAX).map(normalizeResistanceWorkout);
       localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib));
       if (currentTab === 'bands') renderResistanceLib();
     }
@@ -4882,7 +4889,10 @@ Include 6-8 exercises. "choke" is "full", "choked" (band shortened, roughly doub
     let raw = data.content[0].text.trim();
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
-    currentBandWorkout = JSON.parse(raw);
+    // Through the same normalizer as a coach-written session: the prompt asks for a
+    // band id, but nothing makes the model comply, and a raw reply rendered straight
+    // to screen is how "Medium" reached the badge in the first place.
+    currentBandWorkout = normalizeResistanceWorkout(JSON.parse(raw), 0);
     renderBandWorkout(currentBandWorkout);
   } catch(err) {
     console.error(err);
@@ -4977,7 +4987,10 @@ function addBandsToSchedule() {
 // fenced-block convention as the schedule: the coach emits ```resistance_set``` and
 // applyResistanceSet() stores + renders it in the Resistance tab.
 function loadResistance() {
-  try { resistanceLib = JSON.parse(localStorage.getItem(RESISTANCE_KEY)) || []; }
+  // Normalize on the way in, not just when the coach writes. Sessions saved under
+  // the old Light/Medium/Heavy schema are still sitting in localStorage and on the
+  // server, and without this they render with a band nobody owns.
+  try { resistanceLib = (JSON.parse(localStorage.getItem(RESISTANCE_KEY)) || []).map(normalizeResistanceWorkout); }
   catch (e) { resistanceLib = []; }
 }
 
@@ -5037,7 +5050,7 @@ function normalizeResistanceWorkout(w, i) {
     // A band is one of the five the athlete owns, named by colour. An unrecognised
     // value falls back to the lightest rather than the middle: too light wastes a
     // set, too heavy on a detrained shoulder costs weeks.
-    band: BAND_IDS.includes(ex?.band) ? ex.band : 'yellow',
+    band: BAND_IDS.includes(ex?.band) ? ex.band : (LEGACY_BAND_MAP[ex?.band] || 'yellow'),
     choke: BAND_CHOKES.includes(ex?.choke) ? ex.choke : 'full',
     anchor: ANCHOR_IDS.includes(ex?.anchor) ? ex.anchor : 'none',
     // Reps in reserve — the intensity dial that actually drives hypertrophy here,
@@ -5046,9 +5059,14 @@ function normalizeResistanceWorkout(w, i) {
     tempo: String(ex?.tempo || '').slice(0, 40),
     cue:  String(ex?.cue || '').slice(0, 200),
   })) : [];
+  const name = String(w?.name || 'Resistance Session').slice(0, 80);
   return {
-    id: 'w' + Date.now() + i,
-    name: String(w?.name || 'Resistance Session').slice(0, 80),
+    // Keep an existing id, otherwise derive one from the name. Deriving beats a
+    // timestamp because the coach rewrites the whole library to change one session,
+    // and a fresh id each time would sever every logged session from its workout —
+    // no pre-filled targets, no history to progress from.
+    id: w?.id ? String(w.id) : ('w-' + (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session') + '-' + i),
+    name,
     focus: String(w?.focus || '').slice(0, 240),
     duration: Number(w?.duration) || exercises.length * 4,
     category: String(w?.category || '').slice(0, 24),
