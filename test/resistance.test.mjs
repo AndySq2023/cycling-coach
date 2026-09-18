@@ -9,7 +9,7 @@ import { loadAppFunctions } from './_load-app.mjs';
 
 const { normalizeResistanceWorkout } = loadAppFunctions(
   ['normalizeResistanceWorkout'],
-  ['BAND_INVENTORY', 'BAND_IDS', 'BAND_CHOKES', 'BAND_ANCHORS', 'ANCHOR_IDS'],
+  ['BAND_INVENTORY', 'BAND_IDS', 'BAND_CHOKES', 'LEGACY_BAND_MAP', 'BAND_ANCHORS', 'ANCHOR_IDS'],
 );
 
 const ex = (over = {}) => ({
@@ -36,10 +36,44 @@ test('every band the athlete owns is accepted', () => {
 test('a band that is not in the kit falls back to the LIGHTEST, not the middle', () => {
   // The old schema coerced anything unknown to 'Medium'. Guessing heavy on a
   // detrained shoulder costs weeks; guessing light costs one wasted set.
-  for (const bad of ['Medium', 'Heavy', 'blue', '', null, undefined, 42]) {
+  for (const bad of ['blue', '', null, undefined, 42]) {
     const w = normalizeResistanceWorkout({ exercises: [ex({ band: bad })] }, 0);
     assert.equal(w.exercises[0].band, 'yellow');
   }
+});
+
+test('sessions saved under the old Light/Medium/Heavy schema migrate to colours', () => {
+  // These are still sitting in localStorage and on the server from before the bands
+  // were real, and they reach the renderer through load and sync, not just through
+  // a coach write — which is how "Medium" was still showing on a badge.
+  const cases = [['Light', 'yellow'], ['Medium', 'red'], ['Heavy', 'black']];
+  for (const [legacy, expected] of cases) {
+    const w = normalizeResistanceWorkout({ exercises: [ex({ band: legacy })] }, 0);
+    assert.equal(w.exercises[0].band, expected, `${legacy} should become ${expected}`);
+  }
+});
+
+test('normalizing is idempotent, so load and sync can both run it', () => {
+  const once = normalizeResistanceWorkout({ name: 'Session A', exercises: [ex({ band: 'Medium' })] }, 0);
+  const twice = normalizeResistanceWorkout(once, 0);
+  assert.deepEqual(twice, once);
+});
+
+test('an existing id survives normalization', () => {
+  // strengthLog entries point at a workout by id. Re-normalizing on every load with
+  // a freshly minted id would sever every logged session from its workout, losing
+  // the pre-filled targets and the history the coach progresses from.
+  const w = normalizeResistanceWorkout({ id: 'w1700000000000', name: 'A', exercises: [ex()] }, 0);
+  assert.equal(w.id, 'w1700000000000');
+});
+
+test('a workout with no id gets one derived from its name, stably', () => {
+  // The coach rewrites the WHOLE library to change one session, and emits no ids.
+  // A timestamp id would change on every rewrite; a name-derived one does not.
+  const a = normalizeResistanceWorkout({ name: 'Session A — Upper (horizontal)', exercises: [ex()] }, 0);
+  const b = normalizeResistanceWorkout({ name: 'Session A — Upper (horizontal)', exercises: [ex()] }, 0);
+  assert.equal(a.id, b.id);
+  assert.match(a.id, /^w-session-a-upper-horizontal-0$/);
 });
 
 test('an anchor the athlete cannot rig falls back to none', () => {
@@ -107,7 +141,7 @@ test('long strings are truncated so a bad block cannot bloat the synced blob', (
 // nobody notices until a session feels far too easy; a bad anchor degrades to "none",
 // which turns a lat pulldown into a movement you can't perform at all.
 const { STARTER_PROGRAMME, BAND_IDS, ANCHOR_IDS } = loadAppFunctions(
-  [], ['STARTER_PROGRAMME', 'BAND_INVENTORY', 'BAND_IDS', 'BAND_CHOKES', 'BAND_ANCHORS', 'ANCHOR_IDS'],
+  [], ['STARTER_PROGRAMME', 'BAND_INVENTORY', 'BAND_IDS', 'BAND_CHOKES', 'LEGACY_BAND_MAP', 'BAND_ANCHORS', 'ANCHOR_IDS'],
 );
 
 test('the starter programme is two sessions of 45 minutes', () => {
