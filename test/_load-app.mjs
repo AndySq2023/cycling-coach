@@ -67,12 +67,14 @@ function extractConst(src, name) {
   throw new Error(`Unterminated declaration while extracting ${name}.`);
 }
 
-// Evaluate the named functions together (so they can call each other) and return them.
-// `consts` are declared first so the functions can close over them.
+// Evaluate the named functions together (so they can call each other) and return
+// them. `consts` are declared first so the functions close over them, and are
+// returned too — a lookup table the app prescribes from is itself worth asserting on.
 export function loadAppFunctions(names, consts = []) {
   const src = scriptBody();
   const decls = consts.map(n => extractConst(src, n)).join('\n');
   const defs = names.map(n => extractFunction(src, n)).join('\n\n');
-  const factory = new Function(`${decls}\n${defs}\nreturn { ${names.join(', ')} };`);
+  const out = [...consts, ...names].join(', ');
+  const factory = new Function(`${decls}\n${defs}\nreturn { ${out} };`);
   return factory();
 }

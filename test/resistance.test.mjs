@@ -98,5 +98,75 @@ test('long strings are truncated so a bad block cannot bloat the synced blob', (
   assert.equal(w.focus.length, 240);
   assert.equal(w.exercises[0].name.length, 80);
   assert.equal(w.exercises[0].cue.length, 200);
-  assert.equal(w.exercises[0].tempo.length, 20);
+  assert.equal(w.exercises[0].tempo.length, 40);
+});
+
+
+// The starting programme is data, not code, so what's worth pinning down is that it
+// only ever names kit that exists. A typo'd band id degrades silently to yellow and
+// nobody notices until a session feels far too easy; a bad anchor degrades to "none",
+// which turns a lat pulldown into a movement you can't perform at all.
+const { STARTER_PROGRAMME, BAND_IDS, ANCHOR_IDS } = loadAppFunctions(
+  [], ['STARTER_PROGRAMME', 'BAND_INVENTORY', 'BAND_IDS', 'BAND_CHOKES', 'BAND_ANCHORS', 'ANCHOR_IDS'],
+);
+
+test('the starter programme is two sessions of 45 minutes', () => {
+  assert.equal(STARTER_PROGRAMME.length, 2);
+  STARTER_PROGRAMME.forEach(w => {
+    assert.equal(w.duration, 45);
+    assert.equal(w.category, 'upper');
+    assert.ok(w.exercises.length >= 6, `${w.name} should be a full session`);
+  });
+});
+
+test('every prescribed band and anchor actually exists', () => {
+  STARTER_PROGRAMME.forEach(w => w.exercises.forEach(ex => {
+    assert.ok(BAND_IDS.includes(ex.band), `${w.name} / ${ex.name}: unknown band "${ex.band}"`);
+    assert.ok(ANCHOR_IDS.includes(ex.anchor), `${w.name} / ${ex.name}: unknown anchor "${ex.anchor}"`);
+  }));
+});
+
+test('the programme survives the normalizer unchanged', () => {
+  // If normalization alters anything, the prescription as written isn't the
+  // prescription that gets saved — which is exactly the silent-degradation bug.
+  STARTER_PROGRAMME.forEach((w, i) => {
+    const out = normalizeResistanceWorkout(w, i);
+    w.exercises.forEach((ex, j) => {
+      assert.equal(out.exercises[j].band, ex.band);
+      assert.equal(out.exercises[j].anchor, ex.anchor);
+      assert.equal(out.exercises[j].choke, ex.choke);
+      assert.equal(out.exercises[j].rir, ex.rir);
+      assert.equal(out.exercises[j].name, ex.name, 'name should not be truncated');
+      assert.equal(out.exercises[j].cue, ex.cue, 'cue should not be truncated');
+      assert.equal(out.exercises[j].tempo, ex.tempo, 'tempo should not be truncated');
+    });
+  });
+});
+
+test('both sessions train the whole upper body, not a push/pull split', () => {
+  // Two sessions a week means each muscle needs to appear in BOTH, or it gets one
+  // exposure a week — not enough to hold mass in a deficit. This is the single
+  // design decision most likely to get "tidied" into a split later.
+  const groups = {
+    pull:    /row|pulldown|pullover|pull-apart|face pull/i,
+    press:   /press-up|chest press|overhead press/i,
+    delts:   /lateral raise|face pull|overhead press/i,
+    arms:    /curl|triceps/i,
+    core:    /pallof|dead bug|crunch|side plank/i,
+  };
+  STARTER_PROGRAMME.forEach(w => {
+    const names = w.exercises.map(e => e.name).join(' | ');
+    Object.entries(groups).forEach(([group, re]) => {
+      assert.ok(re.test(names), `${w.name} has no ${group} work`);
+    });
+  });
+});
+
+test('no session prescribes a band heavier than purple for an isolation move', () => {
+  // Green (22-56kg) on a lateral raise isn't a lateral raise any more. Guards the
+  // one place a well-meaning progression could quietly break the exercise.
+  const isolation = /lateral raise|curl|pull-apart|dead bug/i;
+  STARTER_PROGRAMME.forEach(w => w.exercises.filter(e => isolation.test(e.name)).forEach(ex => {
+    assert.ok(['yellow', 'red'].includes(ex.band), `${ex.name} on ${ex.band} is too heavy to be that exercise`);
+  }));
 });

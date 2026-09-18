@@ -5043,7 +5043,7 @@ function normalizeResistanceWorkout(w, i) {
     // Reps in reserve — the intensity dial that actually drives hypertrophy here,
     // since band load can't be dialled finely enough to prescribe by weight.
     rir: Number.isFinite(+ex?.rir) ? Math.max(0, Math.min(5, Math.round(+ex.rir))) : 2,
-    tempo: String(ex?.tempo || '').slice(0, 20),
+    tempo: String(ex?.tempo || '').slice(0, 40),
     cue:  String(ex?.cue || '').slice(0, 200),
   })) : [];
   return {
@@ -5068,6 +5068,88 @@ function applyResistanceSet(workouts) {
   saveResistance();
   if (currentTab === 'bands') renderResistanceLib();
   showToast(`Coach saved ${resistanceLib.length} session${resistanceLib.length === 1 ? '' : 's'} to Resistance ✓`);
+}
+
+// ── THE STARTING PROGRAMME ─────────────────────────────────
+// Two 45-minute sessions, upper body and core only, run twice a week. The shape is
+// forced by the brief: at two sessions a week a push/pull split would give every
+// muscle one exposure, which isn't enough to hold mass in a calorie deficit — so
+// both sessions train the whole upper body and differ only in emphasis (A leads
+// horizontal, B leads vertical).
+//
+// Rep ranges are 10-20 at 1-2 RIR rather than the 5s a former 100kg bencher would
+// recognise. Band load can't be dialled finely enough to prescribe heavy low-rep
+// work honestly, and near-failure higher-rep sets are equally hypertrophic and much
+// kinder on a 50-year-old coming back after years off.
+//
+// Exercises are paired (A1/A2, B1/B2...) and run as supersets — alternating an
+// antagonist pair halves the standing-around and is the only way 26 working sets
+// fit in 45 minutes.
+//
+// Band choices are a STARTING GUESS. They are the one thing here that can't be
+// reasoned to: it depends on limb length and where the band is choked. Expect to
+// move a rung either way in week one — that's the ladder working, not a mistake.
+const STARTER_PROGRAMME = [
+  {
+    name: 'Session A — Upper (horizontal)',
+    focus: 'Rows and presses in the horizontal plane, then arms and anti-rotation core. Leads with the movement bands are best at: tension peaks exactly where a row is strongest.',
+    duration: 45,
+    category: 'upper',
+    exercises: [
+      { name: 'Band pull-apart (warm-up)', sets: 2, reps: '20', band: 'yellow', choke: 'full', anchor: 'none', rir: 4,
+        tempo: '1s squeeze', cue: 'Arms straight, thumbs rotating back at the end range. No rest between the two sets.' },
+      { name: 'A1 · Seated row', sets: 3, reps: '12-15', band: 'black', choke: 'full', anchor: 'feet-seated', rir: 2,
+        tempo: '3s down, 1s squeeze', cue: 'Sit tall, ribs down. Drive the elbows past your sides, not out wide.' },
+      { name: 'A2 · Band press-up', sets: 3, reps: '8-12', band: 'yellow', choke: 'full', anchor: 'back', rir: 2,
+        tempo: '2s down, 1s pause at the bottom', cue: 'Band across the shoulder blades, ends pinned under the palms. If floor reps stall under 8, put your hands on the Peloton handlebars.' },
+      { name: 'B1 · Single-arm row', sets: 3, reps: '12-15 each side', band: 'red', choke: 'full', anchor: 'foot', rir: 2,
+        tempo: '2s down', cue: 'Hinge to about 45°, band under the front foot. Keep the hips square — no twisting to finish the rep.' },
+      { name: 'B2 · Overhead press', sets: 3, reps: '10-12', band: 'red', choke: 'choked', anchor: 'foot', rir: 2,
+        tempo: '2s down', cue: 'Stand on the band with both feet. Squeeze the glutes so the load goes through the shoulders, not the lower back.' },
+      { name: 'C1 · Overhead triceps extension', sets: 3, reps: '12-15', band: 'red', choke: 'full', anchor: 'foot', rir: 1,
+        tempo: '2s down, 1s lockout', cue: 'Elbows tight to the ears. The band wants to pull them apart — don’t let it.' },
+      { name: 'C2 · Biceps curl', sets: 3, reps: '12-15', band: 'red', choke: 'full', anchor: 'foot', rir: 1,
+        tempo: '3s down', cue: 'Stand on the band, elbows pinned to your sides. The slow lower is the whole point here.' },
+      { name: 'Pallof press', sets: 3, reps: '10 each side', band: 'black', choke: 'full', anchor: 'peloton-mid', rir: 2,
+        tempo: '5s hold at full extension', cue: 'Stand side-on to the bike, press straight out from the chest. Nothing rotates — that is the exercise.' },
+      { name: 'Dead bug', sets: 3, reps: '8 each side', band: 'yellow', choke: 'full', anchor: 'peloton-low', rir: 2,
+        tempo: '4s per rep', cue: 'Band in both hands, arms locked over your chest. Lower back stays flat on the floor throughout.' },
+    ],
+  },
+  {
+    name: 'Session B — Upper (vertical)',
+    focus: 'Overhead pulling and pressing, then delts, arms and flexion core. The Peloton is what makes this session possible — handlebars raised, band over the stem, you kneeling underneath.',
+    duration: 45,
+    category: 'upper',
+    exercises: [
+      { name: 'Band pull-apart (warm-up)', sets: 2, reps: '20', band: 'yellow', choke: 'full', anchor: 'none', rir: 4,
+        tempo: '1s squeeze', cue: 'Same as Session A. Gets blood into the rear delts before anything heavy.' },
+      { name: 'A1 · Kneeling lat pulldown', sets: 3, reps: '10-12', band: 'purple', choke: 'choked', anchor: 'peloton-high', rir: 2,
+        tempo: '3s down', cue: 'Kneel facing the bike, band over the raised stem. Pull to the collarbones and let the ribs drop — this is the one exercise that changes how your back looks.' },
+      { name: 'A2 · Standing chest press', sets: 3, reps: '12-15', band: 'red', choke: 'full', anchor: 'back', rir: 2,
+        tempo: '2s down, 1s pause', cue: 'Band across the upper back, press forward and slightly together. Stagger your stance so you don’t get pulled backwards.' },
+      { name: 'B1 · Face pull', sets: 3, reps: '15-20', band: 'black', choke: 'full', anchor: 'peloton-mid', rir: 2,
+        tempo: '1s hold', cue: 'Pull to the forehead with the elbows HIGH. Best single thing you can do for shoulders that spend Sundays on the drops.' },
+      { name: 'B2 · Lateral raise', sets: 3, reps: '15-20', band: 'yellow', choke: 'full', anchor: 'foot', rir: 1,
+        tempo: '3s down', cue: 'Stand on the band, lead with the elbows, stop at shoulder height. Yellow is correct here — heavier turns it into a shrug.' },
+      { name: 'C1 · Straight-arm pullover', sets: 3, reps: '12-15', band: 'purple', choke: 'full', anchor: 'peloton-high', rir: 2,
+        tempo: '3s down', cue: 'Arms nearly locked, hinge slightly, pull the band down to your thighs in an arc. Lats without needing to bend the elbows.' },
+      { name: 'C2 · Hammer curl', sets: 3, reps: '12-15', band: 'red', choke: 'full', anchor: 'foot', rir: 1,
+        tempo: '3s down', cue: 'Thumbs up throughout. Hits the forearm and the outer arm the standard curl misses.' },
+      { name: 'Banded crunch', sets: 3, reps: '15', band: 'black', choke: 'full', anchor: 'peloton-low', rir: 2,
+        tempo: '2s down', cue: 'Lie with your head towards the bike, band held at the chest. Curl the ribs towards the hips — short range, not a sit-up.' },
+      { name: 'Side plank + row', sets: 3, reps: '10 each side', band: 'yellow', choke: 'full', anchor: 'peloton-low', rir: 2,
+        tempo: '1s squeeze', cue: 'Side plank on the forearm, row with the free hand. Hips stay stacked and lifted — if they drop, stop the set.' },
+    ],
+  },
+];
+
+// Install the starting programme. Explicit rather than automatic: seeding on an
+// empty library would race pullState (a device that syncs an empty array back would
+// wipe it, and the next load would re-seed it), and it would resurrect itself every
+// time the athlete deliberately cleared the tab.
+function installStarterProgramme() {
+  applyResistanceSet(STARTER_PROGRAMME);
 }
 
 // ── LOGGING A STRENGTH SESSION ─────────────────────────────
@@ -5183,7 +5265,18 @@ function addLibWorkoutToSchedule(id) {
 function renderResistanceLib() {
   const list = document.getElementById('resistanceLibList');
   if (!list) return;
-  if (!resistanceLib.length) { list.innerHTML = ''; return; }
+  if (!resistanceLib.length) {
+    list.innerHTML = `
+      <div class="bands-workout-card" style="padding:20px 16px;text-align:center;">
+        <div class="bands-workout-title" style="margin-bottom:6px;">No sessions saved</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">
+          Install the two-session starting programme — 45 minutes each, upper body and core,
+          built around the five bands and the Peloton. Ask the coach in chat to change it any time.
+        </div>
+        <button class="gen-btn primary" onclick="installStarterProgramme()">Install starting programme</button>
+      </div>`;
+    return;
+  }
 
   list.innerHTML = resistanceLib.map(w => {
     const exHtml = w.exercises.map(renderExerciseRow).join('');
