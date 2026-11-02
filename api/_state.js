@@ -1,7 +1,7 @@
 // Coach state — the bridge between the web app (browser localStorage) and the
 // server. The athlete's schedule, training plan, goal and conversation history live
 // in one KV blob, `coach_state`.
-import { kvGet, kvSet } from './_kv.js';
+import { kvGet, kvSetStrict } from './_kv.js';
 
 const STATE_KEY = 'coach_state';
 const MAX_HISTORY = 120; // entries (≈60 exchanges) — mirrors the app's localStorage cap
@@ -38,6 +38,6 @@ export async function setState(state) {
     next.conversationHistory = next.conversationHistory.slice(-MAX_HISTORY);
   }
   next.updatedAt = new Date().toISOString();
-  await kvSet(STATE_KEY, next);
+  await kvSetStrict(STATE_KEY, next); // throws on failure → api/state.js returns { error }
   return next;
 }

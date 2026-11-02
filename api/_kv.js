@@ -14,6 +14,15 @@ export async function kvSet(key, value, opts) {
   catch { /* non-fatal: value just won't persist this time */ }
 }
 
+// Like kvSet, but a failed write throws instead of vanishing. For the shared coach_state
+// blob, where reporting "saved" for a write that never landed lets a device believe it's
+// synced — and then adopt an older server copy over its own newer chat.
+export async function kvSetStrict(key, value, opts) {
+  if (!process.env.KV_REST_API_URL) return;
+  const { kv } = await import('@vercel/kv');
+  await kv.set(key, value, opts);
+}
+
 // Read-through cache for expensive upstream fetches (WHOOP/Strava summaries). Without
 // this, every app load, every sync tap and every morning briefing re-runs the full
 // provider fan-out — for Strava that's up to 3 pages of 90-day history plus a ride-detail
