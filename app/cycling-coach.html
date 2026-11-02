@@ -1986,37 +1986,88 @@ const STATE_POLL_MS = 15000; // hoisted above init() — startStatePolling() (ca
 let _suppressPush = false; // true while pullState() applies server data, so we don't echo it back
 let _lastServerUpdatedAt = null; // server's updatedAt we last wrote/adopted; gates the poll so it
                                  // only re-renders when the shared state actually changed elsewhere
-function pushState() {
+// "This device has changes the server hasn't confirmed." Persisted (not just a JS flag)
+// because the failure it guards against spans a reload: a phone browser kills the page
+// before its push lands, and on the next open pullState() would otherwise see the
+// server's older chat as "different" and adopt it over the newer local one — which
+// is exactly how mobile chat used to vanish. While set, pullState() pushes instead.
+const UNSYNCED_KEY = 'cyclingCoachUnsynced';
+function setUnsynced(on) {
+  try { on ? localStorage.setItem(UNSYNCED_KEY, String(Date.now())) : localStorage.removeItem(UNSYNCED_KEY); } catch (e) {}
+}
+function hasUnsynced() {
+  try { return !!localStorage.getItem(UNSYNCED_KEY); } catch (e) { return false; }
+}
+let _pushSeq = 0;          // newest push sent; only its confirmation may clear the unsynced flag
+let _pushInFlight = 0;
+let _syncErrorShown = false;
+
+// `now` skips the debounce — used for chat turns, which must not sit in a timer a phone
+// can kill by backgrounding the tab.
+function pushState({ now = false } = {}) {
   if (IS_LOCAL || _suppressPush) return;
+  setUnsynced(true);
   clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(() => {
-    coachFetch('/api/state', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        plan: trainingPlan,
-        feedback: sessionFeedback,
-        adaptations: adaptationNotes,
-        goal: athleteData.goal || null,
-        ftp: athleteData.ftp || null,
-        ftpLog,
-        weightLog,
-        home: localStorage.getItem('cyclingCoachHome') || null,
-        coachNotes,
-        resistance: resistanceLib,
-        strengthLog,
-        conversationHistory: conversationHistory.slice(-120),
-        // Mirror whatever's cached locally (or null) so other devices adopt the same
-        // briefing instead of generating their own.
-        briefing: (() => { try { return JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null'); } catch (e) { return null; } })(),
-      }),
+  _pushTimer = null;
+  if (now) { sendState(); return; }
+  _pushTimer = setTimeout(() => { _pushTimer = null; sendState(); }, 600);
+}
+
+// Send a debounced push that hasn't fired yet. Called as the page is hidden/closed —
+// the last moment a phone browser reliably runs our code.
+function flushPendingPush() {
+  if (!_pushTimer) return;
+  clearTimeout(_pushTimer);
+  _pushTimer = null;
+  sendState(true);
+}
+
+function sendState(keepalive = false) {
+  const seq = ++_pushSeq;
+  const body = buildStateBody();
+  const opts = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body };
+  // keepalive lets the request outlive the page, but browsers cap keepalive bodies at
+  // 64KB — a full chat blob is often bigger, and an over-cap keepalive fetch fails
+  // outright. Above the cap, send normally and rely on the unsynced flag to retry.
+  if (keepalive && new Blob([body]).size < 60000) opts.keepalive = true;
+  _pushInFlight++;
+  return coachFetch('/api/state', opts)
+    .then(r => (r && r.ok) ? r.json() : null)
+    .then(j => {
+      if (j && j.ok && j.updatedAt) {
+        // Adopt our own write as the new baseline so the next poll doesn't treat it as a
+        // foreign change and needlessly re-render (which would stomp chat scroll position).
+        _lastServerUpdatedAt = j.updatedAt;
+        if (seq === _pushSeq && !_pushTimer) setUnsynced(false);
+      } else if (j && j.error && !_syncErrorShown) {
+        // The server answered but didn't store it (api/state.js reports KV failures as
+        // { error }). Say so once — silently believing we're synced is the bug.
+        _syncErrorShown = true;
+        if (typeof showToast === 'function') showToast('Couldn\'t sync to your other devices — kept on this one, will retry.', true);
+      }
     })
-      .then(r => (r && r.ok) ? r.json() : null)
-      // Adopt our own write as the new baseline so the next poll doesn't treat it as a
-      // foreign change and needlessly re-render (which would stomp chat scroll position).
-      .then(j => { if (j && j.updatedAt) _lastServerUpdatedAt = j.updatedAt; })
-      .catch(() => { /* offline / transient — local copy is still source of truth */ });
-  }, 600);
+    .catch(() => { /* offline / transient — local copy is still source of truth; flag stays set */ })
+    .finally(() => { _pushInFlight--; });
+}
+
+function buildStateBody() {
+  return JSON.stringify({
+    plan: trainingPlan,
+    feedback: sessionFeedback,
+    adaptations: adaptationNotes,
+    goal: athleteData.goal || null,
+    ftp: athleteData.ftp || null,
+    ftpLog,
+    weightLog,
+    home: localStorage.getItem('cyclingCoachHome') || null,
+    coachNotes,
+    resistance: resistanceLib,
+    strengthLog,
+    conversationHistory: conversationHistory.slice(-120),
+    // Mirror whatever's cached locally (or null) so other devices adopt the same
+    // briefing instead of generating their own.
+    briefing: (() => { try { return JSON.parse(localStorage.getItem(BRIEFING_KEY) || 'null'); } catch (e) { return null; } })(),
+  });
 }
 
 function serverHistoryDiffers(serverHist) {
@@ -2044,6 +2095,13 @@ function renderChatFromHistory() {
 
 async function pullState() {
   if (IS_LOCAL) return;
+  // This device holds changes the server never confirmed (e.g. the phone was closed
+  // mid-push). Its copy is the newer one: re-send it rather than adopting the server's
+  // older state over it. The next pull after a confirmed push resumes normal adoption.
+  if (hasUnsynced()) {
+    if (!_pushTimer && !_pushInFlight) pushState({ now: true });
+    return;
+  }
   let s;
   try {
     const res = await coachFetch('/api/state');
@@ -2286,6 +2344,9 @@ function startStatePolling() {
 // charts and the coach's prompt alike — until it was reloaded or Sync was tapped.
 const LIVE_RESYNC_MS = 5 * 60 * 1000;
 document.addEventListener('visibilitychange', () => {
+  // Hidden is the last reliable moment on a phone (swiping the browser away often skips
+  // unload entirely) — send any push still waiting in its debounce timer.
+  if (document.visibilityState === 'hidden') { flushPendingPush(); return; }
   if (document.visibilityState !== 'visible') return;
   pullState();
   if (Date.now() - _lastStravaSync > LIVE_RESYNC_MS) syncStrava(true, true);
@@ -2300,9 +2361,18 @@ function saveChat() {
     text: row.querySelector('.bubble')?.innerText || '',
     time: row.querySelector('.bubble-meta')?.textContent?.trim() || ''
   }));
-  localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles, savedAt: Date.now() }));
-  pushState();
+  try {
+    localStorage.setItem('cyclingCoachChat', JSON.stringify({ history: trimmed, bubbles, savedAt: Date.now() }));
+  } catch (e) {
+    // Quota full (saved routes are the big consumer) — still push, so the server copy
+    // keeps the conversation even when this device can't.
+    console.warn('Chat not saved locally:', e);
+  }
+  // Immediate, not debounced: a chat turn is the thing most likely to be followed by
+  // closing the app, and a pending timer dies with the page.
+  pushState({ now: true });
 }
+window.addEventListener('pagehide', flushPendingPush);
 
 function confirmClearChat() {
   if (conversationHistory.length === 0) return;
@@ -5349,6 +5419,12 @@ async function sendMessage(text) {
   if (!text) { input.value = ''; autoResize(input); }
 
   conversationHistory.push({ role: 'user', content: msg });
+  // Persist the question now, not only once the reply lands: a reply takes seconds, and
+  // closing the app in that window used to lose the turn entirely. Must run before
+  // appendTyping() — saveChat() snapshots every .bubble-row, and the typing dots are one.
+  // If the app dies mid-reply the history ends on a user turn; the API merges consecutive
+  // user turns, so the next message simply carries both.
+  saveChat();
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
@@ -5376,7 +5452,7 @@ async function sendMessage(text) {
 
     if (data.error) {
       appendBubble('coach', `Error: ${data.error}`);
-      conversationHistory.pop();
+      conversationHistory.pop(); saveChat(); // un-persist the turn saved above
     } else {
       const reply = data.content[0].text;
       const { clean: schedClean, updates, planSet, planAdd, raw: schedRaw } = extractScheduleUpdates(reply);
@@ -5423,7 +5499,7 @@ async function sendMessage(text) {
   } catch (err) {
     typingEl.remove();
     appendBubble('coach', 'Connection error. Make sure Claude Desktop is running.');
-    conversationHistory.pop();
+    conversationHistory.pop(); saveChat();
   }
 
   btn.disabled = false;
