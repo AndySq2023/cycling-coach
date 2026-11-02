@@ -1998,14 +1998,28 @@ function setUnsynced(on) {
 function hasUnsynced() {
   try { return !!localStorage.getItem(UNSYNCED_KEY); } catch (e) { return false; }
 }
+// The server updatedAt this device's data was last in step with (adopted or pushed).
+// The unsynced flag only means "my copy is newer" while the server is still at this
+// baseline — if the server has moved on since, another device wrote, and our unsynced
+// copy is the stale one. Persisted so the check survives a reload.
+const SYNC_BASE_KEY = 'cyclingCoachSyncBase';
+function getSyncBase() { try { return localStorage.getItem(SYNC_BASE_KEY); } catch (e) { return null; } }
+function setSyncBase(at) { try { if (at) localStorage.setItem(SYNC_BASE_KEY, at); } catch (e) {} }
 let _pushSeq = 0;          // newest push sent; only its confirmation may clear the unsynced flag
 let _pushInFlight = 0;
 let _syncErrorShown = false;
+// No push until this page load has seen the server copy. On load, Strava auto-logging,
+// WHOOP weight, plan-date repair and the briefing all save before the first pull lands;
+// on a device opened after weeks away, pushing then overwrote everyone's current plan
+// and chat with its stale localStorage. Saves made before the pull are re-sent after it.
+let _initialPullDone = false;
+let _pushDeferred = false;
 
 // `now` skips the debounce — used for chat turns, which must not sit in a timer a phone
 // can kill by backgrounding the tab.
 function pushState({ now = false } = {}) {
   if (IS_LOCAL || _suppressPush) return;
+  if (!_initialPullDone) { _pushDeferred = true; return; }
   setUnsynced(true);
   clearTimeout(_pushTimer);
   _pushTimer = null;
@@ -2038,6 +2052,7 @@ function sendState(keepalive = false) {
         // Adopt our own write as the new baseline so the next poll doesn't treat it as a
         // foreign change and needlessly re-render (which would stomp chat scroll position).
         _lastServerUpdatedAt = j.updatedAt;
+        setSyncBase(j.updatedAt);
         if (seq === _pushSeq && !_pushTimer) setUnsynced(false);
       } else if (j && j.error && !_syncErrorShown) {
         // The server answered but didn't store it (api/state.js reports KV failures as
@@ -2093,15 +2108,22 @@ function renderChatFromHistory() {
   scrollChatToLatest();
 }
 
+// Newest session date in a plan ('' for none). Plans only move forward — a regenerate
+// always builds from today — so a server plan older than ours is a stale device's push.
+function newestPlanDate(plan) {
+  return (Array.isArray(plan) ? plan : []).reduce((m, x) => (x && typeof x.date === 'string' && x.date > m) ? x.date : m, '');
+}
+
+// True when `local` is `server` plus more turns on the end — i.e. this device has turns
+// the server never got. Those are kept rather than replaced by the shorter server copy.
+function historyExtends(local, server) {
+  if (!Array.isArray(server) || local.length <= server.length) return false;
+  return server.every((t, i) => local[i] && local[i].role === t.role && local[i].content === t.content);
+}
+
 async function pullState() {
   if (IS_LOCAL) return;
-  // This device holds changes the server never confirmed (e.g. the phone was closed
-  // mid-push). Its copy is the newer one: re-send it rather than adopting the server's
-  // older state over it. The next pull after a confirmed push resumes normal adoption.
-  if (hasUnsynced()) {
-    if (!_pushTimer && !_pushInFlight) pushState({ now: true });
-    return;
-  }
+  if (_pushTimer || _pushInFlight) return; // our own write is on its way — pull after it lands
   let s;
   try {
     const res = await coachFetch('/api/state');
@@ -2109,6 +2131,23 @@ async function pullState() {
     s = await res.json();
   } catch (e) { return; }
   if (!s || s.error) return;
+  const first = !_initialPullDone;
+  _initialPullDone = true;
+  adoptServerState(s);
+  // Saves made during load, before we'd seen the server, go out now — on top of what
+  // was just adopted, so they can't carry stale localStorage over the shared copy.
+  if (first && _pushDeferred) { _pushDeferred = false; pushState(); }
+}
+
+function adoptServerState(s) {
+  if (hasUnsynced()) {
+    // Unconfirmed local changes win only while the server is still at the version we
+    // last synced with (e.g. the phone was closed mid-push). If the server has moved
+    // on, another device wrote since — fall through and adopt it, keeping only chat
+    // turns and a plan that are provably newer than the server's (checks below).
+    if (s.updatedAt && s.updatedAt === getSyncBase()) { pushState({ now: true }); return; }
+    setUnsynced(false);
+  }
 
   // Poll guard: if the shared state hasn't changed since we last synced, there's nothing
   // to adopt. This is what makes 15s polling cheap — no re-render of chat/schedule unless
@@ -2126,11 +2165,17 @@ async function pullState() {
   // Record what we're about to adopt as the baseline so our own follow-up saves (which
   // re-stamp updatedAt) don't bounce back as a foreign change on the next poll.
   _lastServerUpdatedAt = s.updatedAt || _lastServerUpdatedAt;
+  setSyncBase(s.updatedAt);
   let healedPlan = false;
+  let keptLocal = false; // we kept something newer than the server's — push it back after
+  // A server plan whose newest session is older than ours came from a stale device; keep
+  // ours. (Only the plan bundle — feedback/adaptations are keyed to its session ids.)
+  const stalePlan = trainingPlan.length && newestPlanDate(s.plan) < newestPlanDate(trainingPlan);
+  if (stalePlan) keptLocal = true;
   _suppressPush = true;
   try {
     // Adopt the server plan/feedback if present — another device may have changed the schedule.
-    if (Array.isArray(s.plan)) {
+    if (Array.isArray(s.plan) && !stalePlan) {
       trainingPlan = repairPlanDates(s.plan);
       healedPlan = trainingPlan !== s.plan;
       if (s.feedback && typeof s.feedback === 'object') sessionFeedback = s.feedback;
@@ -2202,7 +2247,12 @@ async function pullState() {
       if (currentTab === 'bands') renderResistanceLib();
     }
     // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
-    if (serverHistoryDiffers(s.conversationHistory)) {
+    if (historyExtends(conversationHistory, s.conversationHistory)) {
+      keptLocal = true; // this device has turns the server never got
+    } else if (serverHistoryDiffers(s.conversationHistory)) {
+      // One-slot safety net: what this device had before adopting someone else's chat,
+      // recoverable from the console if a bad push ever wins again.
+      try { localStorage.setItem('cyclingCoachChatBackup', JSON.stringify({ at: Date.now(), history: conversationHistory })); } catch (e) {}
       conversationHistory = s.conversationHistory;
       renderChatFromHistory();
       saveChat();
@@ -2223,7 +2273,7 @@ async function pullState() {
     _suppressPush = false;
   }
   // A healed plan must flow back so the server (and other devices) stop serving it.
-  if (healedPlan) pushState();
+  if (healedPlan || keptLocal) pushState();
 }
 
 // Wraps fetch for backend calls. On a hosted build it attaches the app password and
