@@ -58,6 +58,9 @@ Vercel → **Add New → Project → Import** `AndySq2023/cycling-coach`.
 | `GRAPHHOPPER_API_KEY` | *(optional)* your GraphHopper API key (required for the hosted service, not always for self-hosted) — **never commit this to the repo**, Vercel env vars only |
 | `ROUTE_LOOP_SEEDS` | *(optional)* how many `round_trip` candidates to try per loop request, default 2 — each is a billed request on the hosted plan |
 | `ROUTE_CACHE_TTL_SECONDS` | *(optional)* how long identical route requests are cached in KV before re-querying GraphHopper, default 86400 (1 day) |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | *(optional, for `/api/bodycomp`)* the `client_email` of a Google Cloud service account that has **Viewer** access to the body composition Sheet |
+| `GOOGLE_PRIVATE_KEY` | *(optional, for `/api/bodycomp`)* the `private_key` value from that service account's JSON key, pasted as-is (the `\n` escapes are fine) — mark it Sensitive, **never commit the key file to the repo** |
+| `HUME_SHEET_ID` | *(optional, for `/api/bodycomp`)* the ID of the "Hume body composition" Google Sheet (the long string in its URL) |
 
 > **WHOOP does not need `WHOOP_REDIRECT_URI`** (the refresh-token grant doesn't use it).
 > The `WHOOP_REFRESH_TOKEN` here is just a one-time seed — see step 4 for why it then
