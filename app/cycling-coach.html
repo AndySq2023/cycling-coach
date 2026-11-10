@@ -1798,7 +1798,7 @@
 
 <script>
 // ── STATE ──────────────────────────────────────────────────
-let athleteData = { whoop: null, strava: null, weather: null, intervals: null, goal: null, ftp: null };
+let athleteData = { whoop: null, strava: null, weather: null, intervals: null, bodycomp: null, goal: null, ftp: null };
 
 // Hoisted above init(): init() calls loadFtp(), and a const declared further down the
 // file is still in its temporal dead zone at that point (same trap as STATE_POLL_MS).
@@ -1961,8 +1961,8 @@ const mph  = kph => kph == null ? null : Math.round(kph * 0.621371);          //
 const IS_LOCAL = location.protocol === 'file:'
   || ['localhost', '127.0.0.1'].includes(location.hostname);
 const API = IS_LOCAL
-  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002', intervals: 'http://localhost:3002' }
-  : { chat: '', whoop: '', strava: '', weather: '', intervals: '' };
+  ? { chat: 'http://localhost:3001', whoop: 'http://localhost:3001', strava: 'http://localhost:3002', weather: 'http://localhost:3002', intervals: 'http://localhost:3002', bodycomp: null }
+  : { chat: '', whoop: '', strava: '', weather: '', intervals: '', bodycomp: '' };
 
 function getAppPassword() {
   let pw = localStorage.getItem('cyclingCoachPw');
@@ -2361,6 +2361,7 @@ async function coachFetch(url, options = {}) {
   const whoopReady = syncWHOOP();
   const stravaReady = syncStrava();
   const intervalsReady = syncIntervals();
+  const bodycompReady = syncBodyComp();
   // Weather: prefill saved home location and sync it (no-op if no location is set yet)
   const home = getHomeLocation();
   if (home) document.getElementById('wxLocInput').value = `${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}`;
@@ -2368,7 +2369,7 @@ async function coachFetch(url, options = {}) {
   // Morning briefing (replaces the old Telegram cron): only once the live data it has to
   // be grounded in has landed, so it never briefs blind. Failures are non-fatal — the
   // day stays unmarked and the next open retries.
-  Promise.allSettled([whoopReady, stravaReady, intervalsReady, weatherReady]).then(maybeMorningBriefing);
+  Promise.allSettled([whoopReady, stravaReady, intervalsReady, weatherReady, bodycompReady]).then(maybeMorningBriefing);
   // Pull the server copy (hosted only) so schedule edits made on another device while
   // this one was closed show up. No-op on local dev.
   pullState();
@@ -3563,6 +3564,24 @@ async function syncIntervals(force = false) {
   btn.disabled = false;
 }
 
+// Body composition from the Hume monthly reports, via /api/bodycomp (Google Sheet).
+// Hosted-only: there is no local proxy route, so local dev leaves it null. Silent by
+// design — there's no panel for it yet, and a missing Sheet should never block the coach.
+let _bodycompTried = false;
+async function syncBodyComp(force = false) {
+  if (API.bodycomp == null) return;
+  _bodycompTried = true;
+  try {
+    const res = await coachFetch(API.bodycomp + '/api/bodycomp' + (force ? '?fresh=1' : ''));
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+    athleteData.bodycomp = d;
+  } catch (err) {
+    console.warn('Body composition sync failed:', err);
+  }
+}
+
 async function syncWeather() {
   const btn = document.getElementById('weatherSyncBtn');
   const status = document.getElementById('weather-sync-status');
@@ -3755,6 +3774,53 @@ function saveFtp() {
 // metered rides alone and always reaches the prompt. Same trap as the schedule-write
 // block that was once gated behind `if (trainingPlan.length)`: never hide a capability
 // or a fact behind an unrelated setting.
+// Body composition for the coach prompt, from the Hume monthly reports. Pure (takes the
+// /api/bodycomp payload, returns text) so test/bodycomp-prompt.test.mjs can pin it.
+// The governing goal is keeping muscle while losing fat and still performing, so the
+// block leads with the share of weight lost that was lean mass — that's the number that
+// says whether the cut is costing muscle. BIA wobbles ~1kg month to month, so the coach
+// is told to judge on the multi-month trend, never one report.
+function buildBodyCompText(bc) {
+  if (!bc || !bc.latest || !Array.isArray(bc.trend) || !bc.trend.length) return '';
+  const L = bc.latest;
+  const n = v => (v == null ? '?' : v);
+  const r1 = v => Math.round(v * 10) / 10;
+  const sgn = v => (v == null ? '?' : (v > 0 ? '+' : '') + v);
+
+  let t = `\n\nBODY COMPOSITION (Hume Body Pod, bioimpedance, monthly progress reports, morning fasted weigh-ins — the source of truth for body composition):`;
+  t += `\nLatest report (${bc.latest_month}): weight ${n(L.weight_kg)}kg, body fat ${n(L.body_fat_pct)}% (${n(L.body_fat_mass_kg)}kg fat), lean mass ${n(L.lean_mass_kg)}kg, skeletal muscle ${n(L.skeletal_muscle_mass_kg)}kg, visceral fat index ${n(L.visceral_fat_index)}, BMR ${n(L.bmr_kcal)}kcal`;
+
+  const c = bc.change_since_first || {};
+  t += `\nChange since ${bc.first_month}: weight ${sgn(c.weight_kg)}kg, fat mass ${sgn(c.body_fat_mass_kg)}kg, lean mass ${sgn(c.lean_mass_kg)}kg, skeletal muscle ${sgn(c.skeletal_muscle_mass_kg)}kg, body fat ${sgn(c.body_fat_pct)} points`;
+
+  // Share of the weight lost that came off as lean mass, overall and over the last
+  // three reports — the recent window is the one that says what the current approach
+  // is doing.
+  const leanShare = (dw, dl) => (dw != null && dl != null && dw < -0.5 ? Math.round((dl / dw) * 100) : null);
+  const overall = leanShare(c.weight_kg, c.lean_mass_kg);
+  if (overall != null) t += `\nOf the weight lost since ${bc.first_month}, ${overall}% was lean mass.`;
+  const tr = bc.trend;
+  if (tr.length >= 4) {
+    const a = tr[tr.length - 4], b = tr[tr.length - 1];
+    if (a.weight_kg != null && b.weight_kg != null && a.lean_mass_kg != null && b.lean_mass_kg != null) {
+      const dw = r1(b.weight_kg - a.weight_kg), dl = r1(b.lean_mass_kg - a.lean_mass_kg);
+      const dm = a.skeletal_muscle_mass_kg != null && b.skeletal_muscle_mass_kg != null ? r1(b.skeletal_muscle_mass_kg - a.skeletal_muscle_mass_kg) : null;
+      const share = leanShare(dw, dl);
+      t += `\nLast three reports (${a.month} → ${b.month}): weight ${sgn(dw)}kg, lean mass ${sgn(dl)}kg, skeletal muscle ${sgn(dm)}kg${share != null ? ` — ${share}% of the loss was lean mass` : ''}.`;
+    }
+  }
+
+  t += `\nMonthly trend (end of each report period): ` + tr.slice(-6).map(p =>
+    `${p.month} ${n(p.weight_kg)}kg / ${n(p.body_fat_pct)}% fat / ${n(p.skeletal_muscle_mass_kg)}kg muscle`).join('; ');
+  if (Array.isArray(bc.missing_months) && bc.missing_months.length) {
+    t += `\nNo report for: ${bc.missing_months.join(', ')} — do not read the gap as a plateau.`;
+  }
+
+  t += `\nGOAL: keep muscle while losing fat and still performing on the bike. Use this block to judge whether the training and the weight loss are costing muscle: a falling lean or skeletal muscle share of the loss is good, a rising one means the deficit or the strength work needs attention. Link it to the strength sessions and to how hard the riding has been. Bioimpedance moves by about 1kg of lean mass month to month on its own, so judge on the multi-month trend, never on one report, and do not raise it in every reply — bring it in when the conversation is about weight, strength, fuelling or the monthly picture.`;
+  t += `\nFor the athlete's CURRENT weight, use the daily WEIGHT line when it is present (same scale, more recent). These monthly figures are for composition, not today's weight.`;
+  return t;
+}
+
 function buildPowerText() {
   const st = athleteData.strava || {};
   // history is the 90-day chart array; all_rides is the 7-day subset. Prefer history,
@@ -4165,6 +4231,7 @@ Format: Short paragraphs. Use clear structure. Occasionally use metric callouts 
       prompt += ` Not enough logged history yet for a 4-week trend — do NOT infer a direction from a single reading.`;
     }
   }
+  prompt += buildBodyCompText(athleteData.bodycomp);
   if (athleteData.intervals) {
     const iv = athleteData.intervals;
     const f = iv.fitness || {};
@@ -5486,6 +5553,9 @@ async function sendMessage(text) {
   if (!athleteData.whoop || !athleteData.strava || !athleteData.intervals) {
     await Promise.allSettled([syncWHOOP(), syncStrava(), syncIntervals()]);
   }
+  // Body comp is tried once per page load, not every message: it changes monthly, and a
+  // misconfigured Sheet must not add a failed round trip to every reply.
+  if (!athleteData.bodycomp && !_bodycompTried) await syncBodyComp();
 
   try {
     const response = await coachFetch(API.chat + '/api/chat', {
