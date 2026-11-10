@@ -32,6 +32,7 @@ Two independent pieces that never import each other:
 | `/api/whoop` | 3001 | Claude Desktop bridge → `~/whoop-mcp` |
 | `/api/strava` | 3002 | `proxy/server.js` |
 | `/api/route` | — | `api/route.js` → GraphHopper Directions + Geocoding APIs (`GRAPHHOPPER_URL`), hosted-only, no local-dev equivalent |
+| `/api/bodycomp` | — | `api/bodycomp.js` → Google Sheets API, reading the "Hume body composition" Sheet as a service account (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `HUME_SHEET_ID`), hosted-only. Shaping in `shared/bodycomp-core.js`; columns are matched by header text, so the Sheet's column order can change. Rows are added by a scheduled task that transcribes Hume report screenshots — the app never writes to the Sheet. Hume is the source of truth for body comp. |
 
 Claude Desktop must be running for chat and WHOOP. Strava is independent (launchd service).
 
