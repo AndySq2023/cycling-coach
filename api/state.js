@@ -14,7 +14,8 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      res.status(200).json(await getState());
+      // env lets the app badge a preview deployment (its KV is namespaced — see _kv.js envKey).
+      res.status(200).json({ ...(await getState()), env: process.env.VERCEL_ENV || 'development' });
       return;
     }
     if (req.method === 'PUT' || req.method === 'POST') {

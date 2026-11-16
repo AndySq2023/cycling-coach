@@ -3,7 +3,7 @@
 // shape the app expects. Credentials come from env vars (STRAVA_REFRESH_TOKEN seed),
 // with the rotated token persisted at KV 'strava_refresh_token'.
 import { requireAuth } from './_auth.js';
-import { kvGet, kvSet, cached } from './_kv.js';
+import { kvGet, kvSet, cached, envKey } from './_kv.js';
 // Response shaping is shared with the local proxy — see shared/strava-core.js.
 // This file owns ONLY credential handling (KV/env) and the HTTP surface.
 import { buildStravaSummary } from '../shared/strava-core.js';
@@ -43,7 +43,7 @@ const SUMMARY_TTL_S = 180;
 // Cached entry point — what every caller should use. `force` (the app's explicit
 // "⚡ Sync" and ?fresh=1) skips the cache read and rebuilds.
 export async function getStravaSummary(force = false) {
-  return cached('strava_sum', SUMMARY_TTL_S, async () => buildStravaSummary(await getAccessToken()), force);
+  return cached(envKey('strava_sum'), SUMMARY_TTL_S, async () => buildStravaSummary(await getAccessToken()), force);
 }
 
 export default async function handler(req, res) {

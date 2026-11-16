@@ -1385,6 +1385,10 @@
     .tab-bar { padding: 8px 10px; gap: 2px; }
     .tab-btn { padding: 6px 2px; margin: 0 6px; letter-spacing: 0.1em; font-size: 11px; }
   }
+  /* Preview deployment marker — a preview has its own KV namespace (api/_kv.js envKey),
+     so changes made there never reach the real app. The badge makes that impossible to miss. */
+  .preview-badge { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:4px;
+    background:#d97706; color:#fff; font-size:10px; font-weight:700; letter-spacing:.08em; vertical-align:middle; }
 </style>
 </head>
 <body>
@@ -1392,7 +1396,7 @@
 <header>
   <div class="avatar"></div>
   <div class="header-info">
-    <div class="header-name">Coach</div>
+    <div class="header-name">Coach <span class="preview-badge" id="previewBadge" hidden>PREVIEW</span></div>
     <div class="header-status">
       <span class="status-dot"></span>
       WHOOP · Strava
@@ -2131,12 +2135,23 @@ async function pullState() {
     s = await res.json();
   } catch (e) { return; }
   if (!s || s.error) return;
+  if (s.env) markEnvironment(s.env);
   const first = !_initialPullDone;
   _initialPullDone = true;
   adoptServerState(s);
   // Saves made during load, before we'd seen the server, go out now — on top of what
   // was just adopted, so they can't carry stale localStorage over the shared copy.
   if (first && _pushDeferred) { _pushDeferred = false; pushState(); }
+}
+
+// The server says which Vercel environment it is. Anything but production is a preview
+// branch with its own isolated KV copy — label it loudly so a preview installed as a PWA
+// can never be mistaken for the real app.
+function markEnvironment(env) {
+  const isPreview = env && env !== 'production';
+  const badge = document.getElementById('previewBadge');
+  if (badge) badge.hidden = !isPreview;
+  if (isPreview) document.title = 'Coach (Preview)';
 }
 
 function adoptServerState(s) {
@@ -2296,6 +2311,9 @@ async function coachFetch(url, options = {}) {
   // class in the markup) so it isn't covering content or exposing synced data
   // on load, on both phone and desktop — the athlete opens it via "My Data".
 
+  // Vercel branch previews live on *-git-<branch>-* hostnames; badge them before the
+  // first state pull confirms it, so there is never a moment it looks like the real app.
+  if (!IS_LOCAL && /-git-/.test(location.hostname)) markEnvironment('preview');
   buildRpeScale();
   const saved = localStorage.getItem('cyclingCoachPlan');
   if (saved) {

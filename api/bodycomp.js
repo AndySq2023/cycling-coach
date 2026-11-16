@@ -10,7 +10,7 @@
 //
 // Env: GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, HUME_SHEET_ID.
 import { requireAuth } from './_auth.js';
-import { cached } from './_kv.js';
+import { cached, envKey } from './_kv.js';
 import { buildBodyCompSummary } from '../shared/bodycomp-core.js';
 
 // Reports arrive about once a month and the Sheet is updated twice a month at most, so
@@ -24,7 +24,7 @@ export async function getBodyCompSummary(force = false) {
   if (!email || !privateKey || !sheetId) {
     throw new Error('Missing body composition config — set GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY and HUME_SHEET_ID.');
   }
-  return cached('bodycomp_sum', SUMMARY_TTL_S, () => buildBodyCompSummary({ email, privateKey, sheetId }), force);
+  return cached(envKey('bodycomp_sum'), SUMMARY_TTL_S, () => buildBodyCompSummary({ email, privateKey, sheetId }), force);
 }
 
 export default async function handler(req, res) {

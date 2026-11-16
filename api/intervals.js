@@ -8,7 +8,7 @@
 // Response shaping lives in shared/intervals-core.js so the local proxy serves the
 // identical payload — this file owns ONLY credentials and the HTTP surface.
 import { requireAuth } from './_auth.js';
-import { cached } from './_kv.js';
+import { cached, envKey } from './_kv.js';
 import { buildIntervalsSummary } from '../shared/intervals-core.js';
 
 // CTL/ATL move once a day and the power curve is a 90-day window, so a 10-minute
@@ -21,7 +21,7 @@ export async function getIntervalsSummary(force = false) {
   if (!athleteId || !apiKey) {
     throw new Error('Missing intervals.icu credentials — set INTERVALS_ATHLETE_ID and INTERVALS_API_KEY.');
   }
-  return cached('intervals_sum', SUMMARY_TTL_S, () => buildIntervalsSummary(athleteId, apiKey), force);
+  return cached(envKey('intervals_sum'), SUMMARY_TTL_S, () => buildIntervalsSummary(athleteId, apiKey), force);
 }
 
 export default async function handler(req, res) {
