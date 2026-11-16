@@ -1059,6 +1059,18 @@
   .slog-ex-name { font-size: 12px; font-weight: 600; color: var(--text); }
   .slog-ex-target { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
   .slog-sets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .slog-rir { border-style: dashed !important; }
+  .hs-card { padding:14px 16px; display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .hs-head { margin-bottom:4px; }
+  .hs-sub { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+  .hs-row { display:grid; grid-template-columns: 92px 1fr 56px; align-items:center; gap:8px; font-size:13px; min-height:24px; }
+  .hs-row.neglected .hs-name { color:#b45309; font-weight:600; }
+  .hs-bar { position:relative; height:10px; background:var(--surface2); border-radius:5px; overflow:visible; }
+  .hs-bar span { display:block; height:100%; background:var(--accent); border-radius:5px; }
+  .hs-bar i { position:absolute; top:-3px; width:2px; height:16px; background:var(--text); opacity:.55; }
+  .hs-val { text-align:right; font-variant-numeric:tabular-nums; }
+  .hs-avg { color:var(--text-muted); }
+  .hs-foot { font-size:12.5px; line-height:1.45; margin-top:6px; }
   /* Reps achieved, one box per prescribed set. Bare number entry beats a stepper
      here — you're typing it with one hand between sets, not fiddling with +/-. */
   .slog-set {
@@ -1719,7 +1731,10 @@
         <p>Your coach's sessions live here — or pick a focus area to generate one.</p>
       </div>
 
-      <!-- Coach-authored / saved sessions (written from chat via resistance_set) -->
+      <!-- Hard sets per muscle — the leading indicator next to the Hume lean-mass trend -->
+      <div id="hardSetsView"></div>
+
+      <!-- Coach-authored / saved sessions (proposed from chat, approved by the athlete) -->
       <div id="resistanceLibList"></div>
 
       <div class="bands-category-row">
@@ -1838,6 +1853,9 @@
 
 <!-- Pure proposal/validation logic, shared with the tests (see shared/proposal-core.js). -->
 <script src="../shared/proposal-core.js"></script>
+<script src="../shared/muscle-core.js"></script>
+<!-- Band/body-weight exercise text (MIT, hasaneyldrm/exercises-dataset) — deferred; only read lazily. -->
+<script src="../shared/exercise-lib.js" defer></script>
 <script>
 // ── STATE ──────────────────────────────────────────────────
 let athleteData = { whoop: null, strava: null, weather: null, intervals: null, bodycomp: null, goal: null, ftp: null };
@@ -1993,6 +2011,7 @@ const RIDE_FIELDS = {
   avg_speed_kph: 'avg speed', avg_hr: 'avg HR', max_hr: 'max HR',
   avg_watts: 'avg power', weighted_avg_watts: 'normalised power', max_watts: 'max power', kilojoules: 'work (kJ)',
 };
+const MUSCLE_FIELDS = Object.fromEntries(((globalThis.MuscleCore && globalThis.MuscleCore.MUSCLES) || []).map(m => [m, m]));
 const COACH_DATA_ALLOWLIST = {
   whoop: { label: 'WHOOP', fields: {
     recovery_score: 'recovery %', hrv: 'HRV', rhr: 'resting HR', sleep_duration_h: 'sleep hours', sleep_efficiency: 'sleep efficiency',
@@ -2036,6 +2055,10 @@ const COACH_DATA_ALLOWLIST = {
     date: 'date', name: 'session', durationMin: 'minutes', sessionRpe: 'session RPE', load: 'load', notes: 'notes',
     exercises: { items: { name: 'exercise', band: 'band', choke: 'choke', sets: { items: { reps: 'reps', rir: 'RIR' }, maxItems: 10 } }, maxItems: 20 },
   }, windowDays: COACH_WINDOW_DAYS, maxItems: 6 },
+  hardSets: { label: 'hard sets per muscle', fields: {
+    week: { label: 'this week', fields: MUSCLE_FIELDS }, avg: { label: '4-week average', fields: MUSCLE_FIELDS },
+    ratedSets: 'rated sets', showAverages: 'enough data to average', neglected: { label: 'neglected muscles', list: true, maxItems: 20 },
+  } },
   coachNotes: { label: 'coach notes (long-term memory)', list: true, maxItems: 40 },
   dismissals: { label: 'proposals you dismissed', items: {
     type: 'change', why: "coach's reason", at: 'when',
@@ -4468,6 +4491,7 @@ function coachDataView() {
     weather: pickAllowed(A.weather, athleteData.weather, today) || null,
     weight: pickAllowed(A.weight, weightLog, today) || [],
     strength: pickAllowed(A.strength, strengthLog, today) || [],
+    hardSets: pickAllowed(A.hardSets, hardSetSummary(), today) || null,
     coachNotes: pickAllowed(A.coachNotes, coachNotes, today) || [],
     dismissals: pickAllowed(A.dismissals, dismissedChanges, today) || [],
   };
@@ -4525,6 +4549,7 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
     }
   }
   prompt += buildBodyCompText(cd.bodycomp);
+  prompt += buildHardSetText(cd.hardSets);
   if (cd.intervals) {
     const iv = cd.intervals;
     const f = iv.fitness || {};
@@ -4760,7 +4785,7 @@ Besides the ride schedule, you can rewrite the in-app Strength library — full 
 {"type":"replace-resistance-library","target":{},"after":{"workouts":[{"name":"Session A — Upper (horizontal)","focus":"One sentence on why this matters.","duration":45,"category":"upper","exercises":[{"name":"Seated row","sets":3,"reps":"12-15","band":"black","choke":"full","anchor":"feet-seated","rir":2,"tempo":"3s down, 1s squeeze","cue":"Ribs down, drive the elbows past your sides."}]}]},"why":"Hit 15 reps at 2 RIR on black for two sessions — time for the next rung"}
 Rules: "workouts" is the COMPLETE library — include every session you want kept, because it REPLACES all saved sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). sets 1–10, rir 0–5. In the visible reply, say what you proposed in a single CONFIRM: line — do not re-list the exercises.
 
-Every exercise needs: name, sets, reps (a target RANGE like "12-15"), band, choke, anchor, rir, tempo, cue.`;
+Every exercise needs: name, sets, reps (a target RANGE like "12-15"), band, choke, anchor, rir, tempo, cue. Add "muscles":{"primary":[…],"secondary":[…]} using these names: ${(globalThis.MuscleCore?.MUSCLES || []).join(', ')} — that's what the hard-sets count credits.`;
 
   // ── The athlete's real kit, and what can actually be done with it ──
   prompt += `\n\n=== THE ATHLETE'S BANDS (these five, and nothing else) ===
@@ -4779,6 +4804,8 @@ HOW BAND RESISTANCE BEHAVES: tension is HIGHEST at full contraction and near zer
 PROGRESSION LADDER — there is no plate to add, so progress strictly in this order, and only once the athlete hit the TOP of the rep range at the prescribed RIR:
 1. more reps within the range  2. an extra set  3. choke the band shorter  4. next band up  5. slower eccentric or longer pause.
 Never jump two rungs at once. A band jump is large (each width roughly doubles tension), so when the band goes up the reps drop back to the BOTTOM of the range.`;
+
+  prompt += buildExerciseIdeasText();
 
   // ── Placing the two sessions in the week ──
   prompt += `\n\n=== WHERE THE STRENGTH SESSIONS GO ===
@@ -5552,6 +5579,73 @@ function strengthVolumeByBand(entries) {
     .reverse();
 }
 
+// ── HARD SETS PER MUSCLE (Strength hub) ───────────────────
+// The weekly count lives in shared/muscle-core.js (tested there). These render it and
+// put it in front of the coach next to the Hume lean-mass trend.
+function hardSetSummary() {
+  const MC = globalThis.MuscleCore;
+  if (!MC) return null;
+  return MC.weeklyHardSets(strengthLog, new Date().toISOString().slice(0, 10));
+}
+
+// Prompt block. Takes the allowlisted view, not the raw summary.
+function buildHardSetText(hs) {
+  const MC = globalThis.MuscleCore;
+  if (!hs || !MC || !hs.week) return '';
+  const fmt = obj => MC.MUSCLES.filter(m => obj && obj[m] > 0).map(m => `${m} ${obj[m]}`).join(', ');
+  let t = `\n\nSTRENGTH STIMULUS — hard sets per muscle (a set is hard at ≤${MC.HARD_RIR} RIR, or session RPE ≥${MC.HARD_RPE} when RIR wasn't logged; secondary muscles count ½). This is the EARLY signal for keeping muscle — read it alongside the lean-mass trend above, which lags by months.`;
+  t += `\nThis week (since Monday): ${fmt(hs.week) || 'no hard sets yet'}.`;
+  if (hs.showAverages) {
+    t += `\nAverage of the previous 4 weeks: ${fmt(hs.avg) || 'none'}.`;
+    if (hs.neglected && hs.neglected.length) t += `\nNeglected (upper body/core averaging under 2 hard sets a week): ${hs.neglected.join(', ')}.`;
+  } else {
+    t += `\nOnly ${hs.ratedSets || 0} rated set(s) logged in 5 weeks — too few to average. Don't draw conclusions about neglect yet; encourage logging RIR.`;
+  }
+  return t;
+}
+
+// The band exercise names from the dataset, grouped by target — ideas, not
+// prescriptions. Many assume handles, a door anchor or a bar, so the kit rules win.
+function buildExerciseIdeasText() {
+  const lib = globalThis.EXERCISE_LIB;
+  if (!lib || !Array.isArray(lib.exercises)) return '';
+  const byTarget = {};
+  lib.exercises.filter(e => e.equipment === 'band' && e.target).forEach(e => { (byTarget[e.target] ||= []).push(e.name.replace(/^(resistance )?band /, '')); });
+  const lines = Object.keys(byTarget).sort().map(m => `${m}: ${byTarget[m].join('; ')}`);
+  return `\n\nBAND EXERCISE IDEAS (exercise dataset, names only, MIT). Many of these were written for tube bands with handles, a door anchor or a bar — the kit rules above WIN: adapt to a loop band and a Peloton anchor, or skip it.\n` + lines.join('\n');
+}
+
+function renderHardSets() {
+  const el = document.getElementById('hardSetsView');
+  const MC = globalThis.MuscleCore;
+  if (!el || !MC) return;
+  const hs = hardSetSummary();
+  if (!strengthLog.length) { el.innerHTML = ''; return; }
+  const max = Math.max(4, ...MC.MUSCLES.map(m => Math.max(hs.week[m], hs.avg[m] || 0)));
+  const legs = MC.MUSCLES.filter(m => !MC.TRACKED.includes(m));
+  const row = m => {
+    const w = hs.week[m], a = hs.avg[m];
+    return `<div class="hs-row${hs.neglected.includes(m) ? ' neglected' : ''}">
+      <div class="hs-name">${m}</div>
+      <div class="hs-bar"><span style="width:${Math.min(100, (w / max) * 100)}%"></span>${hs.showAverages ? `<i style="left:${Math.min(100, (a / max) * 100)}%" title="4-week average ${a}"></i>` : ''}</div>
+      <div class="hs-val">${w}${hs.showAverages ? `<span class="hs-avg"> / ${a}</span>` : ''}</div>
+    </div>`;
+  };
+  const legRows = legs.filter(m => hs.week[m] > 0 || (hs.showAverages && hs.avg[m] > 0));
+  el.innerHTML = `
+    <div class="bands-workout-card hs-card">
+      <div class="hs-head">
+        <div class="bands-workout-title">Hard sets per muscle</div>
+        <div class="hs-sub">This week${hs.showAverages ? ' · <span class="hs-avg">/ 4-week average</span>' : ''} · hard = ≤${MC.HARD_RIR} RIR (or session RPE ≥${MC.HARD_RPE})</div>
+      </div>
+      ${MC.TRACKED.map(row).join('')}
+      ${legRows.length ? `<div class="hs-sub" style="margin-top:6px">Legs & hips (riding covers these)</div>${legRows.map(row).join('')}` : ''}
+      <div class="hs-foot">${hs.showAverages
+        ? (hs.neglected.length ? `Neglected: <b>${hs.neglected.join(', ')}</b> — under 2 hard sets a week.` : 'Nothing neglected — every upper-body muscle is averaging 2+ hard sets a week.')
+        : `Averages and the neglected list appear after 5 rated sets (${hs.ratedSets} so far). Log RIR in the dashed box to rate sets.`}</div>
+    </div>`;
+}
+
 // Coerce a coach-supplied workout into the stored shape. Tolerant of missing fields so
 // a slightly-off JSON block still lands something useful rather than throwing.
 function normalizeResistanceWorkout(w, i) {
@@ -5570,6 +5664,18 @@ function normalizeResistanceWorkout(w, i) {
     rir: Number.isFinite(+ex?.rir) ? Math.max(0, Math.min(5, Math.round(+ex.rir))) : 2,
     tempo: String(ex?.tempo || '').slice(0, 40),
     cue:  String(ex?.cue || '').slice(0, 200),
+    // Primary/secondary muscles — what the hard-sets-per-muscle count credits. The coach
+    // may tag them; otherwise they're inferred from the exercise name (muscle-core.js).
+    muscles: (() => {
+      const MC = globalThis.MuscleCore;
+      if (!MC) return { primary: [], secondary: [] };
+      const g = ex?.muscles;
+      if (g && (Array.isArray(g.primary) || Array.isArray(g.secondary))) {
+        const primary = MC.normalizeMuscles(g.primary);
+        return { primary, secondary: MC.normalizeMuscles(g.secondary).filter(m => !primary.includes(m)) };
+      }
+      return MC.musclesForExercise(ex?.name);
+    })(),
   })) : [];
   const name = String(w?.name || 'Resistance Session').slice(0, 80);
   return {
@@ -5722,7 +5828,10 @@ function openStrengthModal(id) {
           <span class="slog-ex-name">${escapeHtml(ex.name)}</span>
           <span class="slog-ex-target">${b ? b.label : ''} \u00b7 ${escapeHtml(String(ex.reps || ''))}</span>
         </div>
-        <div class="slog-sets">${boxes}</div>
+        <div class="slog-sets">${boxes}
+          <input class="slog-set slog-rir" data-ex="${i}" type="number" min="0" max="5" inputmode="numeric"
+                 placeholder="RIR" title="Reps in reserve on these sets (0 = failure). Optional — it's what makes a set count as hard.">
+        </div>
       </div>`;
   }).join('');
 
@@ -5745,12 +5854,18 @@ function submitStrengthLog() {
   // rather than stored as zeros — a blank row means "didn't do it", and logging it
   // as 0 reps would tell the coach you failed the set.
   const exercises = w.exercises.map((ex, i) => {
-    const sets = Array.from(document.querySelectorAll(`.slog-set[data-ex="${i}"]`))
+    const sets = Array.from(document.querySelectorAll(`.slog-set:not(.slog-rir)[data-ex="${i}"]`))
       .map(inp => inp.value.trim())
       .filter(v => v !== '')
       .map(v => ({ reps: Math.max(0, Math.min(100, Math.round(+v))) }))
       .filter(st => Number.isFinite(st.reps));
-    return sets.length ? { name: ex.name, band: ex.band, choke: ex.choke, sets } : null;
+    // Optional RIR for this exercise's sets. Without it, hard sets fall back to session RPE.
+    const rirRaw = document.querySelector(`.slog-rir[data-ex="${i}"]`)?.value.trim();
+    if (rirRaw !== '' && rirRaw != null && Number.isFinite(+rirRaw)) {
+      const rir = Math.max(0, Math.min(5, Math.round(+rirRaw)));
+      sets.forEach(st => { st.rir = rir; });
+    }
+    return sets.length ? { name: ex.name, band: ex.band, choke: ex.choke, muscles: ex.muscles, sets } : null;
   }).filter(Boolean);
 
   if (!exercises.length) {
@@ -5793,6 +5908,7 @@ function addLibWorkoutToSchedule(id) {
 }
 
 function renderResistanceLib() {
+  renderHardSets();
   const list = document.getElementById('resistanceLibList');
   if (!list) return;
   if (!resistanceLib.length) {

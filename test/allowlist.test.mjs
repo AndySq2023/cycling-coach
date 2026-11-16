@@ -3,9 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadAppFunctions } from './_load-app.mjs';
+import '../shared/muscle-core.js';
 
 const { pickAllowed, describeAllowlist, COACH_DATA_ALLOWLIST: A } = loadAppFunctions(
-  ['pickAllowed', 'describeAllowlist'], ['COACH_WINDOW_DAYS', 'RIDE_FIELDS', 'COACH_DATA_ALLOWLIST']);
+  ['pickAllowed', 'describeAllowlist'], ['COACH_WINDOW_DAYS', 'RIDE_FIELDS', 'MUSCLE_FIELDS', 'COACH_DATA_ALLOWLIST']);
 const TODAY = '2026-11-16';
 
 test('unknown top-level fields do not get through', () => {
@@ -62,4 +63,9 @@ test('the My Data list is rendered from the same table', () => {
   const d = describeAllowlist(A);
   assert.deepEqual(d.map(c => c.label), Object.values(A).map(c => c.label));
   assert.ok(d.find(c => c.label === 'WHOOP').fields.includes('HRV'));
+});
+
+test('hard-set summary: only named muscles and fields get through', () => {
+  const hs = pickAllowed(A.hardSets, { week: { lats: 3, 'left pinky': 9 }, avg: { lats: 2.5 }, ratedSets: 12, showAverages: true, neglected: ['triceps'], weeks: [{ huge: 'history' }] }, TODAY);
+  assert.deepEqual(hs, { week: { lats: 3 }, avg: { lats: 2.5 }, ratedSets: 12, showAverages: true, neglected: ['triceps'] });
 });
