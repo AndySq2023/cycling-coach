@@ -1414,6 +1414,9 @@
   .preview-badge { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:4px;
     background:#d97706; color:#fff; font-size:10px; font-weight:700; letter-spacing:.08em; vertical-align:middle; }
   .preview-badge[hidden] { display:none; }
+  .sees-list { display:flex; flex-direction:column; gap:6px; font-size:12px; line-height:1.45; }
+  .sees-row b { font-weight:600; }
+  .sees-row.faint { color:var(--text-muted); }
 </style>
 </head>
 <body>
@@ -1623,6 +1626,13 @@
             placeholder="Add a fact yourself…" onkeydown="if(event.key==='Enter')addCoachNoteManual()" />
           <button class="load-btn icon" onclick="addCoachNoteManual()" title="Add note">＋</button>
         </div>
+      </div>
+
+      <!-- WHAT THE COACH SEES — rendered from COACH_DATA_ALLOWLIST, the same table the prompt reads through -->
+      <div>
+        <div class="data-section-label">What the coach sees</div>
+        <div class="notes-hint">The only data that reaches the coach. Anything not on this list never leaves the app.</div>
+        <div id="coachSeesList" class="sees-list"></div>
       </div>
 
     </div>
@@ -1973,6 +1983,69 @@ const PROPOSAL_KEY = 'cyclingCoachProposal';
 const SNAPSHOTS_KEY = 'cyclingCoachSnapshots';
 const DISMISSALS_KEY = 'cyclingCoachDismissals';
 const REVIEW_KEY = 'cyclingCoachReview';
+const PROPOSAL_SOURCE = { chat: 'From chat', adapt: 'Plan review', briefing: 'Morning briefing' };
+
+// What the coach sees — the allowlist buildSystemPrompt() reads athlete data through.
+// Commentary and the picker live beside coachDataView() further down.
+const COACH_WINDOW_DAYS = 84; // 12 weeks
+const RIDE_FIELDS = {
+  name: 'name', date: 'date', distance_km: 'distance', moving_time_min: 'moving time', elevation_m: 'climbing',
+  avg_speed_kph: 'avg speed', avg_hr: 'avg HR', max_hr: 'max HR',
+  avg_watts: 'avg power', weighted_avg_watts: 'normalised power', max_watts: 'max power', kilojoules: 'work (kJ)',
+};
+const COACH_DATA_ALLOWLIST = {
+  whoop: { label: 'WHOOP', fields: {
+    recovery_score: 'recovery %', hrv: 'HRV', rhr: 'resting HR', sleep_duration_h: 'sleep hours', sleep_efficiency: 'sleep efficiency',
+  } },
+  strava: { label: 'Strava rides', fields: {
+    rides_7d: '7-day ride count', total_km_7d: '7-day distance', total_elevation_7d: '7-day climbing', total_moving_time_h_7d: '7-day moving time',
+    last_ride: { label: 'most recent ride', fields: RIDE_FIELDS },
+    last_ride_detail: { label: 'its laps and repeated-segment splits', fields: {
+      laps: { items: { lap: 'lap', distance_km: 'distance', time_s: 'time', avg_hr: 'avg HR', max_hr: 'max HR', avg_watts: 'avg power' }, maxItems: 30 },
+      repeated_segments: { items: { name: 'name', distance_km: 'distance',
+        efforts: { items: { time_s: 'time', avg_hr: 'avg HR', avg_watts: 'avg power' }, maxItems: 10 } }, maxItems: 10 },
+    } },
+    all_rides: { label: "this week's rides", items: RIDE_FIELDS, windowDays: 7, maxItems: 20 },
+    history: { label: '12-week power history (provenance only)', items: { date: 'date', avg_watts: 'avg power', weighted_avg_watts: 'normalised power' }, windowDays: COACH_WINDOW_DAYS, maxItems: 120 },
+  } },
+  intervals: { label: 'intervals.icu load', fields: {
+    fitness: { label: 'fitness / fatigue / form', fields: { ctl: 'fitness (CTL)', atl: 'fatigue (ATL)', form: 'form', ramp_rate: 'ramp rate' } },
+    power: { label: 'FTP, eFTP and power zones', fields: { ftp: 'FTP', eftp: 'eFTP', w_prime: "W'", p_max: 'max power',
+      zones: { items: { name: 'zone', min_w: 'from', max_w: 'to' }, maxItems: 10 } } },
+    power_curve: { label: 'power bests', fields: { '5s': '5s', '1m': '1min', '5m': '5min', '20m': '20min', '60m': '60min' } },
+    power_curve_coverage: { label: 'how many rides the bests stand on', fields: { rides: 'rides', provisional: 'provisional' } },
+    duplicates: { label: 'duplicate-ride warnings', items: { date: 'date' }, windowDays: COACH_WINDOW_DAYS, maxItems: 30 },
+  } },
+  bodycomp: { label: 'Hume body composition trend', fields: {
+    latest_month: 'latest report', first_month: 'first report',
+    latest: { label: 'latest reading', fields: { weight_kg: 'weight', body_fat_pct: 'body fat %', body_fat_mass_kg: 'fat mass', lean_mass_kg: 'lean mass',
+      skeletal_muscle_mass_kg: 'skeletal muscle', visceral_fat_index: 'visceral fat', bmr_kcal: 'BMR' } },
+    change_since_first: { label: 'change since first report', fields: { weight_kg: 'weight', body_fat_mass_kg: 'fat mass', lean_mass_kg: 'lean mass',
+      skeletal_muscle_mass_kg: 'skeletal muscle', body_fat_pct: 'body fat %' } },
+    trend: { label: 'monthly trend', items: { month: 'month', weight_kg: 'weight', body_fat_pct: 'body fat %', lean_mass_kg: 'lean mass', skeletal_muscle_mass_kg: 'skeletal muscle' }, maxItems: 6 },
+    missing_months: { label: 'missing months', list: true, maxItems: 12 },
+  } },
+  weather: { label: 'weather forecast (48h)', fields: {
+    location: { label: 'location', fields: { lat: 'lat', lon: 'lon' } },
+    now: { label: 'now', fields: { temp_c: 'temp', wind_kph: 'wind', wind_dir: 'wind direction', gust_kph: 'gusts', precip_mm: 'rain' } },
+    summary: { label: '48h summary', fields: { hours: 'hours', wind_kph_min: 'min wind', wind_kph_max: 'max wind', gust_kph_max: 'max gust', temp_c_min: 'min temp', temp_c_max: 'max temp', precip_mm_total: 'total rain' } },
+    hourly: { label: '3-hourly outlook', items: { time: 'time', temp_c: 'temp', wind_kph: 'wind', wind_dir: 'direction', precip_mm: 'rain' }, maxItems: 16 },
+  } },
+  weight: { label: 'daily weight (12 weeks)', items: { date: 'date', kg: 'kg' }, windowDays: COACH_WINDOW_DAYS, maxItems: 120 },
+  strength: { label: 'strength log (last 6 sessions)', items: {
+    date: 'date', name: 'session', durationMin: 'minutes', sessionRpe: 'session RPE', load: 'load', notes: 'notes',
+    exercises: { items: { name: 'exercise', band: 'band', choke: 'choke', sets: { items: { reps: 'reps', rir: 'RIR' }, maxItems: 10 } }, maxItems: 20 },
+  }, windowDays: COACH_WINDOW_DAYS, maxItems: 6 },
+  coachNotes: { label: 'coach notes (long-term memory)', list: true, maxItems: 40 },
+  dismissals: { label: 'proposals you dismissed', items: {
+    type: 'change', why: "coach's reason", at: 'when',
+    target: { fields: { sessionId: 'session', date: 'date' } },
+    after: { fields: { date: 'date', type: 'type', duration: 'duration', intensity: 'intensity', targets: 'targets',
+      workouts: { items: { name: 'name' }, maxItems: 20 } } },
+  }, maxItems: 12 },
+};
+// Not athlete data, but also in the prompt — listed so the My Data view is complete.
+const COACH_ALSO_SEES = ['your goal and FTP', "this plan's sessions with your logged RPE and actuals", 'the strength library', 'any pending coach proposal', 'the recent chat (last ~40 messages)'];
 
 let feedbackTargetId = null; // which session we're logging
 
@@ -2406,6 +2479,7 @@ async function coachFetch(url, options = {}) {
   // Restore the coach's long-term memory
   loadCoachNotes();
   renderCoachNotes();
+  renderCoachSees();
 
   // Restore coach-authored resistance sessions (Resistance tab)
   loadResistance();
@@ -3902,8 +3976,8 @@ function buildBodyCompText(bc) {
   return t;
 }
 
-function buildPowerText() {
-  const st = athleteData.strava || {};
+function buildPowerText(stIn) {
+  const st = stIn || athleteData.strava || {};
   // history is the 90-day chart array; all_rides is the 7-day subset. Prefer history,
   // fall back to the week so a stale backend with no `history` field still gets this.
   const hist = (st.history || []).filter(r => r.avg_watts != null);
@@ -3911,7 +3985,7 @@ function buildPowerText() {
   const metered = hist.length ? hist : week;
   if (!metered.length) return '';
   const last = metered[metered.length - 1];
-  const window = hist.length ? `in the last ${st.history_days || 90} days` : 'this week';
+  const window = hist.length ? 'in the last 12 weeks' : 'this week';
 
   return `\n\nPOWER DATA — WHERE THESE WATTS CAME FROM (read before you say anything about power):` +
     `\nThe athlete HAS a power meter. ${metered.length} ride${metered.length === 1 ? '' : 's'} ${window} recorded real watts` +
@@ -3926,12 +4000,12 @@ function buildPowerText() {
 // stays on HR and RPE instead of inventing watt targets from a number that doesn't
 // exist. Shares FTP_ZONES with the My Data readout, so prompt and UI can never drift.
 // What power data EXISTS is buildPowerText's job, not this one's — see the note there.
-function buildZoneText(ftp) {
+function buildZoneText(ftp, st) {
   if (!ftp) return '';
   const rows = FTP_ZONES.map(([name, lo, hi]) =>
     `\n  ${name}: ${hi == null ? `${Math.round(ftp * lo)}W and above` : `${Math.round(ftp * lo)}–${Math.round(ftp * hi)}W`}`).join('');
 
-  const metered = (athleteData.strava?.history || []).filter(r => r.avg_watts != null);
+  const metered = ((st || athleteData.strava)?.history || []).filter(r => r.avg_watts != null);
   const unmetered = metered.length ? '' :
     `\n\nNo ride has recorded watts yet. Give these zones as targets to ride to, but coach from HR, pace and RPE — you cannot yet check what the athlete actually produced.`;
 
@@ -4320,7 +4394,96 @@ RENDERING: the chat shows plain text, line breaks and **bold** only. No markdown
 SCOPE: the morning briefing obeys the same 4-line limit, laid out as its own request describes. A JSON-only plan request returns just the JSON it asks for.`;
 }
 
+// ── WHAT THE COACH SEES: an explicit allowlist ────────────────────────────────
+// buildSystemPrompt() reads athlete data ONLY through coachDataView(), which copies
+// fields BY NAME from this table. Nothing is spread: a field a backend starts returning
+// tomorrow (a token, a raw payload, a 2-year history) never reaches the prompt until
+// someone adds it here on purpose. History is capped at 12 weeks.
+//
+// The My Data "What the coach sees" list is rendered from this same table, so the
+// screen and the prompt cannot drift apart.
+//
+// Spec language: a string is a leaf (label) — copied only if it's a primitive; an object
+// with `fields` is a nested object; one with `items` is an array of those (filtered to
+// the last `windowDays` by its `date`, capped to the newest `maxItems`); `list: true` is
+// an array of strings.
+// (COACH_DATA_ALLOWLIST and friends are declared up top with the other early globals —
+// init() renders the My Data list before this point in the script.)
+
+// Copy only allowlisted fields from `src`. Pure (no globals) — tested directly.
+function pickAllowed(spec, src, today) {
+  const isPrim = v => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+  const cutoff = days => { const d = new Date(today + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - days); return d.toISOString().slice(0, 10); };
+  const pickNode = (node, val) => {
+    if (val === undefined || val === null) return undefined;
+    if (typeof node === 'string') return isPrim(val) ? val : undefined;
+    if (node.list) {
+      if (!Array.isArray(val)) return undefined;
+      const out = val.filter(x => typeof x === 'string');
+      return node.maxItems ? out.slice(-node.maxItems) : out;
+    }
+    if (node.items) {
+      if (!Array.isArray(val)) return undefined;
+      let arr = val.filter(x => x && typeof x === 'object');
+      if (node.windowDays) { const c = cutoff(node.windowDays); arr = arr.filter(x => typeof x.date === 'string' && x.date.slice(0, 10) >= c); }
+      if (node.maxItems) arr = arr.slice(-node.maxItems);
+      const itemSpec = node.items;
+      return arr.map(x => pickFields(itemSpec, x));
+    }
+    if (node.fields) return (val && typeof val === 'object' && !Array.isArray(val)) ? pickFields(node.fields, val) : undefined;
+    return undefined;
+  };
+  const pickFields = (fields, obj) => {
+    const out = {};
+    for (const k of Object.keys(fields)) {
+      if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+      const v = pickNode(fields[k], obj[k]);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  };
+  return pickNode(spec, src);
+}
+
+// Render the allowlist as a plain list: "WHOOP — recovery %, HRV, …". Pure.
+function describeAllowlist(allow) {
+  const labels = node => {
+    if (typeof node === 'string') return [node];
+    if (node.list) return [];
+    const fields = node.items || node.fields || {};
+    return Object.values(fields).flatMap(f => (typeof f === 'string' ? [f] : (f.label ? [f.label] : [])));
+  };
+  return Object.values(allow).map(c => ({ label: c.label, fields: labels(c) }));
+}
+
+// The single entry point buildSystemPrompt() uses for athlete data.
+function coachDataView() {
+  const today = new Date().toISOString().slice(0, 10);
+  const A = COACH_DATA_ALLOWLIST;
+  return {
+    whoop: pickAllowed(A.whoop, athleteData.whoop, today) || null,
+    strava: pickAllowed(A.strava, athleteData.strava, today) || null,
+    intervals: pickAllowed(A.intervals, athleteData.intervals, today) || null,
+    bodycomp: pickAllowed(A.bodycomp, athleteData.bodycomp, today) || null,
+    weather: pickAllowed(A.weather, athleteData.weather, today) || null,
+    weight: pickAllowed(A.weight, weightLog, today) || [],
+    strength: pickAllowed(A.strength, strengthLog, today) || [],
+    coachNotes: pickAllowed(A.coachNotes, coachNotes, today) || [],
+    dismissals: pickAllowed(A.dismissals, dismissedChanges, today) || [],
+  };
+}
+
+function renderCoachSees() {
+  const el = document.getElementById('coachSeesList');
+  if (!el) return;
+  el.innerHTML = describeAllowlist(COACH_DATA_ALLOWLIST).map(c =>
+    `<div class="sees-row"><b>${escapeHtml(c.label)}</b>${c.fields.length ? ` — ${escapeHtml(c.fields.join(', '))}` : ''}</div>`).join('')
+    + `<div class="sees-row faint">Also: ${escapeHtml(COACH_ALSO_SEES.join(', '))}. Nothing older than 12 weeks.</div>`;
+}
+
 function buildSystemPrompt() {
+  // Every piece of athlete data below comes through the allowlist — see coachDataView().
+  const cd = coachDataView();
   let prompt = `You are an expert cycling coach — evidence-based, direct, and recovery-aware. You specialize in endurance cycling and use polarized training principles (Seiler 80/20), ${athleteData.ftp ? 'power-based zones (FTP), heart rate' : 'heart rate'} and RPE-based training zones, and volume/load methodology.
 
 Your job is to give the athlete personalized, actionable coaching advice based on their real WHOOP recovery data and Strava training history. Be specific — ground every call in their actual numbers. Never give generic advice.
@@ -4336,26 +4499,24 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
   const todayLong = new Date().toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
   prompt += `\n\n⚠️ SYSTEM DATE (ground truth — authoritative over anything you compute yourself or see earlier in the conversation): TODAY IS ${todayLong.toUpperCase()} (${todayISO}). NEVER compute day-of-week yourself, your internal calendar is a year out of date — always copy dates from this CALENDAR for the next 28 days: ${calendarTable(28)}.`;
 
-  if (athleteData.whoop) {
-    const w = athleteData.whoop;
+  if (cd.whoop) {
+    const w = cd.whoop;
     prompt += `\n\nATHLETE'S CURRENT WHOOP DATA (live, today):`;
     if (w.recovery_score != null) prompt += `\nRecovery: ${w.recovery_score}%`;
     if (w.hrv != null)            prompt += `\nHRV: ${w.hrv}ms`;
     if (w.rhr != null)            prompt += `\nRHR: ${w.rhr}bpm`;
     if (w.sleep_efficiency != null) prompt += `\nSleep efficiency: ${w.sleep_efficiency}%`;
     if (w.sleep_duration_h != null) prompt += `\nSleep duration: ${w.sleep_duration_h}h`;
-    if (w.spo2 != null)           prompt += `\nSpO2: ${w.spo2}%`;
-    if (w.strain != null)         prompt += `\nStrain: ${w.strain}`;
   }
   // Weight against the target. The single number is what the scales last said; the
   // 4-week direction is the part that answers "is this working", and it exists only
   // because recordWeight logs each day's value as it arrives.
-  if (weightLog.length) {
-    const lastW = weightLog[weightLog.length - 1];
+  if (cd.weight.length) {
+    const lastW = cd.weight[cd.weight.length - 1];
     const gap = +(lastW.kg - GOAL.weightTargetKg).toFixed(1);
     prompt += `\n\nWEIGHT: ${lastW.kg}kg (logged ${lastW.date}). Target ${GOAL.weightTargetKg}kg for skiing on ${GOAL.skiDate} — ${gap > 0 ? `${gap}kg to lose` : 'already at or under target'}.`;
     const cutoff = new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10);
-    const prior = weightLog.filter(e => e.date <= cutoff).slice(-1)[0];
+    const prior = cd.weight.filter(e => e.date <= cutoff).slice(-1)[0];
     if (prior) {
       const d28 = +(lastW.kg - prior.kg).toFixed(1);
       prompt += ` Over the last 4 weeks: ${d28 > 0 ? '+' : ''}${d28}kg (from ${prior.kg}kg on ${prior.date}).`;
@@ -4363,9 +4524,9 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
       prompt += ` Not enough logged history yet for a 4-week trend — do NOT infer a direction from a single reading.`;
     }
   }
-  prompt += buildBodyCompText(athleteData.bodycomp);
-  if (athleteData.intervals) {
-    const iv = athleteData.intervals;
+  prompt += buildBodyCompText(cd.bodycomp);
+  if (cd.intervals) {
+    const iv = cd.intervals;
     const f = iv.fitness || {};
     const p = iv.power || {};
     const pc = iv.power_curve || {};
@@ -4407,8 +4568,8 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
     }
     prompt += `\nNOTE: intervals.icu ingests the same Strava rides listed below — do NOT treat these as two separate training blocks. Strava is the ride log; intervals.icu is the modelled load on top of it.`;
   }
-  if (athleteData.strava) {
-    const s = athleteData.strava;
+  if (cd.strava) {
+    const s = cd.strava;
     prompt += `\n\nATHLETE'S STRAVA DATA (last 7 days, live):`;
     prompt += `\nRides: ${s.rides_7d}`;
     prompt += `\nTotal distance: ${mi(s.total_km_7d)} mi`;
@@ -4452,10 +4613,10 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
     }
   }
   // Provenance first, then zones: buildPowerText is ungated, buildZoneText needs FTP.
-  prompt += buildPowerText();
-  prompt += buildZoneText(athleteData.ftp);
-  if (athleteData.weather) {
-    const wx = athleteData.weather;
+  prompt += buildPowerText(cd.strava);
+  prompt += buildZoneText(athleteData.ftp, cd.strava);
+  if (cd.weather) {
+    const wx = cd.weather;
     const n = wx.now || {};
     const s = wx.summary || {};
     prompt += `\n\nWEATHER FORECAST (live, next ${s.hours || 48}h, for ride planning):`;
@@ -4486,28 +4647,28 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
   // the opposite. Deleting that note fixed the symptom; the PRECEDENCE line below fixes
   // the class, because the same thing is waiting to happen to FTP, the route-builder
   // limits, or anything else here that time overtakes.
-  if (coachNotes.length) {
+  if (cd.coachNotes.length) {
     prompt += `\n\nWHAT YOU ALREADY KNOW ABOUT THIS ATHLETE (long-term memory — carried over from earlier conversations, treat as true unless they correct you, and never re-ask something answered here):`;
-    coachNotes.forEach(n => { prompt += `\n- ${n}`; });
+    cd.coachNotes.forEach(n => { prompt += `\n- ${n}`; });
     prompt += `\nPRECEDENCE — these notes were written in the past and some will have gone stale. Where a note contradicts the live WHOOP, Strava, power or weather data above, THE LIVE DATA WINS: treat the note as out of date, and never cite one as a reason to doubt, downgrade or explain away a number the app has just measured. If a note is clearly obsolete, say so in a clause and move on.`;
   }
-  if (!athleteData.whoop && !athleteData.strava) {
+  if (!cd.whoop && !cd.strava) {
     prompt += `\n\nNo data loaded yet. Ask the athlete to share their WHOOP recovery numbers and recent Strava rides so you can give personalized advice. You can still answer general cycling training questions.`;
   }
 
   // ── Today's data grounding (rides/recovery already covered by the SYSTEM DATE block up top) ──
   prompt += `\n\n=== TODAY'S DATA (${todayISO}) ===`;
-  if (athleteData.strava) {
-    const ridesToday = (athleteData.strava.all_rides || []).filter(r => r.date === todayISO);
+  if (cd.strava) {
+    const ridesToday = (cd.strava.all_rides || []).filter(r => r.date === todayISO);
     if (ridesToday.length) {
       prompt += `\nRide(s) recorded TODAY: ` + ridesToday.map(r => `${r.name} — ${mi(r.distance_km)}mi at ${mph(r.avg_speed_kph)} mph`).join('; ') + `.`;
     } else {
-      const lr = athleteData.strava.last_ride;
+      const lr = cd.strava.last_ride;
       prompt += `\nNo ride has been recorded today. Most recent ride: ${lr ? `${lr.name} on ${lr.date} (avg ${mph(lr.avg_speed_kph)} mph)` : 'none in the last 7 days'}.`;
     }
   }
-  if (athleteData.whoop && athleteData.whoop.recovery_score != null) {
-    const w = athleteData.whoop;
+  if (cd.whoop && cd.whoop.recovery_score != null) {
+    const w = cd.whoop;
     prompt += `\nWHOOP this morning — recovery ${w.recovery_score}%`
       + (w.hrv != null ? `, HRV ${w.hrv}ms` : '')
       + (w.rhr != null ? `, RHR ${w.rhr}bpm` : '')
@@ -4578,9 +4739,9 @@ The app validates every proposal. If yours fails you get ONE chance to fix it; a
   if (pendingProposal && PC) {
     prompt += `\n\nPENDING PROPOSAL (sent ${pendingProposal.createdAt.slice(0, 16).replace('T', ' ')}, NOT yet applied — the athlete hasn't decided): ${proposalLine(pendingProposal.changes)}. A new plan_proposal replaces it.`;
   }
-  if (dismissedChanges.length && PC) {
+  if (cd.dismissals.length && PC) {
     prompt += `\n\nDISMISSED PROPOSALS (the athlete said no — don't propose these again without new evidence):`;
-    dismissedChanges.slice(-12).forEach(d => {
+    cd.dismissals.forEach(d => {
       const desc = PC.describeChange({ ...d, before: null }, proposalState());
       prompt += `\n- ${new Date(d.at).toISOString().slice(0, 10)}: ${desc.title}${d.target?.date ? ` (${d.target.date})` : ''} → ${desc.after}${d.why ? ` — you'd said: "${d.why}"` : ''}`;
     });
@@ -4631,10 +4792,10 @@ You choose the two days each week — the athlete has delegated that to you. App
 Because the work is upper-body and core ONLY, it barely interferes with cycling: don't protect ride days from it beyond the rules above.`;
 
   // ── What was actually lifted, so progression is real rather than guessed ──
-  if (strengthLog.length) {
+  if (cd.strength.length) {
     prompt += `\n\n=== LOGGED STRENGTH SESSIONS (most recent last) ===
 This is what the athlete ACTUALLY did — progress them from these numbers, not from what you last prescribed.`;
-    strengthLog.slice(-6).forEach(e => {
+    cd.strength.forEach(e => {
       prompt += `\n• ${e.date} — ${e.name}${e.durationMin ? `, ${e.durationMin}min` : ''}${e.sessionRpe ? `, session RPE ${e.sessionRpe}/10` : ''}${e.load ? `, load ${e.load}AU` : ''}`;
       (e.exercises || []).forEach(ex => {
         const sets = (ex.sets || []).map(st => st.rir != null ? `${st.reps}@${st.rir}RIR` : `${st.reps}`).join(', ');
@@ -5888,7 +6049,6 @@ function undoLastCoachChange() {
   showToast('Coach change undone ↶');
 }
 
-const PROPOSAL_SOURCE = { chat: 'From chat', adapt: 'Plan review', briefing: 'Morning briefing' };
 
 function proposalCardHtml(where) {
   const p = pendingProposal;
