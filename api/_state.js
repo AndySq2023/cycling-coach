@@ -22,6 +22,10 @@ function emptyState() {
     coachNotes: [],      // durable facts the coach remembers about the athlete
     resistance: [],      // coach-authored strength sessions (Resistance tab)
     strengthLog: [],     // [{date, name, exercises:[{name,band,sets:[{reps,rir}]}], ...}]
+    pendingProposal: null, // coach proposal awaiting approval (shared/proposal-core.js)
+    snapshots: [],       // last 10 pre-apply snapshots, for "Undo last coach change"
+    dismissals: [],      // last 30 dismissed changes, fed back to the coach
+    review: null,        // { date, text, source } — last quiet "no change" review
     conversationHistory: [], // [{ role:'user'|'assistant', content }]
     briefing: null,       // { date, text, whoopSig } — today's morning briefing, shared
                            // across devices so only one is ever generated per day

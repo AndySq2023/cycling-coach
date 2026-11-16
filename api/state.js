@@ -8,6 +8,10 @@ import { requireAuth } from './_auth.js';
 import { getState, setState } from './_state.js';
 import { repairPlanDates } from './_dates.js';
 
+// JSON size guard for the coach-proposal fields: they hold plan/library copies, so a
+// buggy client could otherwise grow the blob every device pulls.
+const fits = (v, max) => { try { return JSON.stringify(v).length <= max; } catch { return false; } };
+
 export default async function handler(req, res) {
   if (!requireAuth(req, res)) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -62,6 +66,19 @@ export default async function handler(req, res) {
               .filter(e => e && /^\d{4}-\d{2}-\d{2}$/.test(e.date))
               .slice(-200)
           : [],
+        // Coach proposals (see shared/proposal-core.js). A pending proposal, the last 10
+        // undo snapshots, the last 30 dismissals and the last quiet review.
+        pendingProposal: (b.pendingProposal && typeof b.pendingProposal === 'object' && Array.isArray(b.pendingProposal.changes)
+          && b.pendingProposal.changes.length <= 20 && fits(b.pendingProposal, 60000)) ? b.pendingProposal : null,
+        snapshots: Array.isArray(b.snapshots)
+          ? b.snapshots.filter(x => x && typeof x === 'object' && Array.isArray(x.plan) && fits(x, 80000)).slice(-10)
+          : [],
+        dismissals: Array.isArray(b.dismissals)
+          ? b.dismissals.filter(d => d && typeof d.type === 'string' && fits(d, 4000)).slice(-30)
+          : [],
+        review: (b.review && typeof b.review === 'object' && typeof b.review.text === 'string')
+          ? { date: String(b.review.date || '').slice(0, 10), text: b.review.text.slice(0, 600), source: String(b.review.source || '').slice(0, 20) }
+          : null,
         conversationHistory: Array.isArray(b.conversationHistory) ? b.conversationHistory : [],
         // Today's morning briefing — shared across devices so it's generated once and
         // every device shows the same weather read and plan, not a fresh AI call each.

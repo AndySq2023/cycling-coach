@@ -1385,10 +1385,35 @@
     .tab-bar { padding: 8px 10px; gap: 2px; }
     .tab-btn { padding: 6px 2px; margin: 0 6px; letter-spacing: 0.1em; font-size: 11px; }
   }
+  /* ── Coach proposal card ── thumb-sized: every tap target ≥ 44px tall. */
+  .proposal-card { background:var(--surface); border:1.5px solid var(--accent); border-radius:14px; padding:14px 14px 12px; margin:12px 0; display:flex; flex-direction:column; gap:8px; max-width:640px; }
+  .messages .proposal-card { align-self:stretch; margin:12px 8px; }
+  .pc-kicker { font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }
+  .pc-summary { font-size:15px; font-weight:600; margin-top:4px; line-height:1.35; }
+  .pc-row { display:flex; gap:12px; align-items:flex-start; padding:10px 6px; min-height:44px; border-top:1px solid var(--border); cursor:pointer; }
+  .pc-row input[type=checkbox] { width:24px; height:24px; flex:0 0 24px; margin:2px 0 0; accent-color:var(--accent); }
+  .pc-row.stale { opacity:.5; cursor:default; }
+  .pc-body { min-width:0; flex:1; }
+  .pc-title { font-size:14px; font-weight:600; }
+  .pc-where { font-weight:400; color:var(--text-muted); }
+  .pc-diff { font-size:14px; margin-top:3px; line-height:1.4; overflow-wrap:anywhere; }
+  .pc-before { color:var(--text-muted); text-decoration:line-through; }
+  .pc-after { font-weight:600; }
+  .pc-why { font-size:12.5px; color:var(--text-muted); margin-top:4px; line-height:1.45; }
+  .pc-flag { font-size:12px; color:#b45309; margin-top:4px; }
+  .pc-actions { display:flex; gap:10px; margin-top:4px; }
+  .pc-btn { flex:1; min-height:48px; border-radius:10px; font-size:15px; font-weight:600; border:1.5px solid var(--accent); cursor:pointer; font-family:inherit; }
+  .pc-btn.primary { background:var(--accent); color:#fff; }
+  .pc-btn.ghost { background:transparent; color:var(--accent); }
+  .coach-status-row { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:4px 0 12px; }
+  .coach-status { font-size:13px; color:var(--text-muted); line-height:1.4; flex:1 1 260px; }
+  .coach-undo { min-height:40px; padding:0 14px; border-radius:20px; border:1px solid var(--border); background:var(--surface); font-size:13px; font-weight:600; cursor:pointer; font-family:inherit; }
+
   /* Preview deployment marker — a preview has its own KV namespace (api/_kv.js envKey),
      so changes made there never reach the real app. The badge makes that impossible to miss. */
   .preview-badge { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:4px;
     background:#d97706; color:#fff; font-size:10px; font-weight:700; letter-spacing:.08em; vertical-align:middle; }
+  .preview-badge[hidden] { display:none; }
 </style>
 </head>
 <body>
@@ -1662,6 +1687,7 @@
           <p id="scheduleMeta">Generate a plan based on your goal and current data.</p>
         </div>
         <div class="schedule-header-actions">
+          <button class="gen-btn secondary" id="undoCoachBtn" onclick="undoLastCoachChange()" style="display:none" title="Restore the plan from before the last applied coach change">↶ Undo</button>
           <button class="gen-btn secondary" id="adaptBtn" onclick="adaptPlan()" style="display:none">Adapt plan</button>
           <button class="gen-btn secondary" id="exportBtn" onclick="exportCalendar()" title="Download a .ics file to add this week to Apple/Google Calendar">Export</button>
           <button class="gen-btn primary" id="generateBtn" onclick="generateSchedule()">Generate plan</button>
@@ -1800,6 +1826,8 @@
   </div>
 </div>
 
+<!-- Pure proposal/validation logic, shared with the tests (see shared/proposal-core.js). -->
+<script src="../shared/proposal-core.js"></script>
 <script>
 // ── STATE ──────────────────────────────────────────────────
 let athleteData = { whoop: null, strava: null, weather: null, intervals: null, bodycomp: null, goal: null, ftp: null };
@@ -1928,6 +1956,23 @@ const ANCHOR_IDS = Object.keys(BAND_ANCHORS);
 let strengthLog = [];
 const STRENGTH_KEY = 'cyclingCoachStrengthLog';
 const STRENGTH_MAX = 200;
+
+// ── COACH PROPOSALS ────────────────────────────────────────
+// The coach no longer writes to the plan directly. Every plan-changing block becomes a
+// pending proposal (validated by shared/proposal-core.js) that the athlete ticks and
+// applies; every apply is snapshotted for undo; dismissed changes are remembered and fed
+// back so the coach doesn't keep re-suggesting them. All four sync via coach_state.
+// Declared up here, not beside their functions, because init() runs before the rest of
+// the script and would hit the let-TDZ (see the STATE_POLL_MS note).
+const PC = globalThis.ProposalCore || null;
+let pendingProposal = null;   // { id, createdAt, source, summary, changes:[…+selected,stale] }
+let coachSnapshots = [];      // [{ at, label, plan, feedback, adaptations, resistance }], last 10
+let dismissedChanges = [];    // [{ type, target, after, why, at }], last 30
+let lastReview = null;        // { date, text, source } — a quiet "no change" review
+const PROPOSAL_KEY = 'cyclingCoachProposal';
+const SNAPSHOTS_KEY = 'cyclingCoachSnapshots';
+const DISMISSALS_KEY = 'cyclingCoachDismissals';
+const REVIEW_KEY = 'cyclingCoachReview';
 
 let feedbackTargetId = null; // which session we're logging
 
@@ -2082,6 +2127,10 @@ function buildStateBody() {
     coachNotes,
     resistance: resistanceLib,
     strengthLog,
+    pendingProposal,
+    snapshots: coachSnapshots,
+    dismissals: dismissedChanges,
+    review: lastReview,
     conversationHistory: conversationHistory.slice(-120),
     // Mirror whatever's cached locally (or null) so other devices adopt the same
     // briefing instead of generating their own.
@@ -2107,6 +2156,7 @@ function renderChatFromHistory() {
   divider.textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   msgs.appendChild(divider);
   conversationHistory.forEach(t => restoreBubble(t.role === 'assistant' ? 'coach' : 'user', t.content, ''));
+  renderProposalSurfaces();
   // A background pull can re-render while the chat is open (e.g. new turns from another device) —
   // land on the newest message instead of stranding the reader mid-history.
   scrollChatToLatest();
@@ -2261,6 +2311,15 @@ function adoptServerState(s) {
       localStorage.setItem(STRENGTH_KEY, JSON.stringify(strengthLog));
       if (currentTab === 'bands') renderResistanceLib();
     }
+    // Coach proposals: a proposal applied or dismissed on the phone must disappear here
+    // too, so 'in s' (null propagates) rather than a truthy check.
+    if ('pendingProposal' in s) {
+      const next = (s.pendingProposal && Array.isArray(s.pendingProposal.changes)) ? s.pendingProposal : null;
+      if (JSON.stringify(next) !== JSON.stringify(pendingProposal)) { pendingProposal = next; persistProposalState(); renderProposalSurfaces(); }
+    }
+    if (Array.isArray(s.snapshots)) { coachSnapshots = s.snapshots.slice(-10); persistProposalState(); }
+    if (Array.isArray(s.dismissals)) { dismissedChanges = s.dismissals.slice(-30); persistProposalState(); }
+    if ('review' in s) { lastReview = s.review || null; persistProposalState(); }
     // Adopt the shared conversation if the server's differs (e.g. new turns from another device).
     if (historyExtends(conversationHistory, s.conversationHistory)) {
       keptLocal = true; // this device has turns the server never got
@@ -2351,6 +2410,7 @@ async function coachFetch(url, options = {}) {
   // Restore coach-authored resistance sessions (Resistance tab)
   loadResistance();
   loadStrengthLog();
+  loadProposalState();
 
   // Restore chat history
   const savedChat = localStorage.getItem('cyclingCoachChat');
@@ -2390,6 +2450,7 @@ async function coachFetch(url, options = {}) {
   Promise.allSettled([whoopReady, stravaReady, intervalsReady, weatherReady, bodycompReady]).then(maybeMorningBriefing);
   // Pull the server copy (hosted only) so schedule edits made on another device while
   // this one was closed show up. No-op on local dev.
+  renderProposalSurfaces();
   pullState();
   startStatePolling();
   switchTab('today');
@@ -2788,7 +2849,9 @@ function renderDashboard() {
 
   const lowerHtml = `<div class="ed-lower"><div class="ed-panel">${sessInner}${agendaInner}</div>${coachHtml}</div>`;
 
-  el.innerHTML = `<div class="ed-today">${heroHtml}${readHtml}${stripHtml}${lowerHtml}</div>`;
+  // A pending coach proposal leads the page — it's the one thing waiting on the athlete.
+  const proposalHtml = (typeof proposalCardHtml === 'function' ? proposalCardHtml('today') : '') + (typeof coachStatusHtml === 'function' ? coachStatusHtml() : '');
+  el.innerHTML = `<div class="ed-today">${proposalHtml}${heroHtml}${readHtml}${stripHtml}${lowerHtml}</div>`;
 }
 
 // ── PERFORMANCE DASHBOARD (three charts) ──────────────────
@@ -4038,14 +4101,14 @@ Reply with ONLY a JSON array of short factual strings, each under 200 characters
 const BRIEFING_ASK = `(Automated daily briefing — the athlete did not type this.)
 Write my morning briefing. Cover, briefly:
 1. Recovery read — today's WHOOP numbers and what they mean for training.
-2. Today's session — what's on the schedule. If recovery clearly warrants changing it, adapt it (you can emit a schedule_update) and say why. If there's no plan, suggest what today should be.
+2. Today's session — what's on the schedule. If recovery clearly warrants changing it, PROPOSE the change (a plan_proposal block — the athlete approves it from the card) and say why in one line. Change nothing when nothing warrants it: most mornings the right answer is the plan as written. If there's no plan, suggest what today should be.
 3. Ride window — if you have the weather, the best time slot to ride and any kit notes.
-Length: 4 lines maximum, same limit as chat — one line per item above, each 15 words or fewer per sentence, plus one CHANGED: line only if you changed today's session. Skip the ride-window line when there is no weather or today is a Rest Day. Don't ask questions — the athlete may not reply.
+Length: 4 lines maximum, same limit as chat — one line per item above, each 15 words or fewer per sentence, plus one PROPOSED: line only if you proposed a change to today's session. Skip the ride-window line when there is no weather or today is a Rest Day. Don't ask questions — the athlete may not reply.
 Formatting: this renders in a small card. Start each line with a short **bold** lead-in (**Recovery**, **Today**, **Window**). Open the recovery line with the callout [Recovery: N%] using today's exact WHOOP score. Do NOT use markdown headings (#, ##), horizontal rules (---), or a restatement of today's date (the card already shows it).
 
 Hard rules for this briefing:
 - Ground every number and every claim in the data above. If WHOOP data is absent, open with "(No WHOOP data this morning)" and do NOT invent, estimate, or infer a recovery status. Same for missing Strava or weather — say it's unavailable rather than guessing.
-- The ACTIVE TRAINING SCHEDULE is authoritative. If today is a Rest Day, the briefing protects the rest day — do not prescribe a ride. Never describe a workout that contradicts today's scheduled session; if you believe it should change, change it via schedule_update and explain.
+- The ACTIVE TRAINING SCHEDULE is authoritative. If today is a Rest Day, the briefing protects the rest day — do not prescribe a ride. Never describe a workout that contradicts today's scheduled session; if you believe it should change, propose it via plan_proposal and explain.
 - The most recent ride and its date come from the GROUND TRUTH block — restate them exactly, never from memory of the conversation.
 - Session targets: when power zones are listed above, give targets in WATTS from those zones. If no zones are listed (FTP not set), use heart rate, RPE and duration — never invent a wattage target.
 - Do NOT plan a route in a briefing. Never emit a route_request or home_set block here.`;
@@ -4138,18 +4201,25 @@ async function generateMorningBriefing() {
     // today's session, but must never plan a route or move home (the ask forbids both —
     // strip them defensively so a stray block can't leak raw JSON into the card).
     const reply = data.content[0].text;
-    const { clean: schedClean, updates, planSet, planAdd } = extractScheduleUpdates(reply);
+    const { clean: propClean, proposal: planProposal } = PC ? PC.extractPlanProposal(reply) : { clean: reply, proposal: null };
+    const { clean: schedClean, updates, planSet, planAdd } = extractScheduleUpdates(propClean);
     const { clean: notesClean, notes } = extractCoachNotes(schedClean);
-    const { clean: homeClean } = extractHomeSet(notesClean);
+    const { clean: resClean, workouts } = extractResistance(notesClean);
+    const nc = PC ? PC.parseNoChange(resClean) : null;
+    const { clean: homeClean } = extractHomeSet(nc ? nc.clean : resClean);
     const { clean: routeClean } = extractRouteRequest(homeClean);
     const { clean } = stripFakeRouteMarkers(routeClean);
     if (notes) applyCoachNotes(notes);
 
-    if (planSet) applyScheduleSet(planSet);
-    else { if (updates.length) applyScheduleUpdates(updates); if (planAdd.length) applyScheduleAdd(planAdd); }
+    // A briefing can PROPOSE adapting today's session — the athlete approves it from the
+    // Today card like any other proposal. It never applies anything itself.
+    const prop = await handleCoachProposal(
+      { planProposal, updates, planSet, planAdd, workouts },
+      { source: 'briefing', repairMessages: [{ role: 'user', content: BRIEFING_ASK }, { role: 'assistant', content: reply }] });
 
-    let text = clean || 'Morning! No briefing today — data sources were quiet.';
-    if (planSet || updates.length || planAdd.length) text += '\n\n🗓 I\'ve updated your schedule — check the Schedule tab.';
+    let text = clean || (nc && nc.reading) || 'Morning! No briefing today — data sources were quiet.';
+    if (prop.status === 'ok') text += '\n\n🗓 I\'ve proposed a change to your plan — review it on the card below.';
+    else if (prop.status === 'failed') text += '\n\n(I wanted to adjust the plan, but the change failed the safety check — nothing was changed.)';
     text = '☀️ ' + text;
 
     todayBriefing = text;
@@ -4227,15 +4297,15 @@ The athlete reads this on a phone. Long replies do not get read.
 
 LENGTH: 4 lines maximum of visible text per reply. One idea per line, 15 words or fewer per sentence. Go longer ONLY when the athlete asks for detail ("why", "explain", "talk me through", "full breakdown") — then answer fully, and return to 4 lines on the next reply. Fenced JSON blocks do not count towards the limit.
 
-ANSWER FIRST: the first sentence is the answer, the number, or the call. Example: "Your FTP dropped 8W. Cut tomorrow's intervals to 4×5min." Give the why only if asked — the one exception is the single-clause reason inside a CHANGED or CAUTION line.
+ANSWER FIRST: the first sentence is the answer, the number, or the call. Example: "Your FTP dropped 8W. Cut tomorrow's intervals to 4×5min." Give the why only if asked — the one exception is the single-clause reason inside a PROPOSED or CAUTION line.
 
 LINE FORMATS (plain text; fill in the angle-bracket slots):
 - Ride plan, one line per block: 20min Z2 → 5×(3min Z4 / 2min Z1) → 10min Z2
 - Status, only when asked how they are doing: SITREP: RHR 52, HRV 61, sleep 6.1h. Recovery: green.
-- Any change to the schedule or a prescription: CHANGED: <old> → <new>. Reason: <one clause>.
+- Any proposed change to the schedule or a prescription: PROPOSED: <old> → <new>. Reason: <one clause>.
 - A warning sign: CAUTION: <signal>. <action>. Example: CAUTION: 3-day RHR trend +4bpm. Suggest rest day.
-- After creating or changing a ride plan, week or strength session, the LAST visible line is: CONFIRM: <what is now locked in>. <open items, if any>.
-Do not re-list a week or a session you have just written — the Schedule and Resistance tabs show it. CHANGED + CONFIRM is the whole reply.
+- After proposing a ride plan, week or strength session, the LAST visible line is: CONFIRM: <what you've proposed — the athlete taps Apply to lock it in>. <open items, if any>.
+Do not re-list a week or a session you have just written — the Schedule and Resistance tabs show it. PROPOSED + CONFIRM is the whole reply.
 
 VOICE: Active — "You're fatigued", not "You appear to be fatigued". No hedging; state the call. If genuinely uncertain, write LOW CONFIDENCE: and give the two options. Numbers over adjectives: "Z4, 18min", not "a fairly hard sustained effort".
 
@@ -4449,10 +4519,16 @@ Length and format: governed by the HOW YOU REPLY protocol at the end of this pro
 
   // ── Inject the active training schedule + tell the coach it CAN write to it ──
   // The capability lines are ALWAYS included (even with no plan) so the coach never
-  // claims it can't write the schedule. Two write paths: schedule_set (create/replace
-  // the whole week) and schedule_update (patch one existing session).
-  prompt += `\n\n=== YOU CAN WRITE TO THE ATHLETE'S SCHEDULE ===
-You are not just a chat box — you have direct write access to the in-app Training Schedule (the "Schedule" tab). When you want to create or change the plan, emit a fenced JSON block and the app applies it instantly. Never tell the athlete you can't write to their schedule — you can. Critically: NEVER say you've changed, fixed, or updated the schedule (or describe what "we agreed") unless the fenced block is in this SAME reply — the app only applies a change when it finds the block; prose alone does nothing, even if you fully intend to add the block next message. If you're not ready to emit it yet, say what you're about to do, not that you've done it.`;
+  // claims it can't change the schedule. Every change is a plan_proposal the athlete
+  // approves (shared/proposal-core.js validates it); nothing is written directly.
+  prompt += `\n\n=== YOU CAN PROPOSE CHANGES TO THE ATHLETE'S PLAN ===
+You can change the Training schedule and the Strength library — but every change is a PROPOSAL the athlete approves. The app shows each change as before → after with your reason and a tick box. Nothing changes until they tap Apply, and every apply can be undone. So:
+- Never say you HAVE changed the plan. Say what you propose. A proposal exists only if the plan_proposal block is in this SAME reply — prose alone does nothing.
+- Every change needs a "why" that names the evidence: numbers from the data above (e.g. "HRV 18% below 7-day baseline, recovery 31%", "RPE 9 on Tuesday's threshold, legs heavy"). "Feels right" is not evidence.
+- Change nothing when nothing warrants it. At most 5 changes per proposal; a few high-confidence changes beat many small ones.
+- A body-weight or body-composition trend moving against the goal is a coach_notes note and one line in your reply — never a plan change on its own.
+- Never re-propose anything listed under DISMISSED PROPOSALS unless there is new evidence, and then say what is new in the why.
+- Rides log themselves from Strava; you never need to propose a change just to record a ride that happened.`;
 
   if (trainingPlan.length) {
     const today = new Date().toISOString().slice(0,10);
@@ -4460,8 +4536,9 @@ You are not just a chat box — you have direct write access to the in-app Train
     trainingPlan.forEach(s => {
       const isToday = s.date === today;
       const done = sessionFeedback[s.id];
-      let line = `\n- ${s.day} ${s.date}${isToday ? ' [TODAY]' : ''}: ${s.type}`;
+      let line = `\n- [${s.id}] ${s.day} ${s.date}${isToday ? ' [TODAY]' : ''}: ${s.type}`;
       if (s.duration > 0) line += `, ${s.duration}min`;
+      if (s.intensity) line += `, ${s.intensity}`;
       if (s.targets) line += `, ${s.targets}`;
       if (done) {
         const bits = [];
@@ -4473,52 +4550,54 @@ You are not just a chat box — you have direct write access to the in-app Train
       }
       prompt += line;
     });
-    prompt += `\n\nTo CHANGE ONE existing session, apply the change and include a JSON block at the very end of your reply in this exact format (no extra text after it):
-\`\`\`schedule_update
-{"id":"s3","type":"Rest Day","duration":0,"intensity":"rest","description":"Full rest — legs were heavy.","targets":"","tips":[]}
-\`\`\`
-Only include fields you are changing. The id must match one of the session ids listed above. You can update: type, duration, intensity (low/medium/high/rest), description, targets, tips. After making a change, tell the athlete with a single CHANGED: line (see HOW YOU REPLY).
-
-Use schedule_update blocks proactively when:
-- The athlete says they just rode (mark that day as completed with ride details, adjust next session)
-- The athlete says they took a rest day (mark scheduled session as skipped, adjust load)
-- The athlete says they skipped a session or felt terrible
-- Strava data shows a ride on a day marked as rest, or no ride on a training day
-
-To ADD one or more NEW sessions to the existing plan WITHOUT disturbing what's already there (e.g. the athlete asks to add resistance/strength days, or to extend the plan further into the future), use a schedule_add block — see its format below. NEVER use schedule_set to add sessions: schedule_set erases the entire current week and every logged session, so it is ONLY for a full rebuild.
-
-To REPLACE THE WHOLE WEEK (a fresh plan, a re-map, or major restructuring), use a schedule_set block instead — see the format below.`;
+    prompt += `\n\nSession ids are in [brackets] above — target sessions by those ids.`;
   } else {
-    prompt += `\n\nThe athlete has no plan yet. If they ask you to map out, build, or plan their week (or it would clearly help), CREATE one — don't tell them to press a button.`;
+    prompt += `\n\nThe athlete has no plan yet. If they ask you to map out, build, or plan their week (or it would clearly help), PROPOSE one with a replace-week change — don't tell them to press a button.`;
   }
 
-  const todayISO2 = new Date().toISOString().slice(0,10);
-  prompt += `\n\nTo CREATE or REPLACE the entire schedule, include this block at the very end of your reply (no text after it):
-\`\`\`schedule_set
-[{"id":"s1","day":"Monday","date":"YYYY-MM-DD","type":"Zone 2 Endurance","duration":90,"intensity":"low","description":"One concise sentence.","targets":"e.g. HR 130-145bpm","tips":["short tip"],"bands":false}]
+  const win = PC ? PC.planWindow(new Date().toISOString().slice(0, 10)) : { start: '', end: '' };
+  prompt += `\n\nTo propose, put ONE block at the very end of your reply (no text after it):
+\`\`\`plan_proposal
+{"summary":"Ease Tuesday after a red recovery","changes":[{"type":"set-intensity","target":{"sessionId":"s2"},"after":{"intensity":"low"},"why":"Recovery 28% (red), HRV 41ms vs ~52ms usual"},{"type":"set-duration","target":{"sessionId":"s2"},"after":{"duration":60},"why":"Cut volume while recovery is red; RPE 8 on Sunday's long ride"}]}
 \`\`\`
-Rules: start from today (${todayISO2}); every date MUST be copied from the CALENDAR list in the ground-truth section — never calculate a date or a day name yourself, and make each "day" match the calendar entry for its date; ids s1,s2,…; intensity is one of low/medium/high/rest; rest days use type "Rest Day", duration 0, intensity "rest". Cover the days the athlete asked for (default the next 7). In the visible reply, tell the athlete what you scheduled in a single CONFIRM: line — do not re-list the days. This overwrites any existing plan, so only use it for a full (re)build — for single-session tweaks use schedule_update.
+Change types — the ONLY ones the app accepts:
+- move-session: target {sessionId}, after {date}
+- swap-session: target {sessionId}, after {type, description?, targets?, tips?, intensity?, duration?}
+- set-duration: target {sessionId}, after {duration} — whole minutes, 0–600
+- set-intensity: target {sessionId}, after {intensity} — low / medium / high / rest
+- set-target: target {sessionId}, after {targets} — text: watts, HR or interval target
+- add-rest-day: target {sessionId} (turns that session into rest) or {date} (a rest day on an empty date)
+- add-session: target {date}, after {type, duration, intensity, description, targets, tips, bands} — adds alongside the existing plan (use this for "add a strength day")
+- remove-session: target {sessionId}
+- replace-week: after {sessions:[{date, type, duration, intensity, description, targets, tips, bands}]} — a full rebuild that CLEARS logged feedback; only when the athlete asks for a new week or the plan is unsalvageable. Cannot be combined with other plan changes.
+- replace-resistance-library: after {workouts:[…]} — the WHOLE Strength library (format below)
+Dates: copy them from the CALENDAR, and keep them within ${win.start}…${win.end}. Rest days are type "Rest Day", duration 0, intensity "rest". You may include "before" (what the field is now); the app fills it otherwise, and refuses any change whose "before" no longer matches the plan.
+The app validates every proposal. If yours fails you get ONE chance to fix it; after that nothing is applied.`;
 
-To ADD new sessions to the plan without replacing it (the additive path — use this for "add a strength/resistance day", "put a band session on Thursday", or extending the plan further out), include this block at the very end of your reply:
-\`\`\`schedule_add
-[{"day":"Thursday","date":"YYYY-MM-DD","type":"Resistance — Legs & Glutes","duration":30,"intensity":"low","description":"Band strength session.","targets":"","tips":["Control the eccentric"],"bands":true}]
-\`\`\`
-Rules: DON'T include an id (the app assigns one and keeps every existing session and its logged data intact). Copy each date from the CALENDAR list — never compute it. Same field set as schedule_set. Add a session on the SAME date and SAME type as an existing one only when you mean to revise that session; otherwise it's appended alongside what's already there. Prefer schedule_add over schedule_set whenever the athlete's current plan should be kept.`;
+  // What's already waiting on the athlete, and what they've turned down.
+  if (pendingProposal && PC) {
+    prompt += `\n\nPENDING PROPOSAL (sent ${pendingProposal.createdAt.slice(0, 16).replace('T', ' ')}, NOT yet applied — the athlete hasn't decided): ${proposalLine(pendingProposal.changes)}. A new plan_proposal replaces it.`;
+  }
+  if (dismissedChanges.length && PC) {
+    prompt += `\n\nDISMISSED PROPOSALS (the athlete said no — don't propose these again without new evidence):`;
+    dismissedChanges.slice(-12).forEach(d => {
+      const desc = PC.describeChange({ ...d, before: null }, proposalState());
+      prompt += `\n- ${new Date(d.at).toISOString().slice(0, 10)}: ${desc.title}${d.target?.date ? ` (${d.target.date})` : ''} → ${desc.after}${d.why ? ` — you'd said: "${d.why}"` : ''}`;
+    });
+  }
 
   // ── Resistance tab: full exercise-level strength sessions the coach can write ──
-  prompt += `\n\n=== YOU CAN WRITE FULL RESISTANCE SESSIONS TO THE "RESISTANCE" TAB ===
-Besides the ride schedule, you have direct write access to the in-app Resistance tab — a library of full strength/band/physio sessions with exercise-level detail (sets, reps, band, cue). This is separate from the Schedule tab: use it whenever the athlete wants the actual exercise breakdown saved (e.g. "put the full sessions in the resistance tab"). Never say you can't write there — you can.`;
+  prompt += `\n\n=== YOU CAN PROPOSE FULL STRENGTH SESSIONS FOR THE "STRENGTH" TAB ===
+Besides the ride schedule, you can rewrite the in-app Strength library — full band sessions with exercise-level detail (sets, reps, band, cue) — through a replace-resistance-library change in a plan_proposal. It's separate from the Training schedule: use it when the athlete wants the actual exercise breakdown saved. Never say you can't write there — you can, with their approval.`;
   if (resistanceLib.length) {
-    prompt += `\n\nCURRENT RESISTANCE LIBRARY (what's saved now — a resistance_set replaces ALL of it):`;
+    prompt += `\n\nCURRENT STRENGTH LIBRARY (what's saved now — replace-resistance-library replaces ALL of it):`;
     resistanceLib.forEach(w => {
       prompt += `\n- ${w.name}${w.day ? ` (${w.day})` : ''}: ${w.exercises.length} exercises, ${w.duration}min`;
     });
   }
-  prompt += `\n\nTo save one or more full sessions, include this block at the very end of your reply (no text after it):
-\`\`\`resistance_set
-{"workouts":[{"name":"Session A — Upper (horizontal)","focus":"One sentence on why this matters.","duration":45,"category":"upper","exercises":[{"name":"Seated row","sets":3,"reps":"12-15","band":"black","choke":"full","anchor":"feet-seated","rir":2,"tempo":"3s down, 1s squeeze","cue":"Ribs down, drive the elbows past your sides."}]}]}
-\`\`\`
-Rules: "workouts" is the COMPLETE library — include every session you want kept, because this REPLACES all saved resistance sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). In the visible reply, tell the athlete what you saved in a single CONFIRM: line — do not re-list the exercises.
+  prompt += `\n\nThe replace-resistance-library change looks like this inside the plan_proposal "changes" array:
+{"type":"replace-resistance-library","target":{},"after":{"workouts":[{"name":"Session A — Upper (horizontal)","focus":"One sentence on why this matters.","duration":45,"category":"upper","exercises":[{"name":"Seated row","sets":3,"reps":"12-15","band":"black","choke":"full","anchor":"feet-seated","rir":2,"tempo":"3s down, 1s squeeze","cue":"Ribs down, drive the elbows past your sides."}]}]},"why":"Hit 15 reps at 2 RIR on black for two sessions — time for the next rung"}
+Rules: "workouts" is the COMPLETE library — include every session you want kept, because it REPLACES all saved sessions (to keep existing ones, list them again). category is legs/core/upper/physio; "day" is optional (a weekday name if the session belongs to a specific day). sets 1–10, rir 0–5. In the visible reply, say what you proposed in a single CONFIRM: line — do not re-list the exercises.
 
 Every exercise needs: name, sets, reps (a target RANGE like "12-15"), band, choke, anchor, rir, tempo, cue.`;
 
@@ -4682,6 +4761,11 @@ Include exactly 7 elements covering the next 7 days in order.`;
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
 
     const plan = JSON.parse(raw);
+    // Athlete-initiated, so applied directly — but snapshotted, so Undo can get the old week back.
+    if (PC && trainingPlan.length) {
+      coachSnapshots = PC.pushSnapshot(coachSnapshots, { at: Date.now(), label: 'Generate plan (replaced the week)', plan: trainingPlan, feedback: sessionFeedback, adaptations: adaptationNotes, resistance: resistanceLib });
+      saveProposalState();
+    }
     trainingPlan = normalizePlanDates(plan).map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
     sessionFeedback = {};
     adaptationNotes = {};
@@ -4722,20 +4806,25 @@ async function adaptPlan() {
   if (athleteData.whoop?.recovery_score != null) {
     const r = athleteData.whoop.recovery_score;
     if (r < 34) {
-      recoveryDirective = `\n\nCRITICAL — WHOOP recovery is ${r}% (red). All remaining high-intensity sessions MUST be softened: replace intervals with Zone 2 endurance or full rest, reduce duration by 20–30%, and add "Low recovery day" notes. Do not schedule any threshold, VO2 max, or anaerobic work until recovery improves.`;
+      recoveryDirective = `\n\nEVIDENCE — WHOOP recovery is ${r}% (red). That is strong grounds to soften the NEXT high-intensity session (Zone 2 or rest, 20–30% shorter). Don't soften sessions further out on today's number alone — recovery moves day to day.`;
     } else if (r < 67) {
-      recoveryDirective = `\n\nCAUTION — WHOOP recovery is ${r}% (yellow). Reduce intensity on any upcoming high-intensity sessions: shorten interval sets by 15–20%, keep effort in the lower end of the target zone, and add an extra rest or Zone 2 day if possible.`;
+      recoveryDirective = `\n\nEVIDENCE — WHOOP recovery is ${r}% (yellow). On its own that rarely justifies a change; act only if the feedback agrees (high RPE, heavy legs, missed targets).`;
     } else {
-      recoveryDirective = `\n\nWHOOP recovery is ${r}% (green) — no recovery-based restrictions needed.`;
+      recoveryDirective = `\n\nEVIDENCE — WHOOP recovery is ${r}% (green) — no recovery-based reason to change anything.`;
     }
   }
 
-  const msg = `Based on this feedback from completed sessions${athleteData.whoop ? ' and today\'s WHOOP recovery score' : ''}, adapt the remaining sessions in my 7-day plan.
-Keep completed sessions unchanged. Only modify upcoming sessions to better match the athlete's responses.${recoveryDirective}
+  const msg = `(Plan review — the athlete pressed "Adapt plan", or the app runs this after every two rated sessions.)
+Review the UPCOMING sessions in my plan against the feedback below${athleteData.whoop ? ' and today\'s WHOOP recovery' : ''}. Completed sessions are history — never change them.${recoveryDirective}
 
-Feedback:\n${feedbackSummary || 'No feedback yet.'}
+Feedback:
+${feedbackSummary || 'No feedback yet.'}
 
-Return the full 7-day plan as the same JSON array format, with "adaptation_note" fields added to changed sessions explaining what changed and why.`;
+Reply in exactly ONE of two ways, and nothing else:
+1. Something genuinely warrants a change → a single plan_proposal block (format in the system prompt). At most 5 changes. Every change's "why" names the evidence above.
+2. Nothing warrants a change → exactly {"nochange": true, "reading": "<two short, honest sentences on how the week is going>"}
+
+Change nothing when nothing warrants it. Few high-confidence changes beat many small ones. A weight or body-composition trend is never, on its own, a reason to change a session — mention it in the reading instead.`;
 
   try {
     const res = await coachFetch(API.chat + '/api/chat', {
@@ -4748,26 +4837,37 @@ Return the full 7-day plan as the same JSON array format, with "adaptation_note"
     });
 
     const data = await res.json();
-    let raw = data.content[0].text.trim();
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-
-    // Never trust the model's calendar — the adapt path re-emits the whole week, so it
-    // can invent day/date pairs exactly like generateSchedule and schedule_set can.
-    // Ids are normalised to strings here too (numeric ids silently break every lookup).
-    const updated = normalizePlanDates(JSON.parse(raw))
-      .map((s, i) => ({ ...s, id: String(s.id ?? `s${i + 1}`) }));
-    // preserve feedback state — keyed off the normalised ids, not the raw ones
-    updated.forEach(s => {
-      if (s.adaptation_note) adaptationNotes[s.id] = s.adaptation_note;
-    });
-    trainingPlan = updated;
-    savePlan();
-    renderSchedule();
-    showToast('Plan adapted to your feedback ✓');
-    renderDashboard();
+    if (data.error || !data.content?.[0]?.text) throw new Error(data.error || 'empty reply');
+    const reply = data.content[0].text;
+    const { clean: propClean, proposal: planProposal } = PC.extractPlanProposal(reply);
+    const sch = extractScheduleUpdates(propClean);
+    const resx = extractResistance(sch.clean);
+    // Older-style replies (a bare JSON array of the week) still count — as a replace-week
+    // proposal, never a direct overwrite.
+    let planSet = sch.planSet;
+    if (!planProposal && !planSet && !sch.updates.length) {
+      try {
+        const arr = JSON.parse(propClean.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, ''));
+        if (Array.isArray(arr) && arr.length) planSet = arr;
+      } catch (e) { /* not an array */ }
+    }
+    const prop = await handleCoachProposal(
+      { planProposal, updates: sch.updates, planSet, planAdd: sch.planAdd, workouts: resx.workouts },
+      { source: 'adapt', repairMessages: [{ role: 'user', content: msg }, { role: 'assistant', content: reply }] });
+    const nc = PC.parseNoChange(reply);
+    if (prop.status === 'ok') {
+      showToast('Coach proposed changes — review on Today ✓');
+    } else if (prop.status === 'failed') {
+      showToast('Coach\'s changes failed the safety check — nothing changed', true);
+    } else if (nc) {
+      setReview(nc.reading || 'Plan still fits.', 'adapt');
+      showToast('Coach reviewed the plan — no change');
+    } else {
+      showToast('Coach review gave no usable answer — nothing changed', true);
+    }
   } catch(err) {
     console.error(err);
-    showToast('Could not adapt plan. Check server.', true);
+    showToast('Could not review plan. Check server.', true);
   }
 
   btn.disabled = false;
@@ -5589,6 +5689,276 @@ function extractResistance(text) {
   return { clean, workouts };
 }
 
+// ── COACH PROPOSALS: state, card, apply / dismiss / undo ──────────────────────
+// Pure logic (types, validation, staleness, apply, dismissal matching) lives in
+// shared/proposal-core.js and is tested there. This is the glue: persistence, the
+// repair round-trip to Claude, and the card the athlete approves from.
+
+function loadProposalState() {
+  const read = (k, fb) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch (e) { return fb; } };
+  const p = read(PROPOSAL_KEY, null);
+  pendingProposal = (p && Array.isArray(p.changes)) ? p : null;
+  coachSnapshots = Array.isArray(read(SNAPSHOTS_KEY, [])) ? read(SNAPSHOTS_KEY, []).slice(-10) : [];
+  dismissedChanges = Array.isArray(read(DISMISSALS_KEY, [])) ? read(DISMISSALS_KEY, []).slice(-30) : [];
+  lastReview = read(REVIEW_KEY, null);
+}
+
+// localStorage only — used while adopting server state, where pushing back would echo.
+function persistProposalState() {
+  try {
+    localStorage.setItem(PROPOSAL_KEY, JSON.stringify(pendingProposal));
+    localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(coachSnapshots));
+    localStorage.setItem(DISMISSALS_KEY, JSON.stringify(dismissedChanges));
+    localStorage.setItem(REVIEW_KEY, JSON.stringify(lastReview));
+  } catch (e) { console.warn('Could not persist proposal state:', e); }
+}
+function saveProposalState() { persistProposalState(); pushState(); }
+
+// What the validator checks against: the live plan and library, today's date, and the
+// athlete's real kit.
+function proposalState() {
+  return {
+    plan: trainingPlan, resistance: resistanceLib,
+    today: new Date().toISOString().slice(0, 10),
+    bandIds: BAND_IDS, anchorIds: ANCHOR_IDS,
+  };
+}
+
+// Turn whatever plan-changing blocks a coach reply carried into a validated pending
+// proposal. One repair round on failure (see resolveProposal); after that, nothing.
+// Returns { status: 'none' | 'ok' | 'failed', errors? }.
+async function handleCoachProposal(blocks, { source, repairMessages }) {
+  if (!PC) {
+    const any = blocks.planProposal || blocks.updates?.length || blocks.planSet || blocks.planAdd?.length || blocks.workouts;
+    return any ? { status: 'failed', errors: ['proposal module failed to load — reload the app'] } : { status: 'none' };
+  }
+  const proposal = PC.proposalFromBlocks(blocks, proposalState());
+  if (!proposal) return { status: 'none' };
+  const result = await PC.resolveProposal({
+    proposal, state: proposalState(),
+    repair: errors => requestProposalRepair(errors, repairMessages),
+  });
+  if (result.status === 'ok') setPendingProposal(result.proposal, source);
+  return result;
+}
+
+// The one repair round: tell Claude exactly what failed and ask for a corrected block.
+// Not added to conversationHistory — it's plumbing, not conversation.
+async function requestProposalRepair(errors, messages) {
+  const ask = `(Automated safety check — the athlete did not type this.) Your proposed plan changes failed validation, so NOTHING was applied:
+- ${errors.slice(0, 12).join('\n- ')}
+
+Reply with ONLY a corrected \`\`\`plan_proposal\`\`\` block — no prose. Every change needs a "why" that names the evidence. Use only the change types and session ids listed in the system prompt. If on reflection nothing should change, reply with exactly {"nochange": true, "reading": "<one line>"}.`;
+  const res = await coachFetch(API.chat + '/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system: buildSystemPrompt(), messages: [...messages, { role: 'user', content: ask }] }),
+  });
+  const data = await res.json();
+  const text = data?.content?.[0]?.text;
+  if (!text || data.error) return null;
+  const { clean, proposal } = PC.extractPlanProposal(text);
+  if (proposal) return { summary: String(proposal.summary || ''), changes: proposal.changes };
+  const sch = extractScheduleUpdates(clean);
+  const res2 = extractResistance(sch.clean);
+  return PC.proposalFromBlocks({ updates: sch.updates, planSet: sch.planSet, planAdd: sch.planAdd, workouts: res2.workouts }, proposalState());
+}
+
+function setPendingProposal(p, source) {
+  pendingProposal = {
+    id: 'p' + Date.now(),
+    createdAt: new Date().toISOString(),
+    source,
+    summary: String(p.summary || '').slice(0, 200),
+    changes: p.changes.map(c => {
+      const dismissedBefore = PC.isDismissed(c, dismissedChanges);
+      // Pre-ticked unless out of date or something the athlete already turned down.
+      return { ...c, dismissedBefore, selected: !c.stale && !dismissedBefore };
+    }),
+  };
+  saveProposalState();
+  renderProposalSurfaces();
+  flashTab('tab-today');
+}
+
+function flashTab(id) {
+  const t = document.getElementById(id);
+  if (!t) return;
+  t.style.background = 'rgba(255,90,31,0.25)';
+  setTimeout(() => { t.style.background = ''; }, 1500);
+}
+
+function toggleProposalChange(changeId, on) {
+  const c = pendingProposal?.changes.find(x => x.id === changeId);
+  if (!c || c.stale) return;
+  c.selected = !!on;
+  persistProposalState();
+  // Keep the other surface's tick box in step without a full re-render.
+  document.querySelectorAll(`input[data-change="${CSS.escape(changeId)}"]`).forEach(i => { i.checked = !!on; });
+}
+
+// Short human line for history notes / undo labels.
+function proposalLine(changes) {
+  const st = proposalState();
+  return changes.map(c => { const d = PC.describeChange(c, st); return `${d.title}${d.where ? ` (${d.where})` : ''}: ${d.before} → ${d.after}`; }).join('; ');
+}
+
+function applyPendingProposal() {
+  const p = pendingProposal;
+  if (!p || !PC) return;
+  // Re-check staleness now — the athlete may tap Apply long after the proposal arrived.
+  const st = proposalState();
+  p.changes.forEach(c => { c.stale = PC.isStale(c, st); if (c.stale) c.selected = false; });
+  const chosen = p.changes.filter(c => c.selected && !c.stale);
+  if (!chosen.length) {
+    persistProposalState(); renderProposalSurfaces();
+    showToast(p.changes.every(c => c.stale) ? 'Plan changed since — nothing left to apply' : 'Tick at least one change', true);
+    return;
+  }
+  const r = PC.applyChanges(st, chosen);
+  if (!r.applied.length) { renderProposalSurfaces(); showToast('Those changes are out of date — nothing applied', true); return; }
+
+  coachSnapshots = PC.pushSnapshot(coachSnapshots, {
+    at: Date.now(), label: p.summary || proposalLine(chosen).slice(0, 120),
+    plan: trainingPlan, feedback: sessionFeedback, adaptations: adaptationNotes, resistance: resistanceLib,
+  });
+
+  trainingPlan = r.plan;
+  if (r.replacedWeek) { sessionFeedback = {}; adaptationNotes = {}; }
+  else Object.entries(r.touched).forEach(([id, why]) => { adaptationNotes[id] = why; });
+  if (r.resistance) {
+    resistanceLib = r.resistance.map(normalizeResistanceWorkout).filter(w => w.exercises.length).slice(0, RESISTANCE_MAX);
+    try { localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib)); } catch (e) {}
+  }
+  // Unticked (but valid) changes count as turned down.
+  const declined = p.changes.filter(c => !c.selected && !c.stale);
+  if (declined.length) dismissedChanges = PC.recordDismissals(dismissedChanges, declined, Date.now());
+  pendingProposal = null;
+
+  const appliedChanges = chosen.filter(c => r.applied.includes(c.id));
+  conversationHistory.push({ role: 'user', content: `(app) ✅ I applied your proposal: ${proposalLine(appliedChanges)}${declined.length ? `. Declined: ${proposalLine(declined)}` : ''}.` });
+  saveChat();
+  savePlan();
+  saveProposalState();
+  document.getElementById('generateBtn').textContent = '↺ Regenerate';
+  document.getElementById('adaptBtn').style.display = '';
+  if (currentTab === 'schedule') renderSchedule();
+  if (currentTab === 'bands') renderResistanceLib();
+  renderProposalSurfaces();
+  const skipped = r.skipped.length ? ` · ${r.skipped.length} out of date, skipped` : '';
+  showToast(`Applied ${r.applied.length} change${r.applied.length === 1 ? '' : 's'} ✓${skipped}`);
+}
+
+function dismissPendingProposal() {
+  const p = pendingProposal;
+  if (!p) return;
+  const live = p.changes.filter(c => !c.stale);
+  if (live.length && PC) dismissedChanges = PC.recordDismissals(dismissedChanges, live, Date.now());
+  pendingProposal = null;
+  if (live.length) {
+    conversationHistory.push({ role: 'user', content: `(app) ✋ I dismissed your proposal: ${proposalLine(live)}. Don't propose it again without new evidence.` });
+    saveChat();
+  }
+  saveProposalState();
+  renderProposalSurfaces();
+  showToast('Proposal dismissed');
+}
+
+function undoLastCoachChange() {
+  if (!PC || !coachSnapshots.length) return;
+  const last = coachSnapshots[coachSnapshots.length - 1];
+  const when = new Date(last.at).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  if (!confirm(`Undo the coach change from ${when}?\n\n${last.label || ''}`)) return;
+  const { snapshot, list } = PC.popSnapshot(coachSnapshots);
+  coachSnapshots = list;
+  trainingPlan = Array.isArray(snapshot.plan) ? snapshot.plan : trainingPlan;
+  sessionFeedback = snapshot.feedback || {};
+  adaptationNotes = snapshot.adaptations || {};
+  if (Array.isArray(snapshot.resistance)) {
+    resistanceLib = snapshot.resistance;
+    try { localStorage.setItem(RESISTANCE_KEY, JSON.stringify(resistanceLib)); } catch (e) {}
+  }
+  conversationHistory.push({ role: 'user', content: `(app) ↶ I undid your change: ${last.label || 'last coach change'}.` });
+  saveChat();
+  savePlan();
+  saveProposalState();
+  if (currentTab === 'schedule') renderSchedule();
+  if (currentTab === 'bands') renderResistanceLib();
+  renderProposalSurfaces();
+  showToast('Coach change undone ↶');
+}
+
+const PROPOSAL_SOURCE = { chat: 'From chat', adapt: 'Plan review', briefing: 'Morning briefing' };
+
+function proposalCardHtml(where) {
+  const p = pendingProposal;
+  if (!p || !PC) return '';
+  const st = proposalState();
+  const esc = escapeHtml;
+  const safeId = id => String(id).replace(/[^\w-]/g, '');
+  const live = p.changes.filter(c => !c.stale).length;
+  const rows = p.changes.map(c => {
+    const d = PC.describeChange(c, st);
+    const id = safeId(c.id);
+    return `
+      <label class="pc-row${c.stale ? ' stale' : ''}">
+        <input type="checkbox" data-change="${id}" ${c.selected && !c.stale ? 'checked' : ''} ${c.stale ? 'disabled' : ''}
+               onchange="toggleProposalChange('${id}', this.checked)">
+        <div class="pc-body">
+          <div class="pc-title">${esc(d.title)}${d.where ? ` <span class="pc-where">· ${esc(d.where)}</span>` : ''}</div>
+          <div class="pc-diff"><span class="pc-before">${esc(d.before)}</span> <span class="pc-arrow">→</span> <span class="pc-after">${esc(d.after)}</span></div>
+          <div class="pc-why">${esc(String(c.why || ''))}</div>
+          ${c.stale ? '<div class="pc-flag">Out of date — the plan changed since. Won’t be applied.</div>' : ''}
+          ${c.dismissedBefore ? '<div class="pc-flag">You dismissed this before — left unticked.</div>' : ''}
+        </div>
+      </label>`;
+  }).join('');
+  return `
+    <div class="proposal-card" data-where="${where}">
+      <div class="pc-head">
+        <div class="pc-kicker">Coach proposes · ${esc(PROPOSAL_SOURCE[p.source] || 'Coach')}</div>
+        ${p.summary ? `<div class="pc-summary">${esc(p.summary)}</div>` : ''}
+      </div>
+      ${rows}
+      <div class="pc-actions">
+        <button class="pc-btn ghost" onclick="dismissPendingProposal()">Dismiss</button>
+        ${live ? `<button class="pc-btn primary" onclick="applyPendingProposal()">Apply selected</button>` : ''}
+      </div>
+    </div>`;
+}
+
+// One line under the proposal area on Today: the last quiet review, and Undo.
+function coachStatusHtml() {
+  const today = new Date().toISOString().slice(0, 10);
+  const bits = [];
+  if (!pendingProposal && lastReview && lastReview.date === today && lastReview.text) {
+    bits.push(`<div class="coach-status">✓ Coach reviewed the plan — no change. ${escapeHtml(lastReview.text)}</div>`);
+  }
+  if (coachSnapshots.length) {
+    bits.push(`<button class="coach-undo" onclick="undoLastCoachChange()">↶ Undo last coach change</button>`);
+  }
+  return bits.length ? `<div class="coach-status-row">${bits.join('')}</div>` : '';
+}
+
+// Card in chat (pinned to the end of the thread) + Today + the Training-tab undo button.
+function renderProposalSurfaces() {
+  const msgs = document.getElementById('messages');
+  if (msgs) {
+    msgs.querySelector('.proposal-card[data-where="chat"]')?.remove();
+    if (pendingProposal) msgs.insertAdjacentHTML('beforeend', proposalCardHtml('chat'));
+  }
+  const undo = document.getElementById('undoCoachBtn');
+  if (undo) undo.style.display = coachSnapshots.length ? '' : 'none';
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
+// A quiet review: one line, no card, nothing to act on.
+function setReview(text, source) {
+  lastReview = { date: new Date().toISOString().slice(0, 10), text: String(text || '').slice(0, 600), source };
+  saveProposalState();
+  renderProposalSurfaces();
+}
+
 // ── MESSAGING ──────────────────────────────────────────────
 async function sendMessage(text) {
   const input = document.getElementById('messageInput');
@@ -5639,30 +6009,32 @@ async function sendMessage(text) {
       conversationHistory.pop(); saveChat(); // un-persist the turn saved above
     } else {
       const reply = data.content[0].text;
-      const { clean: schedClean, updates, planSet, planAdd, raw: schedRaw } = extractScheduleUpdates(reply);
+      // plan_proposal is the coach's primary write path; the legacy schedule_*/resistance_set
+      // blocks still parse, but every one of them now becomes a PROPOSAL, never a direct write.
+      const { clean: propClean, proposal: planProposal, raw: propRaw } = PC ? PC.extractPlanProposal(reply) : { clean: reply, proposal: null, raw: [] };
+      const { clean: schedClean, updates, planSet, planAdd, raw: schedRaw } = extractScheduleUpdates(propClean);
       const { clean: notesClean, notes } = extractCoachNotes(schedClean);
       const { clean: resClean, workouts: resWorkouts } = extractResistance(notesClean);
-      const { clean: homeClean, homeSet } = extractHomeSet(resClean);
+      const nc = PC ? PC.parseNoChange(resClean) : null;
+      const { clean: homeClean, homeSet } = extractHomeSet(nc ? nc.clean : resClean);
       const { clean: routeClean, routeRequest } = extractRouteRequest(homeClean);
       const { clean, faked } = stripFakeRouteMarkers(routeClean);
       if (notes) applyCoachNotes(notes);
-      if (resWorkouts) applyResistanceSet(resWorkouts);
       appendBubble('coach', clean);
-      // Store the reply WITH its schedule_update/schedule_set/schedule_add/route_request
-      // blocks (display strips them): replayed history must show the model how past
-      // changes were actually made, or it learns to imitate its own past prose
-      // ("I've updated your schedule...") instead of emitting the block — describing a
-      // change without ever applying it. Same fix already in place for route_request.
-      let stored = schedRaw.length ? clean + '\n' + schedRaw.join('\n') : clean;
+      // Store the reply WITH its plan_proposal/schedule_*/route_request blocks (display
+      // strips them): replayed history must show the model how past changes were actually
+      // proposed, or it learns to imitate its own past prose ("I've updated your
+      // schedule...") instead of emitting the block.
+      let stored = [clean, ...propRaw, ...schedRaw].filter(Boolean).join('\n');
       if (routeRequest) stored += '\n```route_request\n' + JSON.stringify(routeRequest) + '\n```';
       if (stored) conversationHistory.push({ role: 'assistant', content: stored });
-      // schedule_set replaces the whole week, so it's exclusive; updates + adds can
-      // coexist (patch existing sessions AND append new ones in one reply).
-      if (planSet) {
-        applyScheduleSet(planSet);
-      } else {
-        if (updates.length) applyScheduleUpdates(updates);
-        if (planAdd.length) applyScheduleAdd(planAdd);
+      // Plan changes → a validated pending proposal (one repair round), shown as a card.
+      const prop = await handleCoachProposal(
+        { planProposal, updates, planSet, planAdd, workouts: resWorkouts },
+        { source: 'chat', repairMessages: conversationHistory.slice() });
+      if (prop.status === 'failed') {
+        appendBubble('coach', `⚠️ I suggested a plan change that didn't pass the app's safety check, so nothing was changed. (${prop.errors.slice(0, 2).join('; ')})`);
+        conversationHistory.push({ role: 'assistant', content: `[The app's validator rejected my proposal after one repair attempt — NOTHING changed. Errors: ${prop.errors.slice(0, 4).join('; ')}]` });
       }
       // Apply a resolved home location BEFORE acting on a route request in the same
       // reply, so "I live in SW13, plan me a route" works in one turn (awaited — the
@@ -5762,7 +6134,7 @@ Instructions:
 3. If a scheduled session was skipped (no Strava activity) — update it to show it was skipped and adjust the next session accordingly.
 4. Update tomorrow's session if needed given the actual load.
 
-Apply all changes using schedule_update blocks. Then give me a brief 2-3 sentence summary of what you found and changed.`;
+Propose any changes in one plan_proposal block (only what the rides actually justify — and nothing if the plan still fits). Then a 2-3 sentence summary of what you found.`;
 
   // Remove empty state and send
   document.getElementById('emptyState')?.remove();
@@ -6692,6 +7064,8 @@ function formatMessage(text) {
     .replace(/```schedule_set[\s\S]*?```/gi, '')
     .replace(/```schedule_add[\s\S]*?```/gi, '')
     .replace(/```route_request[\s\S]*?```/gi, '')
+    .replace(/```plan_proposal[\s\S]*?```/gi, '')
+    .replace(/```resistance_set[\s\S]*?```/gi, '')
     .trim());
   t = t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/\[(.*?⚠️.*?)\]/g, '<span class="tag warn">$1</span>');
