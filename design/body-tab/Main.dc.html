@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Body composition tab</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Mono:wght@400;500&family=Inter:wght@600;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F3EC}
+a{color:#234FBF}a:hover{color:#1a3c94}
+</style>
+</helmet>
+<div style="background: #F5F3EC; color: #1a1812; font-family: 'Space Grotesk', sans-serif; min-height: 1900px">
+
+<header style="background: #16140F; color: #F5F3EC; padding: 14px 20px; display: flex; align-items: center; gap: 12px">
+<div style="width: 32px; height: 32px; border-radius: 50%; background: #2E5BD8; flex-shrink: 0"></div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 17px">Coach</div>
+<div style="font-size: 12px; color: #b9b3a3">WHOOP · Strava · Hume</div>
+</div>
+</header>
+
+<nav aria-label="Tabs" style="background: #ffffff; border-bottom: 1px solid #e6e0d3; padding: 0 12px; display: flex; gap: 4px; overflow-x: auto">
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Today</button>
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Insights</button>
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Chat</button>
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Training</button>
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Routes</button>
+<button style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid transparent; background: none; color: #6b6557">Strength</button>
+<button aria-current="page" style="flex: 0 0 auto; font-family: 'Space Grotesk', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; padding: 16px 2px 14px; margin: 0 8px; border: none; border-bottom: 2px solid #2E5BD8; background: none; color: #1a1812">Body</button>
+</nav>
+
+<main style="max-width: 1180px; margin: 0 auto; padding: 36px clamp(16px, 4vw, 40px) 56px; display: flex; flex-direction: column; gap: 20px">
+
+<section style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px; padding-bottom: 8px">
+<div style="display: flex; flex-direction: column; gap: 12px; flex: 1 1 420px; min-width: 0">
+<div style="font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #6b6557">Body · Hume Body Pod</div>
+<h1 style="margin: 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: clamp(32px, 5vw, 54px); line-height: 1.02; letter-spacing: -0.02em">Down 27.3 kg in a year, and under 100 kg for the first time.</h1>
+<div style="font-size: 15px; color: #6b6557">12 monthly reports · Nov 2025 to Nov 2026 · October 2026 missing</div>
+</div>
+<button style="font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 14px 22px; min-height: 44px; border: 1px solid #e6e0d3; background: none; color: #6b6557; border-radius: 0">Sync reports</button>
+</section>
+
+<section style="background: #ffffff; border: 1px solid #e6e0d3; border-radius: 4px; padding: 26px 28px 22px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px 32px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #6b6557">The year · Weight</div>
+<div style="display: flex; align-items: baseline; gap: 8px">
+<span style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 60px; line-height: 0.95; letter-spacing: -0.03em">99.5</span>
+<span style="font-family: 'DM Mono', monospace; font-size: 16px; color: #6b6557">kg</span>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px 32px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500">−27.3 kg</span>
+<span style="font-size: 12px; color: #6b6557">weight, −22%</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500">−17.6 kg</span>
+<span style="font-size: 12px; color: #6b6557">fat mass, −48%</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500">−7.5 kg</span>
+<span style="font-size: 12px; color: #6b6557">skeletal muscle, −13%</span>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; height: 260px; margin-left: 34px">
+<svg role="img" aria-label="Weight by report, falling from 126.8 kg at the start of November 2025 to 99.5 kg in November 2026, with October 2026 missing" viewBox="0 0 1400 280" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible">
+<rect x="1200" y="0" width="100" height="280" fill="#f4f0e7"></rect>
+<path d="M0 0H1400M0 80H1400M0 160H1400M0 240H1400" stroke="#e6e0d3" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M0 280H1400" stroke="#1a1812" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M50 25.6L150 62.4L250 68L350 94.4L450 120.8L550 151.2L650 181.6L750 180L850 216.8L950 217.6L1050 227.2L1150 235.2L1350 244V280H50Z" fill="#1a1812" fill-opacity="0.05"></path>
+<path d="M1150 235.2L1350 244" stroke="#1a1812" stroke-width="2" stroke-dasharray="5 5" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M50 25.6L150 62.4L250 68L350 94.4L450 120.8L550 151.2L650 181.6L750 180L850 216.8L950 217.6L1050 227.2L1150 235.2" stroke="#1a1812" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M50 25.6h0M150 62.4h0M250 68h0M350 94.4h0M450 120.8h0M550 151.2h0M650 181.6h0M750 180h0M850 216.8h0M950 217.6h0M1050 227.2h0M1150 235.2h0M1350 244h0" stroke="#ffffff" stroke-width="11" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M50 25.6h0M150 62.4h0M250 68h0M350 94.4h0M450 120.8h0M550 151.2h0M650 181.6h0M750 180h0M850 216.8h0M950 217.6h0M1050 227.2h0M1150 235.2h0M1350 244h0" stroke="#1a1812" stroke-width="7" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+</svg>
+<div aria-hidden="true" style="position: absolute; left: -34px; top: 0; height: 100%; width: 28px; font-family: 'DM Mono', monospace; font-size: 11px; color: #6b6557">
+<span style="position: absolute; right: 0; top: 0%; transform: translateY(-50%)">130</span>
+<span style="position: absolute; right: 0; top: 28.57%; transform: translateY(-50%)">120</span>
+<span style="position: absolute; right: 0; top: 57.14%; transform: translateY(-50%)">110</span>
+<span style="position: absolute; right: 0; top: 85.71%; transform: translateY(-50%)">100</span>
+</div>
+<span style="position: absolute; left: 3.57%; top: 9.14%; transform: translate(12px, -50%); font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; white-space: nowrap">126.8</span>
+<span style="position: absolute; left: 96.43%; top: 87.14%; transform: translate(-50%, -170%); font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 500; white-space: nowrap">99.5</span>
+<span style="position: absolute; left: 89.29%; top: 6px; transform: translateX(-50%); font-size: 11px; color: #6b6557; white-space: nowrap">no report</span>
+</div>
+<div aria-hidden="true" style="margin-left: 34px; display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); font-family: 'DM Mono', monospace; font-size: 11px; color: #6b6557; text-align: center">
+<span>Start</span><span>Nov</span><span>Dec</span><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span>
+</div>
+</div>
+<div style="font-size: 12px; color: #6b6557">End-of-report weight, kg. The dashed stretch bridges the missing October report.</div>
+</section>
+
+<section style="background: #ffffff; border: 1px solid #e6e0d3; border-radius: 4px; padding: 26px 28px 22px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #6b6557">Fat mass · month by month</div>
+<div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 24px; line-height: 1.15; letter-spacing: -0.01em">Fastest in Nov, Feb and Mar. Nearly flat from Jul to Sep.</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 660px; display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; height: 260px; margin-left: 56px">
+<svg role="img" aria-label="Fat mass at the start and end of each monthly report, falling from 36.4 kg to 18.8 kg" viewBox="0 0 1300 260" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible">
+<rect x="1100" y="0" width="100" height="260" fill="#f4f0e7"></rect>
+<path d="M0 27.4H1300M0 95.8H1300M0 164.2H1300M0 232.6H1300" stroke="#e6e0d3" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M100 0V260M200 0V260M300 0V260M400 0V260M500 0V260M600 0V260M700 0V260M800 0V260M900 0V260M1000 0V260M1100 0V260M1200 0V260" stroke="#f0ece2" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M0 260H1300" stroke="#1a1812" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M75 65.7L125 69.8M175 73.9L225 61.6M275 83.5L325 84.8M375 116.3L425 119.1M475 146.4L525 153.3M575 172.4L625 173.8M675 192.9L725 187.5M775 202.5L825 206.6M875 208L925 210.7M975 216.2L1025 225.8" stroke="#c9c2b0" stroke-width="1.5" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M1075 225.8L1225 234" stroke="#c9c2b0" stroke-width="1.5" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 8.2L75 65.7M125 69.8L175 73.9M225 61.6L275 83.5M325 84.8L375 116.3M425 119.1L475 146.4M525 153.3L575 172.4M625 173.8L675 192.9M725 187.5L775 202.5M825 206.6L875 208M925 210.7L975 216.2M1025 225.8L1075 225.8M1225 234L1275 249.1" stroke="#E0892B" stroke-width="3" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 8.2h0M125 69.8h0M225 61.6h0M325 84.8h0M425 119.1h0M525 153.3h0M625 173.8h0M725 187.5h0M825 206.6h0M925 210.7h0M1025 225.8h0M1225 234h0" stroke="#E0892B" stroke-width="9" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 8.2h0M125 69.8h0M225 61.6h0M325 84.8h0M425 119.1h0M525 153.3h0M625 173.8h0M725 187.5h0M825 206.6h0M925 210.7h0M1025 225.8h0M1225 234h0" stroke="#ffffff" stroke-width="5" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M75 65.7h0M175 73.9h0M275 83.5h0M375 116.3h0M475 146.4h0M575 172.4h0M675 192.9h0M775 202.5h0M875 208h0M975 216.2h0M1075 225.8h0M1275 249.1h0" stroke="#E0892B" stroke-width="9" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+</svg>
+<div aria-hidden="true" style="position: absolute; left: -56px; top: 0; height: 100%; width: 48px; font-family: 'DM Mono', monospace; font-size: 11px; color: #6b6557">
+<span style="position: absolute; right: 0; top: 10.53%; transform: translateY(-50%)">35 kg</span>
+<span style="position: absolute; right: 0; top: 36.84%; transform: translateY(-50%)">30</span>
+<span style="position: absolute; right: 0; top: 63.16%; transform: translateY(-50%)">25</span>
+<span style="position: absolute; right: 0; top: 89.47%; transform: translateY(-50%)">20</span>
+</div>
+<span style="position: absolute; left: 88.46%; top: 6px; transform: translateX(-50%); font-size: 11px; color: #6b6557; white-space: nowrap">no report</span>
+</div>
+<div style="display: grid; grid-template-columns: 56px repeat(13, minmax(0, 1fr)); font-family: 'DM Mono', monospace; font-size: 11px; text-align: center; row-gap: 6px; align-items: center">
+<span></span><span style="color: #6b6557">Nov</span><span style="color: #6b6557">Dec</span><span style="color: #6b6557">Jan</span><span style="color: #6b6557">Feb</span><span style="color: #6b6557">Mar</span><span style="color: #6b6557">Apr</span><span style="color: #6b6557">May</span><span style="color: #6b6557">Jun</span><span style="color: #6b6557">Jul</span><span style="color: #6b6557">Aug</span><span style="color: #6b6557">Sep</span><span style="color: #6b6557">Oct</span><span style="color: #6b6557">Nov</span>
+<span style="text-align: left; color: #6b6557">Start</span><span style="color: #6b6557">36.4</span><span style="color: #6b6557">31.9</span><span style="color: #6b6557">32.5</span><span style="color: #6b6557">30.8</span><span style="color: #6b6557">28.3</span><span style="color: #6b6557">25.8</span><span style="color: #6b6557">24.3</span><span style="color: #6b6557">23.3</span><span style="color: #6b6557">21.9</span><span style="color: #6b6557">21.6</span><span style="color: #6b6557">20.5</span><span style="color: #6b6557">n/a</span><span style="color: #6b6557">19.9</span>
+<span style="text-align: left; color: #6b6557">End</span><span style="font-weight: 500">32.2</span><span style="font-weight: 500">31.6</span><span style="font-weight: 500">30.9</span><span style="font-weight: 500">28.5</span><span style="font-weight: 500">26.3</span><span style="font-weight: 500">24.4</span><span style="font-weight: 500">22.9</span><span style="font-weight: 500">22.2</span><span style="font-weight: 500">21.8</span><span style="font-weight: 500">21.2</span><span style="font-weight: 500">20.5</span><span style="color: #6b6557">n/a</span><span style="font-weight: 500">18.8</span>
+</div>
+<div role="img" aria-label="Change in fat mass within each report: minus 4.2, minus 0.3, minus 1.6, minus 2.3, minus 2.0, minus 1.4, minus 1.4, minus 1.1, minus 0.1, minus 0.4, 0.0, no report, minus 1.1 kg" style="display: grid; grid-template-columns: 56px repeat(13, minmax(0, 1fr)); font-family: 'DM Mono', monospace; font-size: 11px; text-align: center; border-top: 1px solid #1a1812; margin-top: 6px">
+<span style="text-align: left; color: #6b6557; padding-top: 6px">Change</span>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 59px; background: #E0892B"></div><span style="font-weight: 500">−4.2</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 4px; background: #E0892B"></div><span style="font-weight: 500">−0.3</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 22px; background: #E0892B"></div><span style="font-weight: 500">−1.6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 32px; background: #E0892B"></div><span style="font-weight: 500">−2.3</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 28px; background: #E0892B"></div><span style="font-weight: 500">−2.0</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 20px; background: #E0892B"></div><span style="font-weight: 500">−1.4</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 20px; background: #E0892B"></div><span style="font-weight: 500">−1.4</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 15px; background: #E0892B"></div><span style="font-weight: 500">−1.1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 2px; background: #E0892B"></div><span style="font-weight: 500">−0.1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 6px; background: #E0892B"></div><span style="font-weight: 500">−0.4</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 0"></div><span style="font-weight: 500">0.0</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px; background: #f4f0e7"><div style="width: 16px; height: 0"></div><span style="color: #6b6557">n/a</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><div style="width: 16px; height: 15px; background: #E0892B"></div><span style="font-weight: 500">−1.1</span></div>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 12px; color: #6b6557">
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 9px; height: 9px; border-radius: 50%; border: 2px solid #E0892B; box-sizing: border-box"></span>Start of report</span>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 9px; height: 9px; border-radius: 50%; background: #E0892B"></span>End of report</span>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 18px; height: 0; border-top: 1.5px solid #c9c2b0"></span>Gap between one report's end and the next one's start</span>
+</div>
+</section>
+
+<section style="background: #ffffff; border: 1px solid #e6e0d3; border-radius: 4px; padding: 26px 28px 22px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #6b6557">Skeletal muscle · month by month</div>
+<div style="font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 24px; line-height: 1.15; letter-spacing: -0.01em">Down in 11 of 12 reports. Only May held.</div>
+</div>
+<div style="overflow-x: auto">
+<div style="min-width: 660px; display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; height: 260px; margin-left: 56px">
+<svg role="img" aria-label="Skeletal muscle mass at the start and end of each monthly report, falling from 59.9 kg to 52.4 kg" viewBox="0 0 1300 260" preserveAspectRatio="none" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible">
+<rect x="1100" y="0" width="100" height="260" fill="#f4f0e7"></rect>
+<path d="M0 15.3H1300M0 76.5H1300M0 137.6H1300M0 198.8H1300" stroke="#e6e0d3" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M100 0V260M200 0V260M300 0V260M400 0V260M500 0V260M600 0V260M700 0V260M800 0V260M900 0V260M1000 0V260M1100 0V260M1200 0V260" stroke="#f0ece2" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M0 260H1300" stroke="#1a1812" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M75 24.5L125 21.4M175 42.8L225 45.9M275 64.2L325 61.2M375 97.9L425 104M475 134.6L525 128.5M575 140.7L625 137.6M675 134.6L725 146.8M775 174.4L825 165.2M875 198.8L925 198.8M975 214.1L1025 204.9" stroke="#c9c2b0" stroke-width="1.5" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M1075 214.1L1225 232.5" stroke="#c9c2b0" stroke-width="1.5" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 18.4L75 24.5M125 21.4L175 42.8M225 45.9L275 64.2M325 61.2L375 97.9M425 104L475 134.6M525 128.5L575 140.7M625 137.6L675 134.6M725 146.8L775 174.4M825 165.2L875 198.8M925 198.8L975 214.1M1025 204.9L1075 214.1M1225 232.5L1275 247.8" stroke="#2E5BD8" stroke-width="3" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 18.4h0M125 21.4h0M225 45.9h0M325 61.2h0M425 104h0M525 128.5h0M625 137.6h0M725 146.8h0M825 165.2h0M925 198.8h0M1025 204.9h0M1225 232.5h0" stroke="#2E5BD8" stroke-width="9" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M25 18.4h0M125 21.4h0M225 45.9h0M325 61.2h0M425 104h0M525 128.5h0M625 137.6h0M725 146.8h0M825 165.2h0M925 198.8h0M1025 204.9h0M1225 232.5h0" stroke="#ffffff" stroke-width="5" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+<path d="M75 24.5h0M175 42.8h0M275 64.2h0M375 97.9h0M475 134.6h0M575 140.7h0M675 134.6h0M775 174.4h0M875 198.8h0M975 214.1h0M1075 214.1h0M1275 247.8h0" stroke="#2E5BD8" stroke-width="9" stroke-linecap="round" fill="none" vector-effect="non-scaling-stroke"></path>
+</svg>
+<div aria-hidden="true" style="position: absolute; left: -56px; top: 0; height: 100%; width: 48px; font-family: 'DM Mono', monospace; font-size: 11px; color: #6b6557">
+<span style="position: absolute; right: 0; top: 5.88%; transform: translateY(-50%)">60 kg</span>
+<span style="position: absolute; right: 0; top: 29.41%; transform: translateY(-50%)">58</span>
+<span style="position: absolute; right: 0; top: 52.94%; transform: translateY(-50%)">56</span>
+<span style="position: absolute; right: 0; top: 76.47%; transform: translateY(-50%)">54</span>
+<span style="position: absolute; right: 0; top: 100%; transform: translateY(-50%)">52</span>
+</div>
+<span style="position: absolute; left: 88.46%; top: 6px; transform: translateX(-50%); font-size: 11px; color: #6b6557; white-space: nowrap">no report</span>
+</div>
+<div style="display: grid; grid-template-columns: 56px repeat(13, minmax(0, 1fr)); font-family: 'DM Mono', monospace; font-size: 11px; text-align: center; row-gap: 6px; align-items: center">
+<span></span><span style="color: #6b6557">Nov</span><span style="color: #6b6557">Dec</span><span style="color: #6b6557">Jan</span><span style="color: #6b6557">Feb</span><span style="color: #6b6557">Mar</span><span style="color: #6b6557">Apr</span><span style="color: #6b6557">May</span><span style="color: #6b6557">Jun</span><span style="color: #6b6557">Jul</span><span style="color: #6b6557">Aug</span><span style="color: #6b6557">Sep</span><span style="color: #6b6557">Oct</span><span style="color: #6b6557">Nov</span>
+<span style="text-align: left; color: #6b6557">Start</span><span style="color: #6b6557">59.9</span><span style="color: #6b6557">59.8</span><span style="color: #6b6557">59.0</span><span style="color: #6b6557">58.5</span><span style="color: #6b6557">57.1</span><span style="color: #6b6557">56.3</span><span style="color: #6b6557">56.0</span><span style="color: #6b6557">55.7</span><span style="color: #6b6557">55.1</span><span style="color: #6b6557">54.0</span><span style="color: #6b6557">53.8</span><span style="color: #6b6557">n/a</span><span style="color: #6b6557">52.9</span>
+<span style="text-align: left; color: #6b6557">End</span><span style="font-weight: 500">59.7</span><span style="font-weight: 500">59.1</span><span style="font-weight: 500">58.4</span><span style="font-weight: 500">57.3</span><span style="font-weight: 500">56.1</span><span style="font-weight: 500">55.9</span><span style="font-weight: 500">56.1</span><span style="font-weight: 500">54.8</span><span style="font-weight: 500">54.0</span><span style="font-weight: 500">53.5</span><span style="font-weight: 500">53.5</span><span style="color: #6b6557">n/a</span><span style="font-weight: 500">52.4</span>
+</div>
+<div role="img" aria-label="Change in skeletal muscle within each report: minus 0.2, minus 0.7, minus 0.6, minus 1.2, minus 1.0, minus 0.4, plus 0.1, minus 0.9, minus 1.1, minus 0.5, minus 0.3, no report, minus 0.5 kg" style="display: grid; grid-template-columns: 56px repeat(13, minmax(0, 1fr)); font-family: 'DM Mono', monospace; font-size: 11px; text-align: center; margin-top: 6px">
+<span style="text-align: left; color: #6b6557; padding-top: 14px">Change</span>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 8px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.2</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 28px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.7</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 24px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 48px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−1.2</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 40px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−1.0</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 16px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.4</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px; display: flex; align-items: flex-end"><div style="width: 16px; height: 4px; background: #2E5BD8"></div></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 0"></div><span style="font-weight: 500; padding-top: 4px">+0.1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 36px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.9</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 44px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−1.1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 20px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.5</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 12px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.3</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; background: #f4f0e7"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #b9b3a3"></div><div style="width: 16px; height: 0"></div><span style="color: #6b6557; padding-top: 4px">n/a</span></div>
+<div style="display: flex; flex-direction: column; align-items: center"><div style="height: 8px"></div><div style="height: 1px; width: 100%; background: #1a1812"></div><div style="width: 16px; height: 20px; background: #2E5BD8"></div><span style="font-weight: 500; padding-top: 4px">−0.5</span></div>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 12px; color: #6b6557">
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 9px; height: 9px; border-radius: 50%; border: 2px solid #2E5BD8; box-sizing: border-box"></span>Start of report</span>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 9px; height: 9px; border-radius: 50%; background: #2E5BD8"></span>End of report</span>
+<span>The axis runs 52 to 60.5 kg, not from zero, so 0.1 kg moves are visible.</span>
+</div>
+</section>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
