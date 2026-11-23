@@ -1,3 +1,14 @@
+// Environment-scoped key. Vercel preview deployments share the production KV database,
+// so anything a preview WRITES must live under its own namespace or the preview's
+// pushState() would overwrite the athlete's real plan and chat. Production keeps the
+// bare historical names. NEVER wrap the provider refresh tokens (strava_refresh_token,
+// whoop_refresh_token) in this: they rotate on every use, so two copies would let one
+// environment invalidate the other's and silently break production sync.
+export function envKey(key, env = process.env.VERCEL_ENV) {
+  return env === 'production' ? key : `preview:${key}`;
+}
+export const isProductionEnv = (env = process.env.VERCEL_ENV) => env === 'production';
+
 // Shared Vercel KV (Upstash Redis) helpers. Every store-backed function imports these
 // so there is one place that knows how to talk to KV and how to degrade when it is not
 // configured (KV_REST_API_URL unset → reads return null, writes are silent no-ops).

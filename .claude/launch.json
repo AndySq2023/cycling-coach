@@ -4,7 +4,13 @@
     {
       "name": "cycling-coach",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8743", "--directory", "app"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8743",
+        "--directory",
+        "."
+      ],
       "port": 8743
     }
   ]

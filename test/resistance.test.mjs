@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadAppFunctions } from './_load-app.mjs';
+import '../shared/muscle-core.js'; // normalizeResistanceWorkout tags muscles through it
 
 const { normalizeResistanceWorkout } = loadAppFunctions(
   ['normalizeResistanceWorkout'],
@@ -23,7 +24,13 @@ test('a well-formed exercise survives untouched', () => {
   assert.deepEqual(w.exercises[0], {
     name: 'Seated row', sets: 3, reps: '12-15', band: 'black',
     choke: 'full', anchor: 'feet-seated', rir: 2, tempo: '3s down', cue: 'Ribs down.',
+    muscles: { primary: ['upper back', 'lats'], secondary: ['biceps', 'delts'] },
   });
+});
+
+test('coach-supplied muscle tags are normalised; unknown names dropped', () => {
+  const w = normalizeResistanceWorkout({ exercises: [ex({ muscles: { primary: ['Latissimus Dorsi', 'spleen'], secondary: ['rhomboids', 'lats'] } })] }, 0);
+  assert.deepEqual(w.exercises[0].muscles, { primary: ['lats'], secondary: ['upper back'] });
 });
 
 test('every band the athlete owns is accepted', () => {

@@ -14,9 +14,9 @@
 //      metadata plus one compact string per route.
 // Needs KV; without it GET returns [] and PUT is a silent no-op.
 import { requireAuth } from './_auth.js';
-import { kvGet, kvSet } from './_kv.js';
+import { kvGet, kvSet, envKey } from './_kv.js';
 
-const ROUTES_KEY = 'routes:master'; // historical key name, kept so saved routes survive
+const ROUTES_KEY = () => envKey('routes:master'); // historical key name, kept so saved routes survive; preview: prefix off-production
 const MAX_ROUTES = 30;         // mirrors the app's ROUTES_MAX
 const MAX_GEOM_CHARS = 60000;  // ~25k points encoded — far beyond any real ride, but bounded
 const MAX_TOMBSTONES = 200;    // mirrors the app's ROUTES_TOMBSTONE_MAX
@@ -60,7 +60,7 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const { routes, deleted } = unpack(await kvGet(ROUTES_KEY));
+      const { routes, deleted } = unpack(await kvGet(ROUTES_KEY()));
       res.status(200).json({ routes: Array.isArray(routes) ? routes : [], deleted: sanitizeDeleted(deleted) });
       return;
     }
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
         .filter(r => r && r.id && !(r.id in deleted)) // never store a route that's tombstoned
         .slice(0, MAX_ROUTES)
         .map(sanitize);
-      await kvSet(ROUTES_KEY, { routes: clean, deleted });
+      await kvSet(ROUTES_KEY(), { routes: clean, deleted });
       res.status(200).json({ ok: true, count: clean.length, tombstones: Object.keys(deleted).length });
       return;
     }

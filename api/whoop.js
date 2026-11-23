@@ -7,7 +7,7 @@
 // invalidates the old one. Vercel's filesystem is read-only, so the rotated token
 // MUST be persisted in Vercel KV. KV is effectively required for this function.
 import { requireAuth } from './_auth.js';
-import { kvGet, kvSet, cached } from './_kv.js';
+import { kvGet, kvSet, cached, envKey } from './_kv.js';
 
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 const WHOOP_API_BASE = 'https://api.prod.whoop.com/developer/v2';
@@ -55,7 +55,7 @@ const SUMMARY_TTL_S = 300;
 
 // Cached entry point — what every caller should use. `force` skips the cache read.
 export async function getWhoopSummary(force = false) {
-  return cached('whoop_sum', SUMMARY_TTL_S, fetchWhoopSummary, force);
+  return cached(envKey('whoop_sum'), SUMMARY_TTL_S, fetchWhoopSummary, force);
 }
 
 async function fetchWhoopSummary() {

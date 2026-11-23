@@ -59,7 +59,7 @@
 // with one real request before relying on it, and adjust the dot-keys below if
 // rejected.
 import { requireAuth } from './_auth.js';
-import { kvGet, kvSet } from './_kv.js';
+import { kvGet, kvSet, envKey } from './_kv.js';
 
 const DEFAULT_PROFILE = 'bike'; // swap for a custom cycling profile if you define one server-side
 const DEFAULT_LOOP_SEEDS = 2; // how many round_trip seeds to try, keep the flattest — each is a billed request on a metered plan
@@ -84,7 +84,7 @@ const KNOWN_PLACES = {
 export async function geocodePlace(q, near) {
   q = String(q || '').trim();
   if (!q) return null;
-  const cacheK = `route_geocode:v1:${q.toLowerCase()}`;
+  const cacheK = envKey(`route_geocode:v1:${q.toLowerCase()}`);
   const cached = await kvGet(cacheK);
   if (cached) return cached;
 
@@ -418,7 +418,7 @@ export async function planRoute(params) {
 // planRoute with the KV cache in front, so repeat asks for the same route don't
 // re-spend GraphHopper credits.
 export async function planRouteCached(params) {
-  const key = cacheKey(params);
+  const key = envKey(cacheKey(params));
   const cached = await kvGet(key);
   if (cached) return { ...cached, cached: true };
   const result = await planRoute(params);
